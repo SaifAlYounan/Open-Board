@@ -159,7 +159,7 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
 router.get("/dashboard/ai-insights", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY)) {
     res.json({
       insights: [],
       error: "no_api_key",

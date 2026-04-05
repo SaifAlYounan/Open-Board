@@ -94,7 +94,8 @@ router.post("/documents/upload", requireAuth, upload.single("file"), async (req,
   let aiResult: unknown = null;
   let pendingActionIds: string[] = [];
 
-  if (process.env.ANTHROPIC_API_KEY) {
+  const hasAI = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+  if (hasAI) {
     try {
       const text = await extractText(filePath, mimetype, originalname);
       const truncated = truncateText(text);
@@ -203,7 +204,7 @@ router.post("/documents/:id/reclassify", requireAuth, requireAdmin, async (req, 
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY)) {
     res.json({ ...doc, error: "no_api_key" });
     return;
   }
