@@ -1,14 +1,14 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { TopNav } from '@/components/TopNav';
 import { useAuth } from '@/lib/auth';
 import {
-  useGetMinutes, useGetMinutesComments, useAddMinutesComment,
+  useGetMinutes, useGetMinutesComments, useAddMinutesComment, useResolveMinutesComment,
   getGetMinutesQueryKey, getGetMinutesCommentsQueryKey,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { MessageSquare, PenLine, CheckCircle } from 'lucide-react';
+import { MessageSquare, PenLine, CheckCircle, X } from 'lucide-react';
 
 interface ParsedBlock {
   type: 'paragraph' | 'heading' | 'other';
@@ -37,6 +37,10 @@ function parseContentBlocks(html: string): ParsedBlock[] {
   return blocks;
 }
 
+const STATUS_COLOR: Record<string, string> = {
+  draft: '#86868b', review: '#ff9500', signing: '#0071e3', signed: '#34c759'
+};
+
 export default function MinutesViewer() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -45,43 +49,66 @@ export default function MinutesViewer() {
   const { data: minutes, isLoading } = useGetMinutes(id, { query: { queryKey: getGetMinutesQueryKey(id) } });
   const { data: comments } = useGetMinutesComments(id, { query: { queryKey: getGetMinutesCommentsQueryKey(id), refetchInterval: 10000 } });
   const addComment = useAddMinutesComment();
+  const resolveComment = useResolveMinutesComment();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [commentDraft, setCommentDraft] = useState<{ text: string; selected: string } | null>(null);
+
+  const [activeBlock, setActiveBlock] = useState<{ index: number; text: string } | null>(null);
+  const [commentText, setCommentText] = useState('');
   const [hoveredBlock, setHoveredBlock] = useState<number | null>(null);
 
   const m = minutes as any;
+  const isAdmin = user?.role === 'admin';
 
   const blocks = useMemo(() => parseContentBlocks(m?.content || ''), [m?.content]);
 
-  const handleAddComment = () => {
-    if (!commentDraft?.selected || !commentDraft?.text) return;
+  const allComments = (comments as any[]) || [];
+  const pendingComments = allComments.filter((c: any) => c.status === 'pending');
+
+  const commentsByParagraph = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const c of pendingComments) {
+      const key = c.originalText || '';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    return map;
+  }, [pendingComments]);
+
+  const handleSubmitComment = () => {
+    if (!activeBlock || !commentText.trim()) return;
     addComment.mutate({
       id,
-      data: { originalText: commentDraft.selected, commentText: commentDraft.text }
+      data: { originalText: activeBlock.text.slice(0, 200), commentText: commentText.trim() }
     }, {
       onSuccess: () => {
         toast({ title: 'Comment added' });
         queryClient.invalidateQueries({ queryKey: getGetMinutesCommentsQueryKey(id) });
-        setCommentDraft(null);
+        setActiveBlock(null);
+        setCommentText('');
+      },
+      onError: () => {
+        toast({ title: 'Failed to add comment', variant: 'destructive' });
       }
     });
   };
 
-  const handleParagraphComment = (text: string) => {
-    setCommentDraft({ text: '', selected: text.slice(0, 200) });
+  const handleResolveComment = (commentId: string) => {
+    resolveComment.mutate({ id, commentId, data: { status: 'resolved' } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetMinutesCommentsQueryKey(id) });
+        toast({ title: 'Comment resolved' });
+      }
+    });
   };
 
-  const handleSelection = () => {
-    const sel = window.getSelection();
-    if (sel && sel.toString().trim().length > 3) {
-      setCommentDraft({ text: '', selected: sel.toString().trim() });
-    }
-  };
-
-  const pendingComments = ((comments as any[]) || []).filter((c: any) => c.status === 'pending');
-  const STATUS_COLOR: Record<string, string> = {
-    draft: '#86868b', review: '#ff9500', signing: '#0071e3', signed: '#34c759'
+  const handleDismissComment = (commentId: string) => {
+    resolveComment.mutate({ id, commentId, data: { status: 'dismissed' } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetMinutesCommentsQueryKey(id) });
+        toast({ title: 'Comment dismissed' });
+      }
+    });
   };
 
   if (isLoading) return (
@@ -120,29 +147,75 @@ export default function MinutesViewer() {
               )}
             </div>
 
-            <div className="bg-white rounded-2xl border border-[#e5e5e7] p-8" onMouseUp={handleSelection} data-testid="minutes-content">
+            <div className="bg-white rounded-2xl border border-[#e5e5e7] p-8" data-testid="minutes-content">
               {blocks.length > 0 ? (
                 <div className="prose prose-sm max-w-none space-y-1">
                   {blocks.map((block, i) => (
-                    <div
-                      key={i}
-                      className="group relative flex items-start gap-1"
-                      onMouseEnter={() => setHoveredBlock(i)}
-                      onMouseLeave={() => setHoveredBlock(null)}
-                    >
+                    <div key={i} className="group">
                       <div
-                        className="flex-1 min-w-0"
-                        dangerouslySetInnerHTML={{ __html: block.html }}
-                      />
-                      {block.type === 'paragraph' && block.text.length > 5 && (
-                        <button
-                          data-testid={`paragraph-comment-btn-${i}`}
-                          onClick={() => handleParagraphComment(block.text)}
-                          className={`flex-shrink-0 p-1 rounded text-[#86868b] hover:text-[#0071e3] hover:bg-[#0071e3]/10 transition-all mt-0.5 ${hoveredBlock === i ? 'opacity-100' : 'opacity-0'}`}
-                          title="Comment on this paragraph"
-                        >
-                          <MessageSquare size={13} />
-                        </button>
+                        className="relative flex items-start gap-1"
+                        onMouseEnter={() => setHoveredBlock(i)}
+                        onMouseLeave={() => setHoveredBlock(null)}
+                      >
+                        <div
+                          className="flex-1 min-w-0"
+                          dangerouslySetInnerHTML={{ __html: block.html }}
+                        />
+                        {block.type === 'paragraph' && block.text.length > 5 && (
+                          <button
+                            type="button"
+                            data-testid={`paragraph-comment-btn-${i}`}
+                            onClick={() => {
+                              if (activeBlock?.index === i) {
+                                setActiveBlock(null);
+                                setCommentText('');
+                              } else {
+                                setActiveBlock({ index: i, text: block.text });
+                                setCommentText('');
+                              }
+                            }}
+                            className={`flex-shrink-0 p-1 rounded text-[#86868b] hover:text-[#0071e3] hover:bg-[#0071e3]/10 transition-all mt-0.5 ${hoveredBlock === i || activeBlock?.index === i ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'}`}
+                            title="Comment on this paragraph"
+                          >
+                            <MessageSquare size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      {activeBlock?.index === i && (
+                        <div className="mt-2 mb-2 ml-0 bg-[#f5f5f7] rounded-xl border border-[#e5e5e7] p-3 space-y-2" data-testid="inline-comment-form">
+                          <textarea
+                            autoFocus
+                            value={commentText}
+                            onChange={(e) => setCommentText(e.target.value)}
+                            placeholder="Add your comment..."
+                            rows={2}
+                            className="w-full px-3 py-2 bg-white rounded-lg text-sm border border-[#e5e5e7] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 resize-none"
+                            data-testid="input-comment"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitComment();
+                              if (e.key === 'Escape') { setActiveBlock(null); setCommentText(''); }
+                            }}
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={handleSubmitComment}
+                              disabled={addComment.isPending || !commentText.trim()}
+                              className="px-3 py-1.5 bg-[#0071e3] text-white rounded-lg text-xs font-medium disabled:opacity-50 hover:bg-[#0077ed] transition-colors"
+                              data-testid="button-submit-comment"
+                            >
+                              {addComment.isPending ? 'Adding...' : 'Add Comment'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setActiveBlock(null); setCommentText(''); }}
+                              className="px-3 py-1.5 bg-white border border-[#e5e5e7] text-[#1d1d1f] rounded-lg text-xs font-medium hover:bg-[#f5f5f7] transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -151,31 +224,6 @@ export default function MinutesViewer() {
                 <div className="text-sm text-[#86868b] italic">No content available.</div>
               )}
             </div>
-
-            {commentDraft && (
-              <div className="mt-4 bg-white rounded-2xl border border-[#e5e5e7] p-4 space-y-3">
-                <div className="text-xs text-[#86868b] italic">"{commentDraft.selected}"</div>
-                <textarea
-                  value={commentDraft.text}
-                  onChange={(e) => setCommentDraft({ ...commentDraft, text: e.target.value })}
-                  placeholder="Add your comment..."
-                  rows={3}
-                  className="w-full px-3 py-2 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 resize-none"
-                  data-testid="input-comment"
-                />
-                <div className="flex gap-2">
-                  <button onClick={handleAddComment} disabled={addComment.isPending}
-                    className="px-4 py-2 bg-[#0071e3] text-white rounded-xl text-sm font-medium disabled:opacity-50"
-                    data-testid="button-submit-comment">
-                    Add Comment
-                  </button>
-                  <button onClick={() => setCommentDraft(null)}
-                    className="px-4 py-2 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl text-sm font-medium">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -206,30 +254,60 @@ export default function MinutesViewer() {
             <div className="p-4">
               <div className="flex items-center gap-2 mb-3">
                 <MessageSquare size={14} className="text-[#86868b]" />
-                <span className="text-xs font-medium text-[#86868b] uppercase tracking-wide">Comments</span>
+                <span className="text-xs font-medium text-[#86868b] uppercase tracking-wide">
+                  Comments ({pendingComments.length})
+                </span>
               </div>
               <div className="space-y-4">
-                {pendingComments.map((comment: any) => (
-                  <div key={comment.id} className="text-xs space-y-1.5" data-testid={`comment-${comment.id}`}>
-                    <div className="bg-[#f5f5f7] rounded-lg p-2 text-[#86868b] italic line-clamp-2">
-                      "{comment.originalText}"
+                {Array.from(commentsByParagraph.entries()).map(([paragraphText, paragraphComments]) => (
+                  <div key={paragraphText} className="space-y-2">
+                    <div className="text-xs bg-[#f5f5f7] rounded-lg px-2 py-1.5 text-[#86868b] italic line-clamp-2">
+                      "{paragraphText}"
                     </div>
-                    <div className="flex items-start gap-2">
-                      <div
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0 mt-0.5"
-                        style={{ backgroundColor: comment.color || '#86868b', fontSize: '8px' }}
-                      >
-                        {comment.person?.name?.charAt(0) || '?'}
+                    {paragraphComments.map((comment: any) => (
+                      <div key={comment.id} className="text-xs space-y-1" data-testid={`comment-${comment.id}`}>
+                        <div className="flex items-start gap-2">
+                          <div
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-white flex-shrink-0 mt-0.5"
+                            style={{ backgroundColor: comment.color || '#86868b', fontSize: '8px' }}
+                          >
+                            {comment.person?.name?.charAt(0) || '?'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-[#1d1d1f]">{comment.person?.name}</div>
+                            <div className="text-[#86868b] mt-0.5 break-words">{comment.commentText}</div>
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <div className="flex gap-2 pl-7">
+                            <button
+                              type="button"
+                              onClick={() => handleResolveComment(comment.id)}
+                              className="flex items-center gap-1 text-[10px] text-[#34c759] hover:underline font-medium"
+                              data-testid={`button-resolve-${comment.id}`}
+                            >
+                              <CheckCircle size={10} /> Resolve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDismissComment(comment.id)}
+                              className="flex items-center gap-1 text-[10px] text-[#ff3b30] hover:underline font-medium"
+                              data-testid={`button-dismiss-${comment.id}`}
+                            >
+                              <X size={10} /> Dismiss
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <div>
-                        <div className="font-medium text-[#1d1d1f]">{comment.person?.name}</div>
-                        <div className="text-[#86868b] mt-0.5">{comment.commentText}</div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 ))}
               </div>
             </div>
+          )}
+
+          {pendingComments.length === 0 && (
+            <div className="p-4 text-xs text-[#86868b] text-center pt-8">No pending comments</div>
           )}
         </div>
       </main>
