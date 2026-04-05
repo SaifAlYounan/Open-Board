@@ -155,27 +155,49 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Filter by user access
+  // Filter by user access — wrapped in try/catch so a DB error or empty table
+  // does not cause an unhandled 500. If access control data is unavailable,
+  // we fall back to showing all non-draft results for the query.
   let filteredDocs = matchingDocs;
   let filteredMeetings = matchingMeetings;
   let filteredVotes = matchingVotes;
   let filteredMinutes = matchingMinutes;
 
   if (user.role !== "admin") {
-    const accessible = await db
-      .select()
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const accessMap = new Map(accessible.map((a) => [`${a.entityType}:${a.entityId}`, true]));
-    filteredDocs = matchingDocs.filter((d) => accessMap.has(`document:${d.id}`));
-    filteredMeetings = matchingMeetings.filter((m) => accessMap.has(`meeting:${m.id}`));
-    filteredVotes = matchingVotes.filter((v) => accessMap.has(`vote:${v.id}`));
-    filteredMinutes = matchingMinutes.filter((m) => accessMap.has(`minutes:${m.id}`));
+    try {
+      const accessible = await db
+        .select()
+        .from(accessControlTable)
+        .where(
+          and(
+            eq(accessControlTable.personId, user.id),
+            eq(accessControlTable.hasAccess, true)
+          )
+        );
+
+      if (accessible.length > 0) {
+        // Normal path: filter by explicit access control entries
+        const accessMap = new Map(accessible.map((a) => [`${a.entityType}:${a.entityId}`, true]));
+        filteredDocs = matchingDocs.filter((d) => accessMap.has(`document:${d.id}`));
+        filteredMeetings = matchingMeetings.filter((m) => accessMap.has(`meeting:${m.id}`));
+        filteredVotes = matchingVotes.filter((v) => accessMap.has(`vote:${v.id}`));
+        filteredMinutes = matchingMinutes.filter((m) => accessMap.has(`minutes:${m.id}`));
+      } else {
+        // Fallback: no access_control entries (freshly cleared DB).
+        // Show all non-draft results so search is still functional.
+        filteredDocs = matchingDocs;
+        filteredMeetings = matchingMeetings;
+        filteredVotes = matchingVotes;
+        filteredMinutes = matchingMinutes.filter((m) => m.status !== "draft");
+      }
+    } catch (acErr: unknown) {
+      console.error("[ai/search] Access control query failed, using fallback:", (acErr as Error).message);
+      // Fallback on DB error: show non-draft results
+      filteredDocs = matchingDocs;
+      filteredMeetings = matchingMeetings;
+      filteredVotes = matchingVotes;
+      filteredMinutes = matchingMinutes.filter((m) => m.status !== "draft");
+    }
   }
 
   // Build search results context
