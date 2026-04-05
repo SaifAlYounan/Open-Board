@@ -129,6 +129,11 @@ router.get("/tasks/:id", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
+  if (user.role === "member" || user.role === "observer") {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
   const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
   if (!task) {
     res.status(404).json({ error: "Task not found" });
