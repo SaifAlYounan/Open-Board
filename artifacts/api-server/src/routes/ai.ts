@@ -155,17 +155,21 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Filter by user access — wrapped in try/catch so a DB error or empty table
-  // does not cause an unhandled 500. If access control data is unavailable,
-  // we fall back to showing all non-draft results for the query.
+  // Filter by user access. Two distinct failure modes are handled explicitly:
+  //   1. DB query error  → fail-closed: return no results to prevent data exposure.
+  //   2. Empty table     → graceful fallback: show only non-draft minutes (safe public-ish
+  //                        content); restrict docs, meetings, votes (always member-only).
   let filteredDocs = matchingDocs;
   let filteredMeetings = matchingMeetings;
   let filteredVotes = matchingVotes;
   let filteredMinutes = matchingMinutes;
 
   if (user.role !== "admin") {
+    let accessible: { entityType: string; entityId: string }[] = [];
+    let accessQueryFailed = false;
+
     try {
-      const accessible = await db
+      accessible = await db
         .select()
         .from(accessControlTable)
         .where(
@@ -174,21 +178,32 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
             eq(accessControlTable.hasAccess, true)
           )
         );
+    } catch (acErr: unknown) {
+      // Fail-closed: on DB error, surface no results (prevents accidental exposure).
+      console.error("[ai/search] Access control query failed — returning empty results:", (acErr as Error).message);
+      accessQueryFailed = true;
+    }
 
-      // Always filter strictly by access control — empty list means no access
+    if (accessQueryFailed) {
+      filteredDocs = [];
+      filteredMeetings = [];
+      filteredVotes = [];
+      filteredMinutes = [];
+    } else if (accessible.length > 0) {
+      // Normal path: filter by explicit access control entries.
       const accessMap = new Map(accessible.map((a) => [`${a.entityType}:${a.entityId}`, true]));
       filteredDocs = matchingDocs.filter((d) => accessMap.has(`document:${d.id}`));
       filteredMeetings = matchingMeetings.filter((m) => accessMap.has(`meeting:${m.id}`));
       filteredVotes = matchingVotes.filter((v) => accessMap.has(`vote:${v.id}`));
       filteredMinutes = matchingMinutes.filter((m) => accessMap.has(`minutes:${m.id}`));
-    } catch (acErr: unknown) {
-      // Fail-closed: on access control query error, return no results
-      // to prevent inadvertent data exposure. Log error for ops visibility.
-      console.error("[ai/search] Access control query failed — returning empty results:", (acErr as Error).message);
+    } else {
+      // Empty access_control (e.g. freshly cleared DB or provisioning gap):
+      // Show only non-draft minutes as a safe public-visibility fallback.
+      // Documents, meetings, and votes are always member-restricted so remain empty.
       filteredDocs = [];
       filteredMeetings = [];
       filteredVotes = [];
-      filteredMinutes = [];
+      filteredMinutes = matchingMinutes.filter((m) => m.status !== "draft");
     }
   }
 
