@@ -216,6 +216,11 @@ export async function callAI(
       return { error: "empty_response", message: "AI returned no content." };
     }
 
+    // SEARCH mode returns plain text with inline links — don't JSON.parse
+    if (mode === "SEARCH") {
+      return { success: true, data: text };
+    }
+
     const clean = text.replace(/```json\n?|```\n?/g, "").trim();
     const parsed = JSON.parse(clean);
     return { success: true, data: parsed };

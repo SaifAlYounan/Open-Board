@@ -291,11 +291,49 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"];
+  if (!VALID_DECISIONS.includes(decision)) {
+    res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
+    return;
+  }
+
+  if (decision.includes("with_comments") && !comment?.trim()) {
+    res.status(400).json({ error: "A comment is required when voting with comments" });
+    return;
+  }
+
+  // Verify user is a voting member of this board (non-observer, non-secretary)
+  if (vote.boardId) {
+    const membership = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, user.id)));
+    const role = membership[0]?.roleInBoard;
+    if (!membership.length || role === "observer" || role === "secretary") {
+      res.status(403).json({ error: "You are not an eligible voter for this resolution" });
+      return;
+    }
+  }
+
   try {
     const [record] = await db
       .insert(voteRecordsTable)
       .values({ voteId: id, personId: user.id, decision, comment })
       .returning();
+
+    // Auto-resolve vote if all eligible voters have cast
+    if (vote.boardId) {
+      const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
+      const votingMembers = allMembers.filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary");
+      const allRecords = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+
+      if (allRecords.length >= votingMembers.length && votingMembers.length > 0) {
+        const approvals = allRecords.filter((r) => r.decision.startsWith("approved")).length;
+        const threshold = Math.ceil(votingMembers.length / 2);
+        const newStatus = approvals >= threshold ? "approved" : "rejected";
+        await db.update(votesTable).set({ status: newStatus as any, closedAt: new Date() }).where(eq(votesTable.id, id));
+      }
+    }
 
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, user.id));
     const { passwordHash: _, ...safePerson } = person;

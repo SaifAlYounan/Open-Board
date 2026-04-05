@@ -62,7 +62,22 @@ function truncateText(text: string, maxChars = 48000): string {
 
 const router = Router();
 
-router.post("/documents/upload", requireAuth, upload.single("file"), async (req, res): Promise<void> => {
+router.post("/documents/upload", requireAuth, (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) {
+      const msg = err.message || "Upload failed";
+      if (msg.includes("allowed") || msg.includes("Only")) {
+        res.status(400).json({ error: "File type not allowed. Please upload a PDF, DOCX, or TXT file." });
+      } else if (msg.includes("too large") || msg.includes("LIMIT_FILE_SIZE")) {
+        res.status(400).json({ error: "File too large. Maximum size is 10 MB." });
+      } else {
+        res.status(400).json({ error: msg });
+      }
+      return;
+    }
+    next();
+  });
+}, async (req, res): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ error: "No file uploaded" });
     return;

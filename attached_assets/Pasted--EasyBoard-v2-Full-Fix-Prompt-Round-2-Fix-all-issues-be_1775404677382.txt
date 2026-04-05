@@ -1,0 +1,270 @@
+# EasyBoard v2 — Full Fix Prompt (Round 2)
+
+Fix all issues below. Complete each fix fully and test before moving to the next. Do NOT skip any fix.
+
+---
+
+## FIX 1 — ACCESS CONTROL ROUTE GUARDS (CRITICAL)
+
+Any user can currently navigate to any URL (/secretary, /management, /observer) regardless of their role. Fix this:
+
+**Server-side:** Add middleware to all API routes that checks `req.user.role` matches the required role:
+- `/api/pending-actions/*`, `/api/ai/command`, `/api/ai/classify` → admin only
+- `/api/votes/*/vote` → member only (voting members of that vote's board)
+- `/api/task-evidence/*` → management only (assignee of that task)
+- All other read endpoints → filter by access_control table
+
+**Client-side:** Add route guards in React Router:
+- If user.role !== 'admin' and URL starts with /secretary → redirect to correct dashboard
+- If user.role !== 'member' and URL starts with /board → redirect
+- If user.role !== 'management' and URL starts with /management → redirect
+- If user.role !== 'observer' and URL starts with /observer → redirect
+
+Route mapping:
+- admin → /secretary
+- member → /board
+- management → /management
+- observer → /observer
+
+**TEST:** Log in as n.petrov@meridian-energy.com (member). Type /secretary in the URL bar. Verify you are redirected to /board.
+
+---
+
+## FIX 2 — VOTE SUBMISSION (CRITICAL)
+
+Board members cannot cast votes. The vote submission endpoint is broken. Fix:
+
+**Endpoint:** `POST /api/votes/:id/vote`
+
+**Request body:**
+```json
+{
+  "decision": "approved" | "approved_with_comments" | "not_approved" | "not_approved_with_comments",
+  "comment": "optional text — required when decision ends with _with_comments"
+}
+```
+
+**Backend logic:**
+1. Verify the user is a voting member of the vote's board (via board_memberships, excluding secretary/non-voting)
+2. Check the vote is still open (status = 'open')
+3. Insert into vote_records: vote_id, person_id, decision, comment, voted_at
+4. Enforce UNIQUE(vote_id, person_id) — return 409 Conflict on duplicate vote
+5. After recording the vote, check if the approval rule is satisfied:
+   - Count votes cast vs eligible voters
+   - If threshold is met → update vote.status to 'approved' or 'rejected', set closed_at
+   - If deadline has passed and not enough votes → set status to 'lapsed' (if deadline_behavior = 'lapse')
+6. Return the updated vote with vote counts
+
+**Frontend:**
+- Vote detail page shows 4 buttons: Approved, Approved with Comments, Not Approved, Not Approved with Comments
+- "With Comments" buttons expand a textarea for the comment
+- After voting, buttons are removed from DOM (not hidden — removed). Show confirmation: "Your vote has been recorded" with timestamp
+- Show current vote tally: "3 of 7 voted | 2 Approved, 1 Not Approved"
+
+**TEST:** Log in as n.petrov@meridian-energy.com. Navigate to an open vote. Click "Approved". Verify buttons disappear. Log in again — verify buttons are still gone. Try voting via API with same user — verify 409 response.
+
+---
+
+## FIX 3 — AI SEARCH PARSING (CRITICAL)
+
+The AI search bar returns "AI response could not be parsed" when board members search. Fix:
+
+**Root cause:** The SEARCH mode prompt tells the AI to return JSON, but the AI is returning natural language text. The frontend then tries to JSON.parse() it and fails.
+
+**Fix option A (recommended):** Change the SEARCH prompt to tell the AI to return plain text, not JSON. Search answers should be natural language with entity references. Don't try to parse as JSON.
+
+```javascript
+// In the search endpoint handler:
+const response = await callAI('SEARCH', systemPrompt, userContent);
+// For SEARCH mode, don't JSON.parse — return the raw text as the answer
+if (mode === 'SEARCH') {
+  return { success: true, data: { answer: response.content[0].text } };
+}
+```
+
+**Fix option B:** Update the SEARCH prompt to require JSON output:
+```json
+{ "answer": "natural language answer", "sources": [{"type": "meeting", "id": "uuid", "title": "..."}] }
+```
+And update the callAI function to handle SEARCH mode parsing accordingly.
+
+**Frontend:** Display the AI answer as formatted text (support markdown). If sources are returned, render them as clickable links to entity detail pages.
+
+**TEST:** Log in as n.petrov@meridian-energy.com. Type "What meetings are scheduled?" in the AI search bar. Verify a natural language answer appears without errors.
+
+---
+
+## FIX 4 — TASK ACCESS CONTROL (CRITICAL)
+
+Management users cannot see tasks assigned to them. The /api/tasks endpoint returns an empty array for management users even when tasks exist.
+
+**Fix:** The tasks query must include tasks where:
+- `assignee_id = req.user.id` (tasks assigned to this user), OR
+- User has access via access_control table, OR
+- User role is admin (sees all tasks)
+
+```sql
+SELECT t.* FROM tasks t
+WHERE t.assignee_id = $1  -- user's person id
+   OR EXISTS (SELECT 1 FROM access_control ac WHERE ac.entity_type = 'task' AND ac.entity_id = t.id AND ac.person_id = $1)
+   OR $2 = 'admin'  -- admin sees all
+ORDER BY t.due_date ASC
+```
+
+**Also fix grantDefaultAccess for tasks:** When a task is created (via AI approval or manual), call grantDefaultAccess which should grant access to:
+- The assignee
+- All admin users
+- All observers of the source board
+
+**TEST:** As Secretary, create a task assigned to Priya Sharma. Log in as p.sharma@meridian-energy.com. Verify the task appears in "My Tasks".
+
+---
+
+## FIX 5 — PROPER HTTP STATUS CODES (HIGH)
+
+API returns HTTP 200 with error body instead of proper status codes. Fix ALL auth/error responses:
+
+- Invalid/missing JWT token → HTTP 401 `{"error": "Unauthorized"}`
+- Valid token but wrong role → HTTP 403 `{"error": "Forbidden"}`
+- Resource not found → HTTP 404 `{"error": "Not found"}`
+- Duplicate vote → HTTP 409 `{"error": "Already voted"}`
+- Validation error → HTTP 400 `{"error": "description"}`
+- Server error → HTTP 500 `{"error": "Internal server error"}`
+
+**Fix in auth middleware:**
+```javascript
+if (!token) return res.status(401).json({ error: 'Unauthorized' });
+try {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  req.user = decoded;
+} catch (err) {
+  return res.status(401).json({ error: 'Invalid token' });
+}
+```
+
+**TEST:** Call any API endpoint with no Authorization header. Verify HTTP 401 (not 200).
+
+---
+
+## FIX 6 — FILE TYPE VALIDATION (HIGH)
+
+Uploading non-allowed file types returns 500 instead of a proper error.
+
+**Fix:** Validate file type in the upload endpoint BEFORE processing:
+
+```javascript
+const ALLOWED_TYPES = ['application/pdf', 'text/plain',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.txt', '.docx'];
+
+// In multer config or upload handler:
+if (!ALLOWED_EXTENSIONS.some(ext => file.originalname.toLowerCase().endsWith(ext))) {
+  return res.status(400).json({ error: 'File type not allowed. Upload PDF, DOCX, or TXT only.' });
+}
+```
+
+Also enforce max file size: 10MB (not 50MB as currently shown in the UI — 50MB is too large for text extraction).
+
+**TEST:** Try uploading a .exe file. Verify HTTP 400 with clear error message. Try a .pdf — verify it uploads successfully.
+
+---
+
+## FIX 7 — REJECTED ACTIONS FILTERED FROM LIST (MEDIUM)
+
+Rejected pending actions still appear in the pending actions list. Fix:
+
+**Backend:** Change the pending-actions list query to filter by status:
+```sql
+SELECT * FROM pending_actions WHERE status = 'pending' ORDER BY created_at DESC
+```
+
+Or add a query parameter: `/api/pending-actions?status=pending` (default to pending).
+
+**Frontend:** Only show pending items in the main list. Optionally add a "Show resolved" toggle that shows approved/rejected/modified items in a separate section.
+
+**TEST:** Reject a pending action. Verify it disappears from the Pending AI Actions page. Verify the badge count decrements.
+
+---
+
+## FIX 8 — MINUTES WORKFLOW (HIGH)
+
+Ensure the full minutes lifecycle works:
+
+**Status transitions (Secretary only):**
+- Draft → Review: Button on minutes detail page. When clicked, set status = 'review'. Board members can now see and comment.
+- Review → Signing: Button appears only for Secretary. Set status = 'signing'. Board members can now sign.
+- Signing → Signed: Automatic when all required signers have signed. Or Secretary can force-complete.
+
+**Comment system (status = review):**
+- Minutes content rendered read-only via Tiptap (editable: false)
+- Below each paragraph: "💬 Add Comment" button
+- Clicking opens an inline text input
+- Comment saved to minutes_suggestions: minutes_id, person_id, type='comment', original_text (the paragraph), comment_text (user input), status='pending', color (user's avatar_color)
+- Comments appear in right sidebar, grouped by paragraph, showing commenter name + avatar + text
+- Secretary can resolve comments (set status = 'resolved')
+
+**Signing system (status = signing):**
+- Shows minutes content + signature slots for each board member
+- "✍️ Sign" button for members who haven't signed yet
+- On click: signature_hash = SHA-256(minutes_content + signer_name + ISO_timestamp)
+- Name renders in Dancing Script cursive with CSS animation: opacity 0→1, scale 0.8→1, duration 0.5s
+- Hash displayed below the signature in monospace font
+- Already-signed members show their signature + timestamp + hash (no button)
+
+**TEST:** As Secretary, create minutes (or approve AI-proposed minutes). Move to Review. Log in as a board member — verify "Add Comment" buttons appear. Add a comment. Log in as Secretary — verify comment visible. Move to Signing. Log in as board member — click Sign. Verify animation plays and hash displays.
+
+---
+
+## FIX 9 — MANUAL CRUD FORMS (HIGH)
+
+Add create forms for Secretary. Blue "+ Create" button at top right of each list page:
+
+**Meetings:** Title, date/time picker, board (dropdown), location (text), dynamic agenda items (each with: title, type dropdown [information/discussion/decision], description textarea). Add/remove agenda item buttons.
+
+**Votes:** Title, resolution text (textarea), board (dropdown), type (meeting/circulation radio buttons), deadline (date picker), linked meeting (optional dropdown). Approval rule configuration with presets (Unanimous, Simple Majority, Two-Thirds, Three-Quarters) and Custom builder.
+
+**Minutes:** Meeting (dropdown of meetings without minutes), content (Tiptap editor, editable for Secretary).
+
+**Tasks:** Title, description (textarea), assignee (dropdown of all people), board (dropdown), deadline (date picker), source paragraph (optional textarea).
+
+All forms create entities directly. Call grantDefaultAccess() after creation.
+
+**TEST:** Create one of each entity type manually. Verify they appear in the respective list pages and are accessible by the correct roles.
+
+---
+
+## FIX 10 — OBSERVER ROLE (MEDIUM)
+
+Verify observer accounts exist with correct emails:
+- d.park@meridian-energy.com (David Park, External Legal Counsel)
+- a.khalil@meridian-energy.com (Amira Khalil, External Auditor)
+- t.henderson@meridian-energy.com (Thomas Henderson, Regulatory Advisor)
+- l.martinez@meridian-energy.com (Laura Martinez, External Tax Counsel)
+
+All should have role = 'observer'. Observer dashboard shows: read-only board access, minutes they can comment on, AI search bar, no task upload, no admin controls.
+
+**TEST:** Log in as d.park@meridian-energy.com. Verify Observer Dashboard renders. Verify no edit/create buttons. Verify AI search works.
+
+---
+
+## PRIORITY ORDER
+
+1. Fix 2 (voting) — core demo feature
+2. Fix 1 (access control) — security critical
+3. Fix 3 (AI search) — core demo feature
+4. Fix 4 (task access) — core workflow
+5. Fix 8 (minutes workflow) — core demo feature
+6. Fix 9 (manual CRUD) — Secretary must-have
+7. Fix 5 (HTTP status codes) — API correctness
+8. Fix 6 (file validation) — security
+9. Fix 7 (rejected filter) — UX polish
+10. Fix 10 (observer role) — completeness
+
+**TEST AFTER ALL FIXES:**
+1. Log in as a.alrashid@meridian-energy.com — create a meeting, vote, minutes, and task manually
+2. Upload test-1-draft-minutes.txt — verify AI classifies and proposes actions
+3. Approve the actions — verify entities are created
+4. Log in as n.petrov@meridian-energy.com — vote on the open vote, sign minutes, use AI search
+5. Log in as r.taylor@meridian-energy.com — see assigned task, upload evidence
+6. Log in as d.park@meridian-energy.com — verify read-only access
+7. Try accessing /secretary as a board member — verify redirect
