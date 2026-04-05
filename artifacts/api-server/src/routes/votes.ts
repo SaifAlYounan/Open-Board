@@ -276,46 +276,46 @@ router.delete("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise
 });
 
 router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const user = req.user!;
-  const { decision, comment } = req.body;
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const user = req.user!;
+    const { decision, comment } = req.body;
 
-  if (!decision) {
-    res.status(400).json({ error: "decision required" });
-    return;
-  }
-
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
-  if (!vote || vote.status !== "open") {
-    res.status(400).json({ error: "Vote is not open" });
-    return;
-  }
-
-  const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"];
-  if (!VALID_DECISIONS.includes(decision)) {
-    res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
-    return;
-  }
-
-  if (decision.includes("with_comments") && !comment?.trim()) {
-    res.status(400).json({ error: "A comment is required when voting with comments" });
-    return;
-  }
-
-  // Verify user is a voting member of this board (non-observer, non-secretary)
-  if (vote.boardId) {
-    const membership = await db
-      .select()
-      .from(boardMembershipsTable)
-      .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, user.id)));
-    const role = membership[0]?.roleInBoard;
-    if (!membership.length || role === "observer" || role === "secretary") {
-      res.status(403).json({ error: "You are not an eligible voter for this resolution" });
+    if (!decision) {
+      res.status(400).json({ error: "decision required" });
       return;
     }
-  }
 
-  try {
+    const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    if (!vote || vote.status !== "open") {
+      res.status(400).json({ error: "Vote is not open" });
+      return;
+    }
+
+    const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"];
+    if (!VALID_DECISIONS.includes(decision)) {
+      res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
+      return;
+    }
+
+    if (decision.includes("with_comments") && !comment?.trim()) {
+      res.status(400).json({ error: "A comment is required when voting with comments" });
+      return;
+    }
+
+    // Verify user is a voting member of this board (non-observer, non-secretary)
+    if (vote.boardId) {
+      const membership = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, user.id)));
+      const role = membership[0]?.roleInBoard;
+      if (!membership.length || role === "observer" || role === "secretary") {
+        res.status(403).json({ error: "You are not an eligible voter for this resolution" });
+        return;
+      }
+    }
+
     const [record] = await db
       .insert(voteRecordsTable)
       .values({ voteId: id, personId: user.id, decision, comment })
@@ -342,10 +342,10 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
     const anyErr = err as { code?: string; message?: string; cause?: { code?: string } };
     const pgCode = anyErr.code ?? anyErr.cause?.code;
     if (pgCode === "23505") {
-      res.status(409).json({ error: "You have already voted on this resolution" });
+      res.status(409).json({ error: "You have already voted" });
       return;
     }
-    console.error("[votes] cast error:", anyErr.message);
+    console.error("[votes] cast error:", (anyErr as any).message);
     res.status(500).json({ error: "Failed to record vote" });
   }
 });

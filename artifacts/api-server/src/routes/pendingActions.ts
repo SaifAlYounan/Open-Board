@@ -22,32 +22,38 @@ import { grantDefaultAccess } from "../lib/access";
  */
 function parseAIDate(dateStr: string | undefined | null): Date {
   if (!dateStr) return new Date();
-  let s = String(dateStr).trim();
+  const s = String(dateStr).trim();
 
-  // If the AI obeyed the prompt, the string is already "YYYY-MM-DDTHH:MM:SS" (no suffix).
-  // When it still includes a timezone offset (e.g. "2026-06-01T10:00:00-06:00"), the hour
-  // digit ("10") already represents the intended wall-clock time — we just need to strip the
-  // offset so JS doesn't interpret it as UTC-adjusted time. We extract the offset first so we
-  // can detect the special "Z" / "+00:00" case where the AI accidentally converted to UTC.
-
+  // Detect and extract a timezone offset suffix (e.g. "-06:00", "+05:30", "Z").
+  // The AI is instructed to return wall-clock time with NO suffix, but it sometimes
+  // adds one. Strategy: take the literal date/time digits as the intended wall-clock
+  // time and discard the offset entirely — never let JS interpret it as UTC-adjusted.
   const offsetMatch = s.match(/([+-])(\d{2}):?(\d{2})$/);
   const hasZ = s.endsWith("Z");
 
-  if (hasZ) {
-    // AI returned UTC ("Z"): strip and use as-is.  The COMMAND_PROMPT says never to do
-    // this, so if it happens the best we can do is treat the UTC hour as wall-clock.
-    s = s.slice(0, -1);
-  } else if (offsetMatch) {
-    // AI returned a local-time offset like "-06:00" or "+05:30".
-    // The hours before the offset ARE the intended wall-clock hours, so stripping the
-    // offset gives us the correct "local" time to store on the (UTC) server.
-    const [full] = offsetMatch;
-    s = s.slice(0, s.length - full.length);
+  // Strip any suffix to get the bare "YYYY-MM-DDTHH:MM:SS" (or "YYYY-MM-DD") string.
+  let bare = s;
+  if (offsetMatch) {
+    bare = s.slice(0, s.length - offsetMatch[0].length);
+  } else if (hasZ) {
+    bare = s.slice(0, -1);
   }
 
-  if (s.includes("T")) return new Date(s);
-  // Date-only string — use noon to avoid DST rollover issues
-  return new Date(s + "T12:00:00");
+  if (bare.includes("T")) {
+    // Parse components explicitly and construct a UTC Date directly from the wall-clock
+    // digits. Using Date.UTC avoids any JS engine timezone interpretation — new Date(str)
+    // can shift times on non-UTC hosts or when the string has an intact offset suffix.
+    // The wall-clock hour (the literal "10" in "10:00:00-06:00") is the intended hour;
+    // we extract it and store it as-is in UTC, ignoring the offset completely.
+    const [datePart, timePart] = bare.split("T");
+    const [yr, mo, dy] = datePart.split("-").map(Number);
+    const [hh = 0, mm = 0, ss = 0] = timePart.split(":").map(Number);
+    return new Date(Date.UTC(yr, mo - 1, dy, hh, mm, ss));
+  }
+
+  // Date-only string — use noon UTC to avoid DST rollover issues
+  const [yr, mo, dy] = bare.split("-").map(Number);
+  return new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
 }
 
 /**
