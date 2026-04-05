@@ -1,0 +1,233 @@
+# EasyBoard v2 — Complete E2E Audit Report
+
+Tested: April 5, 2026 | URL: https://easy-board-1.replit.app
+Tested all 4 roles end-to-end with automated browser testing.
+
+## INSTRUCTIONS FOR REPLIT AGENT
+
+Fix these in exact priority order — Round 1, then Round 2, then Round 3. Do NOT rewrite the entire app. Make targeted fixes. Test each fix before moving on.
+
+**DO NOT TOUCH:** The AI classification prompts, the AI brain system prompt, or the AI command parsing logic. These produce excellent results — the bugs are in the data layer, approval execution, and missing UI features.
+
+---
+
+## WHAT'S WORKING (do not break these)
+
+1. Login system — all 4 roles route to correct dashboards (/secretary, /board, /management, /observer)
+2. AI Command pipeline — NLP → Claude parses → pending actions with smart reasoning and ambiguity flagging
+3. AI Document Classification — upload .txt → classified as draft_minutes at 92% → 4 actions proposed (create_minutes, 2x create_task, flag_confidential) with intelligent warnings about name mismatches and closest-match suggestions
+4. Approval queue UI — pending actions with Approve/Edit/Reject buttons, confidence scores, source documents
+5. Secretary sidebar nav — all 8 sections (Pending, Minutes, Votes, Meetings, Tasks, Documents, Members, Settings)
+6. Manual meeting creation — form works, agenda items preserved, attendance auto-populated from board membership, agenda types correct (Information/Discussion/Decision)
+7. Manual vote creation — board picker, type toggle, 4 approval presets, auto-generated resolution number (RES-BOD-2026-001)
+8. Board member dashboard — personalized AI Insights, stat cards, board room cards
+9. Board room 3-tab layout — votes/meetings/minutes tabs
+10. Voting flow — 4 correct buttons (no Abstain), vote cast updates progress (1/8), buttons removed from DOM after voting (not hidden)
+11. Votes visible to board members in board room
+12. Documents page — uploaded files with AI classification badges
+13. Settings — org name, AI model (claude-opus-4-20250514), email notifications "Coming Soon"
+14. AI search bar present on Board Member, Management, and Observer dashboards
+15. Observer dashboard — read-only view with correct boards
+16. Management dashboard — My Tasks with stats
+17. Frontend route protection — board member navigating to /secretary redirected to /board
+18. No admin buttons leak into non-admin DOM (rule #3 correctly enforced)
+19. No console JS errors on any page
+20. Minutes workflow — status transitions draft → review → signing work via Secretary buttons
+
+---
+
+## ROUND 1 — CRITICAL BUGS (fix first, everything depends on these)
+
+### BUG 1: API endpoints not role-protected (SECURITY HOLE)
+Board member's browser calls /api/pending-actions, /api/people, /api/documents, /api/tasks — all return 200 with full data. Frontend routing protects the UI but API endpoints are wide open.
+
+**Fix:** Add role-based middleware:
+- /api/pending-actions/* → admin only
+- /api/people → admin only (others see only their board's members)
+- /api/documents → filter by access_control
+- /api/tasks → admin sees all, management sees assigned only
+- /api/minutes → filter by access_control  
+- /api/meetings → filter by access_control
+
+### BUG 2: AI-approved meetings missing agenda items AND attendance
+Manual meeting creation correctly preserves agenda items and auto-populates attendance from board membership. But AI-approved meetings via pending_actions have 0 agenda items and 0 attendance. The bug is isolated to the pending action approval handler.
+
+**Fix:** In the approval handler for action_type === 'create_meeting':
+1. After inserting the meeting row, loop over action_data.details.agenda_items and insert each into agenda_items table
+2. Query board_memberships for the meeting's board and insert attendance rows (status: 'pending')
+3. Call grantDefaultAccess() (see BUG 3)
+
+### BUG 3: Board members can't see meetings or minutes (but CAN see votes)
+Meetings tab in board room: "No meetings for this board." Minutes tab: "No minutes available." Votes work fine. The queries for meetings and minutes are filtering differently than votes.
+
+**Fix:** Either:
+- Implement grantDefaultAccess() and create access_control rows when entities are created, then ensure meeting/minutes queries join against access_control
+- OR: make meeting/minutes queries filter by board_id + board_membership (same way votes apparently work), without requiring per-entity access_control rows
+Both approaches work. Pick one and apply consistently to ALL entity types.
+
+### BUG 4: Seed data wrong — names, count, and board memberships don't match prompt
+Current seed has wrong names (Aisha Al-Ketbi, Khalid Al-Mansouri, etc.). Replace with the exact 20 from the build prompt:
+
+Secretary: Ahmed Al-Rashid (a.alrashid@meridian-energy.com)
+Members: Nadia Petrov (n.petrov, Chairman), Sarah Chen (s.chen), Dr. Klaus Weber (k.weber), Fatima Al-Hosani (f.alhosani), James O'Brien (j.obrien), Yuki Tanaka (y.tanaka), Maria Santos (m.santos)
+Observers: David Park (d.park), Amira Khalil (a.khalil), Thomas Henderson (t.henderson), Laura Martinez (l.martinez)
+Management: Robert Taylor (r.taylor, CFO), Priya Sharma (p.sharma, GC), Li Wei (l.wei), Omar Mansour (o.mansour), Elena Rossi (e.rossi), Jun Kim (j.kim), Sophie Blanc (s.blanc), Raj Nair (r.nair, CTO)
+
+Board memberships:
+- BoD: Nadia Petrov (chairman), Ahmed Al-Rashid (secretary), Sarah Chen, Dr. Klaus Weber, Fatima Al-Hosani, James O'Brien, Yuki Tanaka, Maria Santos. Observers: David Park, Amira Khalil
+- FAC: Dr. Klaus Weber (chair), Fatima Al-Hosani, Yuki Tanaka, Maria Santos. Observers: Amira Khalil, Laura Martinez
+- SIC: Sarah Chen (chair), Nadia Petrov, James O'Brien, Yuki Tanaka, Li Wei. Observers: David Park
+- NRC: Fatima Al-Hosani (chair), Dr. Klaus Weber, Nadia Petrov. Observers: Jun Kim
+- TPC: James O'Brien (chair), Fatima Al-Hosani, Omar Mansour. Observers: Raj Nair
+
+All passwords: Meridian2024!
+Drop all data and re-seed after fixing.
+
+### BUG 5: Tasks may auto-execute without Secretary approval
+Tasks TASK-2026-001 and TASK-2026-002 appeared in the Tasks list even though I never explicitly approved the create_task pending actions. Rule #9: "Secretary approval is mandatory — no action executes without approval."
+
+**Fix:** Verify that document upload → AI classification ONLY creates pending_action rows. The execution function should ONLY be called when the Secretary clicks Approve. Check for any code path that calls the execution function directly from the upload/classification handler.
+
+### BUG 6: Timezone bug on AI-proposed meeting times
+AI Command specified "10am" but meeting stored as 04:00 AM. Manual datetime-local input works correctly (2:00 PM shows as 2:00 PM). Bug is isolated to parsing AI-proposed time strings.
+
+**Fix:** When the AI returns a time in action_data (e.g., "10:00 AM" or "2026-04-20T10:00:00"), parse it as local time, not UTC. Or store it directly as the AI proposed without timezone conversion.
+
+### BUG 7: Duplicate vote returns 500 instead of 409
+The UNIQUE constraint on vote_records(vote_id, person_id) prevents duplicates (good), but the error is not caught — server returns 500 with HTML error page instead of 409 JSON.
+
+**Fix:** In the vote cast endpoint, catch the unique constraint violation error and return { status: 409, message: "You have already voted on this resolution" }.
+
+---
+
+## ROUND 2 — MISSING FEATURES (build these)
+
+### MISSING 1: Secretary admin panel for people & permissions
+/secretary/members is a read-only table. Build a full admin panel with 3 tabs:
+
+Tab 1 — People: Table of all users (Name, Email, Role, Title, Boards, Status). Add/Edit/Delete buttons. Add active boolean column to people table. Login must check active = true.
+
+Tab 2 — Boards: For each of the 5 boards, show members with role_in_board. Add member (person picker + role dropdown). Remove member. Change role.
+
+Tab 3 — Access Log: Audit trail of permission changes.
+
+Also add "🔒 Permissions" section on meeting/vote/document detail pages (Secretary only) showing who has access with grant/revoke controls.
+
+### MISSING 2: Minutes content should come from uploaded document
+When AI classification creates minutes via approval, the content is "Test minutes" (placeholder) instead of the actual uploaded document text.
+
+**Fix:** When approving create_minutes, set minutes.content to the extracted text from the source document.
+
+### MISSING 3: Comment system on minutes
+Build per-paragraph commenting:
+- "💬 Add Comment" button below each paragraph (board member and observer view)
+- Comments saved to minutes_suggestions table with original_text = paragraph text
+- Comments rendered in right sidebar grouped by paragraph
+- API endpoint /api/minutes/{id}/comments already returns 200 — wire up the frontend
+
+### MISSING 4: Minutes signing with SHA-256
+Build the individual signing flow:
+- Board members see "✍️ Sign" button on minutes in signing status
+- Click renders name in Dancing Script cursive with CSS fade-in + scale animation (0.5s)
+- Compute: SHA-256(minutes_content + signer_name + ISO_timestamp)
+- Display hash in signature block, store in minutes_signatures table
+- Bundle Dancing Script font locally in /public/fonts/
+
+### MISSING 5: Task detail page + evidence upload
+Tasks are currently not clickable — no detail page exists. Build:
+- Click task → detail page showing: title, description, assignee name, due date, status, source paragraph (from minutes), source link
+- Evidence upload zone (management users only): drag-and-drop file picker
+- After upload: AI REVIEW mode evaluates evidence → stores verdict in task_evidence
+- Secretary confirms or rejects → task status updated
+
+### MISSING 6: Document attachment on meeting agenda items
+Add "📎 Attach Document" button on each agenda item (Secretary view). Upload file → link via agenda_documents table. Board members see attached documents when viewing the meeting.
+
+### MISSING 7: AI Search returns 500
+/api/ai/search returns HTTP 500. Debug the endpoint. Likely: missing error handling when no search results found, or the search query builder fails. Show toast error to user on failure.
+
+### MISSING 8: AI Insights show stale/contradictory data
+Board member dashboard AI Insights said "You have not yet cast your vote on RES-BOD-2026-001" AFTER the vote was already cast. Also said "Minutes Awaiting Your Signature" but Minutes to Sign counter showed 0. The SUGGEST mode is receiving stale data or not checking the user's vote_records/access.
+
+**Fix:** Before calling AI SUGGEST, query vote_records to check if user has already voted, and query access_control/minutes_signatures to check signing status. Pass accurate data to the AI.
+
+### MISSING 9: Pending Actions counter doesn't refresh
+After uploading a document that created 4 pending actions, dashboard still showed "Pending AI Actions: 0". 
+
+**Fix:** After document upload + classification, invalidate/refetch the pending actions count query.
+
+### MISSING 10: Fonts loaded from Google CDN
+2 requests to fonts.googleapis.com. Build prompt says: "Bundle Inter and Dancing Script locally in /public/fonts/ — NO Google Fonts CDN."
+
+**Fix:** Download font files, add to /public/fonts/, add @font-face in CSS, remove all Google Fonts links/imports.
+
+---
+
+## ROUND 3 — POLISH
+
+### POLISH 1: Custom approval rule builder on votes
+Vote form has 4 presets but missing Custom builder: min_approvals, required_voters, weighted_votes, recused_members, quorum, deadline_behavior. Show plain-English summary after configuration.
+
+### POLISH 2: Management "Board Decisions Affecting Me" section
+Management dashboard missing read-only list of board decisions/votes that affect them. Also missing board room cards.
+
+### POLISH 3: Landing page sovereignty cards
+Add 6 cards below hero: Self-hosted, Open source, AI-native, Tamper-proof, No per-seat pricing, Deploy in 3 commands.
+
+### POLISH 4: Cross-references ("📎 Connections")
+Every detail page should show related entities. Task → source minutes + meeting. Vote → meeting + agenda item. Document → linked agenda items.
+
+### POLISH 5: Classification summary empty
+AI classification shows "Summary: No summary available." Populate from AI response.
+
+### POLISH 6: Login placeholder mismatch
+Email placeholder says name@meridian.com but actual emails are @meridian-energy.com.
+
+### POLISH 7: Board member only shows 2 boards
+Nadia Petrov sees BoD + FAC but should see BoD + SIC + NRC per the prompt. Fix board memberships in seed.
+
+---
+
+## COMPLETE TEST MATRIX
+
+| Feature | Status | Notes |
+|---|---|---|
+| Landing page hero | ✅ Works | Missing sovereignty cards |
+| Login all 4 roles | ✅ Works | Placeholder mismatch |
+| Secretary dashboard | ✅ Works | AI command + upload zone |
+| AI Command → pending actions | ✅ Works | Excellent NLP parsing |
+| AI Document Classification | ✅ Works | 92% confidence, smart warnings |
+| Approval queue UI | ✅ Works | Approve/Edit/Reject buttons |
+| AI-approved meeting → agenda items | ❌ Broken | Agenda items lost on approval |
+| AI-approved meeting → attendance | ❌ Broken | Not auto-populated |
+| Manual meeting creation | ✅ Works | Agenda items + attendance preserved |
+| Manual vote creation | ✅ Works | Resolution number auto-generated |
+| Board member voting (4 buttons) | ✅ Works | Buttons removed from DOM after vote |
+| Duplicate vote protection | ⚠️ Partial | Prevents duplicate but returns 500 not 409 |
+| Board member sees meetings | ❌ Broken | Access control not granted |
+| Board member sees minutes | ❌ Broken | Access control not granted |
+| Board member sees votes | ✅ Works | Votes use different filtering |
+| Minutes workflow (draft→review→signing) | ✅ Works | Secretary buttons work |
+| Minutes signing (SHA-256 + animation) | ❌ Not built | No signing UI for board members |
+| Minutes comment system | ❌ Not built | No comment buttons or sidebar |
+| Task list | ✅ Works | Shows task numbers + due dates |
+| Task detail page | ❌ Not built | Tasks not clickable |
+| Task assignee display | ❌ Missing | No assignee name shown |
+| Evidence upload + AI review | ❌ Not built | No upload zone |
+| Document attachment on meetings | ❌ Not built | No attach button on agenda items |
+| AI Search | ❌ Crashes | Returns 500 |
+| AI Insights | ⚠️ Partial | Personalized but shows stale data |
+| Secretary admin panel | ❌ Not built | Members page is read-only |
+| Access control grants | ❌ Not built | No grantDefaultAccess() |
+| API role protection | ❌ Missing | All endpoints return 200 for any role |
+| Font bundling | ❌ Wrong | Uses Google CDN |
+| Route protection (frontend) | ✅ Works | Redirects correctly |
+| Admin button leakage | ✅ Clean | No admin buttons in non-admin DOM |
+| Console errors | ✅ Clean | No JS errors |
+| Pending actions counter | ❌ Broken | Doesn't refresh |
+| Timezone on AI times | ❌ Broken | 10am → 4am |
+| Auto-approval without Secretary | ❌ Bug | Tasks created without explicit approval |
+| Observer read-only | ✅ Works | Correct dashboard |
+| Management dashboard | ✅ Works | My Tasks section present |
+| Settings page | ✅ Works | AI status + model shown |
+| Custom approval rules | ❌ Not built | Only 4 presets |

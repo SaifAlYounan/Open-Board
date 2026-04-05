@@ -133,7 +133,7 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
       .where(
         or(
           sql`${votesTable.title} ILIKE ${searchTerm}`,
-          sql`${votesTable.resolution_text} ILIKE ${searchTerm}`
+          sql`${votesTable.resolutionText} ILIKE ${searchTerm}`
         )
       )
       .limit(5),

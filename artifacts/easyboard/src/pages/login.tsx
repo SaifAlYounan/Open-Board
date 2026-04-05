@@ -83,7 +83,7 @@ export default function Login() {
                   <FormItem>
                     <FormLabel className="text-[#1d1d1f] font-medium">Email</FormLabel>
                     <FormControl>
-                      <Input placeholder="name@meridian.com" {...field} className="h-12 rounded-xl bg-[#f5f5f7] border-0 focus-visible:ring-[#0071e3]" data-testid="input-email" />
+                      <Input placeholder="name@meridian-energy.com" {...field} className="h-12 rounded-xl bg-[#f5f5f7] border-0 focus-visible:ring-[#0071e3]" data-testid="input-email" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

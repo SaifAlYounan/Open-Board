@@ -6,7 +6,7 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 
 const router = Router();
 
-router.get("/people", requireAuth, async (_req, res): Promise<void> => {
+router.get("/people", requireAuth, requireAdmin, async (_req, res): Promise<void> => {
   const people = await db.select().from(peopleTable).orderBy(peopleTable.name);
   const safe = people.map(({ passwordHash: _, ...p }) => p);
   res.json(safe);
@@ -42,12 +42,13 @@ router.get("/people/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/people/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { name, title, avatarColor, role } = req.body;
+  const { name, title, avatarColor, role, active } = req.body;
   const updates: Record<string, unknown> = {};
   if (name != null) updates.name = name;
   if (title != null) updates.title = title;
   if (avatarColor != null) updates.avatarColor = avatarColor;
   if (role != null) updates.role = role;
+  if (active != null) updates.active = active;
 
   const [person] = await db.update(peopleTable).set(updates).where(eq(peopleTable.id, id)).returning();
   if (!person) {

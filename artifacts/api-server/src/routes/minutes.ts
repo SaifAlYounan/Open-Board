@@ -7,6 +7,7 @@ import {
   minutesSignaturesTable,
   meetingsTable,
   boardsTable,
+  boardMembershipsTable,
   peopleTable,
   accessControlTable,
 } from "@workspace/db";
@@ -35,19 +36,24 @@ router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
     allMinutes = allMinutes.filter((m) => m.status !== "draft");
   }
 
-  // Access control
+  // Access control — filter by board membership (board members see minutes for their boards)
   if (user.role !== "admin") {
-    const accessible = await db
+    const memberships = await db
       .select()
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.entityType, "minutes"),
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const accessibleIds = new Set(accessible.map((a) => a.entityId));
+      .from(boardMembershipsTable)
+      .where(eq(boardMembershipsTable.personId, user.id));
+    const memberBoardIds = new Set(memberships.map((m) => m.boardId));
+
+    // Resolve which minutes belong to accessible boards
+    const minutesWithMeeting = await Promise.all(
+      allMinutes.map(async (m) => {
+        if (!m.meetingId) return null;
+        const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, m.meetingId));
+        if (meeting?.boardId && memberBoardIds.has(meeting.boardId)) return m;
+        return null;
+      })
+    );
+    const accessibleIds = new Set(minutesWithMeeting.filter(Boolean).map((m) => m!.id));
     allMinutes = allMinutes.filter((m) => accessibleIds.has(m.id));
   }
 

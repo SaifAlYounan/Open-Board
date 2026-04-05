@@ -17,6 +17,10 @@ import {
   meetingsTable,
   documentsTable,
   tasksTable,
+  approvalRulesTable,
+  approvalRuleRequiredVotersTable,
+  approvalRuleRecusalsTable,
+  approvalRuleWeightsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./lib/logger";
@@ -24,41 +28,41 @@ import { logger } from "./lib/logger";
 const PASSWORD = "Meridian2024!";
 
 const PEOPLE = [
-  // Admin (Secretary)
-  { email: "a.alrashid@meridian-energy.com",  name: "Ahmed Al-Rashid",    role: "admin"      as const, title: "Board Secretary",          avatarColor: "#5856d6" },
-  // Board members
-  { email: "n.petrov@meridian-energy.com",     name: "Nadia Petrov",       role: "member"     as const, title: "Chairperson",               avatarColor: "#0071e3" },
-  { email: "k.almansouri@meridian-energy.com", name: "Khalid Al-Mansouri", role: "member"     as const, title: "Deputy Chairman",           avatarColor: "#34c759" },
-  { email: "f.alzaabi@meridian-energy.com",    name: "Fatima Al-Zaabi",    role: "member"     as const, title: "Board Director",            avatarColor: "#ff9500" },
-  { email: "o.alshami@meridian-energy.com",    name: "Omar Al-Shamsi",     role: "member"     as const, title: "Board Director",            avatarColor: "#ff3b30" },
-  { email: "e.vasquez@meridian-energy.com",    name: "Elena Vasquez",      role: "member"     as const, title: "Independent Director",      avatarColor: "#af52de" },
-  { email: "m.thornton@meridian-energy.com",   name: "Marcus Thornton",    role: "member"     as const, title: "Independent Director",      avatarColor: "#ff2d55" },
-  { email: "a.alketbi@meridian-energy.com",    name: "Aisha Al-Ketbi",     role: "member"     as const, title: "Executive Director",        avatarColor: "#30b0c7" },
+  // Secretary (admin)
+  { email: "a.alrashid@meridian-energy.com",  name: "Ahmed Al-Rashid",    role: "admin"      as const, title: "Board Secretary",            avatarColor: "#5856d6" },
+  // Board Members
+  { email: "n.petrov@meridian-energy.com",    name: "Nadia Petrov",       role: "member"     as const, title: "Chairperson",                 avatarColor: "#0071e3" },
+  { email: "s.chen@meridian-energy.com",      name: "Sarah Chen",         role: "member"     as const, title: "Board Director",              avatarColor: "#34c759" },
+  { email: "k.weber@meridian-energy.com",     name: "Dr. Klaus Weber",    role: "member"     as const, title: "Independent Director",        avatarColor: "#ff9500" },
+  { email: "f.alhosani@meridian-energy.com",  name: "Fatima Al-Hosani",   role: "member"     as const, title: "Executive Director",          avatarColor: "#ff3b30" },
+  { email: "j.obrien@meridian-energy.com",    name: "James O'Brien",      role: "member"     as const, title: "Independent Director",        avatarColor: "#af52de" },
+  { email: "y.tanaka@meridian-energy.com",    name: "Yuki Tanaka",        role: "member"     as const, title: "Board Director",              avatarColor: "#ff2d55" },
+  { email: "m.santos@meridian-energy.com",    name: "Maria Santos",       role: "member"     as const, title: "Board Director",              avatarColor: "#30b0c7" },
   // Observers
-  { email: "j.richardson@meridian-energy.com", name: "James Richardson",   role: "observer"   as const, title: "Strategy Observer (FAC)",   avatarColor: "#64d2ff" },
-  { email: "r.khoury@meridian-energy.com",     name: "Rania Khoury",       role: "observer"   as const, title: "Audit Observer (BoD)",       avatarColor: "#5ac8fa" },
+  { email: "d.park@meridian-energy.com",      name: "David Park",         role: "observer"   as const, title: "Strategy Observer",           avatarColor: "#64d2ff" },
+  { email: "a.khalil@meridian-energy.com",    name: "Amira Khalil",       role: "observer"   as const, title: "Audit Observer",              avatarColor: "#5ac8fa" },
+  { email: "t.henderson@meridian-energy.com", name: "Thomas Henderson",   role: "observer"   as const, title: "Governance Observer",         avatarColor: "#0071e3" },
+  { email: "l.martinez@meridian-energy.com",  name: "Laura Martinez",     role: "observer"   as const, title: "Finance Observer",            avatarColor: "#34c759" },
   // Management
-  { email: "d.chen@meridian-energy.com",       name: "David Chen",         role: "management" as const, title: "CFO",                        avatarColor: "#0071e3" },
-  { email: "n.saleh@meridian-energy.com",      name: "Nadia Saleh",        role: "management" as const, title: "Head of Legal",              avatarColor: "#34c759" },
-  { email: "h.alfarsi@meridian-energy.com",    name: "Hassan Al-Farsi",    role: "management" as const, title: "VP Operations",              avatarColor: "#ff9500" },
-  { email: "p.sharma@meridian-energy.com",     name: "Priya Sharma",       role: "management" as const, title: "Chief Risk Officer",         avatarColor: "#5856d6" },
-  { email: "l.fernandez@meridian-energy.com",  name: "Lucas Fernandez",    role: "management" as const, title: "Head of Finance",            avatarColor: "#af52de" },
-  { email: "l.mohammed@meridian-energy.com",   name: "Laila Mohammed",     role: "management" as const, title: "VP Strategy",                avatarColor: "#ff2d55" },
-  { email: "t.barrett@meridian-energy.com",    name: "Tom Barrett",        role: "management" as const, title: "Head of Projects",           avatarColor: "#30b0c7" },
-  { email: "w.zhang@meridian-energy.com",      name: "Wei Zhang",          role: "management" as const, title: "IT Director",                avatarColor: "#64d2ff" },
-  { email: "s.khalil@meridian-energy.com",     name: "Sara Khalil",        role: "management" as const, title: "Compliance Officer",         avatarColor: "#ff9500" },
-  { email: "m.foster@meridian-energy.com",     name: "Michael Foster",     role: "management" as const, title: "Head of HR",                 avatarColor: "#34c759" },
+  { email: "r.taylor@meridian-energy.com",    name: "Robert Taylor",      role: "management" as const, title: "CFO",                         avatarColor: "#0071e3" },
+  { email: "p.sharma@meridian-energy.com",    name: "Priya Sharma",       role: "management" as const, title: "General Counsel",             avatarColor: "#5856d6" },
+  { email: "l.wei@meridian-energy.com",       name: "Li Wei",             role: "management" as const, title: "VP Strategy",                 avatarColor: "#34c759" },
+  { email: "o.mansour@meridian-energy.com",   name: "Omar Mansour",       role: "management" as const, title: "VP Operations",               avatarColor: "#ff9500" },
+  { email: "e.rossi@meridian-energy.com",     name: "Elena Rossi",        role: "management" as const, title: "Head of Finance",             avatarColor: "#ff2d55" },
+  { email: "j.kim@meridian-energy.com",       name: "Jun Kim",            role: "management" as const, title: "Head of HR",                  avatarColor: "#30b0c7" },
+  { email: "s.blanc@meridian-energy.com",     name: "Sophie Blanc",       role: "management" as const, title: "Chief Risk Officer",          avatarColor: "#af52de" },
+  { email: "r.nair@meridian-energy.com",      name: "Raj Nair",           role: "management" as const, title: "CTO",                         avatarColor: "#64d2ff" },
 ];
 
 const BOARDS = [
-  { name: "Board of Directors",                abbreviation: "BOD", type: "board"     as const },
-  { name: "Finance & Audit Committee",         abbreviation: "FAC", type: "committee" as const },
-  { name: "Strategy & Investment Committee",   abbreviation: "SIC", type: "committee" as const },
+  { name: "Board of Directors",                 abbreviation: "BoD", type: "board" as const },
+  { name: "Finance & Audit Committee",           abbreviation: "FAC", type: "committee" as const },
+  { name: "Strategy & Investment Committee",     abbreviation: "SIC", type: "committee" as const },
   { name: "Nomination & Remuneration Committee", abbreviation: "NRC", type: "committee" as const },
-  { name: "Technical & Projects Committee",    abbreviation: "TPC", type: "committee" as const },
+  { name: "Technical & Projects Committee",      abbreviation: "TPC", type: "committee" as const },
 ];
 
-async function clearAll(): Promise<void> {
+export async function clearAll() {
   await db.delete(minutesSignaturesTable);
   await db.delete(minutesSuggestionsTable);
   await db.delete(minutesTable);
@@ -66,6 +70,10 @@ async function clearAll(): Promise<void> {
   await db.delete(attendanceTable);
   await db.delete(pendingActionsTable);
   await db.delete(voteRecordsTable);
+  await db.delete(approvalRuleWeightsTable);
+  await db.delete(approvalRuleRecusalsTable);
+  await db.delete(approvalRuleRequiredVotersTable);
+  await db.delete(approvalRulesTable);
   await db.delete(votesTable);
   await db.delete(meetingsTable);
   await db.delete(documentsTable);
@@ -77,91 +85,120 @@ async function clearAll(): Promise<void> {
   await db.delete(organizationsTable);
 }
 
-export async function seed(): Promise<void> {
-  // Check if already seeded with the correct emails
-  const existingPeople = await db.select().from(peopleTable).limit(1);
-  if (existingPeople.length > 0) {
-    const hasCorrectDomain = existingPeople[0].email?.includes("@meridian-energy.com");
-    if (hasCorrectDomain) {
-      logger.info("Database already seeded with correct data — skipping");
-      return;
-    }
-    // Wrong domain — wipe and re-seed
-    logger.info("Detected outdated seed data — wiping and re-seeding...");
-    await clearAll();
+export async function seed() {
+  // Check if already seeded with the correct new data (Sarah Chen is the differentiator)
+  const sarahChen = await db.select().from(peopleTable).where(eq(peopleTable.email, "s.chen@meridian-energy.com"));
+  if (sarahChen.length > 0) {
+    logger.info("Database already seeded with correct data — skipping");
+    return;
   }
 
-  logger.info("Seeding database...");
-  const passwordHash = await bcrypt.hash(PASSWORD, 10);
+  // Clear any stale data
+  await clearAll();
 
-  // Create organization
-  const [org] = await db
-    .insert(organizationsTable)
-    .values({ name: "Meridian Energy Group" })
-    .returning();
+  // Create org
+  const [org] = await db.insert(organizationsTable).values({ name: "Meridian Energy Group" }).returning();
+
+  const hash = await bcrypt.hash(PASSWORD, 10);
+  const createdPeople: (typeof peopleTable.$inferSelect)[] = [];
+
+  for (const p of PEOPLE) {
+    const [person] = await db.insert(peopleTable).values({ ...p, passwordHash: hash }).returning();
+    createdPeople.push(person);
+  }
+
+  // Helper to find person by email
+  const byEmail = (email: string) => createdPeople.find((p) => p.email === email)!;
+
+  const ahmed   = byEmail("a.alrashid@meridian-energy.com");
+  const nadia   = byEmail("n.petrov@meridian-energy.com");
+  const sarah   = byEmail("s.chen@meridian-energy.com");
+  const klaus   = byEmail("k.weber@meridian-energy.com");
+  const fatima  = byEmail("f.alhosani@meridian-energy.com");
+  const james   = byEmail("j.obrien@meridian-energy.com");
+  const yuki    = byEmail("y.tanaka@meridian-energy.com");
+  const maria   = byEmail("m.santos@meridian-energy.com");
+  const david   = byEmail("d.park@meridian-energy.com");
+  const amira   = byEmail("a.khalil@meridian-energy.com");
+  const thomas  = byEmail("t.henderson@meridian-energy.com");
+  const laura   = byEmail("l.martinez@meridian-energy.com");
+  const liwei   = byEmail("l.wei@meridian-energy.com");
+  const omar    = byEmail("o.mansour@meridian-energy.com");
+  const junkim  = byEmail("j.kim@meridian-energy.com");
+  const raj     = byEmail("r.nair@meridian-energy.com");
 
   // Create boards
-  const boards: Array<typeof boardsTable.$inferSelect> = [];
+  const boards: (typeof boardsTable.$inferSelect)[] = [];
   for (const b of BOARDS) {
-    const [board] = await db
-      .insert(boardsTable)
-      .values({ ...b, organizationId: org.id })
-      .returning();
+    const [board] = await db.insert(boardsTable).values({ ...b, organizationId: org.id }).returning();
     boards.push(board);
   }
 
   const [bodBoard, facBoard, sicBoard, nrcBoard, tpcBoard] = boards;
 
-  // Create people
-  const createdPeople: Array<typeof peopleTable.$inferSelect> = [];
-  for (const p of PEOPLE) {
-    const [person] = await db
-      .insert(peopleTable)
-      .values({ ...p, passwordHash })
-      .returning();
-    createdPeople.push(person);
+  // BoD: Nadia (chair), Ahmed (secretary), Sarah, Klaus, Fatima, James, Yuki, Maria | Observers: David, Amira
+  const bodMembers = [
+    { person: nadia,  role: "chairperson" },
+    { person: ahmed,  role: "secretary"   },
+    { person: sarah,  role: "member"      },
+    { person: klaus,  role: "member"      },
+    { person: fatima, role: "member"      },
+    { person: james,  role: "member"      },
+    { person: yuki,   role: "member"      },
+    { person: maria,  role: "member"      },
+    { person: david,  role: "observer"    },
+    { person: amira,  role: "observer"    },
+  ];
+  for (const { person, role } of bodMembers) {
+    await db.insert(boardMembershipsTable).values({ boardId: bodBoard.id, personId: person.id, roleInBoard: role }).onConflictDoNothing();
   }
 
-  const [ahmed, nadia, khalid, fatima, omar, elena, marcus, aisha, james, rania, david, nadiaSaleh, hassan, priya, lucas, laila, tom, wei, sara, michael] = createdPeople;
-
-  // Board of Directors: all 7 board members + both observers
-  const bodMembers = [nadia, khalid, fatima, omar, elena, marcus, aisha, rania];
-  for (const m of bodMembers) {
-    await db.insert(boardMembershipsTable)
-      .values({ boardId: bodBoard.id, personId: m.id, roleInBoard: m.id === nadia.id ? "chairperson" : m.role === "observer" ? "observer" : "member" })
-      .onConflictDoNothing();
+  // FAC: Klaus (chair), Fatima, Yuki, Maria | Observers: Amira, Laura
+  const facMembers = [
+    { person: klaus,  role: "chairperson" },
+    { person: fatima, role: "member"      },
+    { person: yuki,   role: "member"      },
+    { person: maria,  role: "member"      },
+    { person: amira,  role: "observer"    },
+    { person: laura,  role: "observer"    },
+  ];
+  for (const { person, role } of facMembers) {
+    await db.insert(boardMembershipsTable).values({ boardId: facBoard.id, personId: person.id, roleInBoard: role }).onConflictDoNothing();
   }
 
-  // Finance & Audit Committee
-  const facMembers = [nadia, khalid, fatima, omar, james, rania];
-  for (const m of facMembers) {
-    await db.insert(boardMembershipsTable)
-      .values({ boardId: facBoard.id, personId: m.id, roleInBoard: m.id === nadia.id ? "chair" : m.role === "observer" ? "observer" : "member" })
-      .onConflictDoNothing();
+  // SIC: Sarah (chair), Nadia, James, Yuki, Li Wei | Observers: David
+  const sicMembers = [
+    { person: sarah, role: "chairperson" },
+    { person: nadia, role: "member"      },
+    { person: james, role: "member"      },
+    { person: yuki,  role: "member"      },
+    { person: liwei, role: "member"      },
+    { person: david, role: "observer"    },
+  ];
+  for (const { person, role } of sicMembers) {
+    await db.insert(boardMembershipsTable).values({ boardId: sicBoard.id, personId: person.id, roleInBoard: role }).onConflictDoNothing();
   }
 
-  // Strategy & Investment Committee
-  const sicMembers = [khalid, fatima, elena, marcus, aisha, james];
-  for (const m of sicMembers) {
-    await db.insert(boardMembershipsTable)
-      .values({ boardId: sicBoard.id, personId: m.id, roleInBoard: m.id === khalid.id ? "chair" : m.role === "observer" ? "observer" : "member" })
-      .onConflictDoNothing();
+  // NRC: Fatima (chair), Klaus, Nadia | Observers: Jun Kim
+  const nrcMembers = [
+    { person: fatima, role: "chairperson" },
+    { person: klaus,  role: "member"      },
+    { person: nadia,  role: "member"      },
+    { person: junkim, role: "observer"    },
+  ];
+  for (const { person, role } of nrcMembers) {
+    await db.insert(boardMembershipsTable).values({ boardId: nrcBoard.id, personId: person.id, roleInBoard: role }).onConflictDoNothing();
   }
 
-  // Nomination & Remuneration Committee
-  const nrcMembers = [elena, marcus, aisha];
-  for (const m of nrcMembers) {
-    await db.insert(boardMembershipsTable)
-      .values({ boardId: nrcBoard.id, personId: m.id, roleInBoard: m.id === elena.id ? "chair" : "member" })
-      .onConflictDoNothing();
-  }
-
-  // Technical & Projects Committee
-  const tpcMembers = [omar, aisha, marcus];
-  for (const m of tpcMembers) {
-    await db.insert(boardMembershipsTable)
-      .values({ boardId: tpcBoard.id, personId: m.id, roleInBoard: m.id === omar.id ? "chair" : "member" })
-      .onConflictDoNothing();
+  // TPC: James (chair), Fatima, Omar Mansour | Observers: Raj Nair
+  const tpcMembers = [
+    { person: james, role: "chairperson" },
+    { person: fatima, role: "member"     },
+    { person: omar,  role: "member"      },
+    { person: raj,   role: "observer"    },
+  ];
+  for (const { person, role } of tpcMembers) {
+    await db.insert(boardMembershipsTable).values({ boardId: tpcBoard.id, personId: person.id, roleInBoard: role }).onConflictDoNothing();
   }
 
   // Grant admin access to all boards

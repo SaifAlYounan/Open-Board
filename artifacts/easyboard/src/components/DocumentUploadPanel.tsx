@@ -3,7 +3,7 @@ import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Sparkles } f
 import { Button } from "@/components/ui/button";
 import { PendingActionCard } from "./PendingActionCard";
 import { useQueryClient } from "@tanstack/react-query";
-import { getListDocumentsQueryKey } from "@workspace/api-client-react";
+import { getListDocumentsQueryKey, getListPendingActionsQueryKey, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 
 export function DocumentUploadPanel() {
   const queryClient = useQueryClient();
@@ -43,6 +43,9 @@ export function DocumentUploadPanel() {
           stopPolling();
           setClassifying(false);
           setClassification(doc.aiClassification);
+          // Refresh pending actions count after AI creates them
+          queryClient.invalidateQueries({ queryKey: getListPendingActionsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
         } else if (attempts >= maxAttempts) {
           stopPolling();
           setClassifying(false);
@@ -81,8 +84,10 @@ export function DocumentUploadPanel() {
       const data = await response.json();
       setResult(data);
 
-      // Invalidate documents list so the uploaded file appears immediately
+      // Invalidate documents list, pending actions, and dashboard counts
       queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getListPendingActionsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
 
       if (data.classifying && data.document?.id) {
         setClassifying(true);

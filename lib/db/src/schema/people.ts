@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean } from "drizzle-orm/pg-core";
 
 export const peopleTable = pgTable("people", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -8,6 +8,7 @@ export const peopleTable = pgTable("people", {
   role: text("role", { enum: ["admin", "member", "observer", "management"] }).notNull(),
   title: text("title"),
   avatarColor: text("avatar_color"),
+  active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
