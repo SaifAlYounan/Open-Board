@@ -22,11 +22,29 @@ import { grantDefaultAccess } from "../lib/access";
  */
 function parseAIDate(dateStr: string | undefined | null): Date {
   if (!dateStr) return new Date();
-  // Strip any timezone suffix (Z or ±HH:MM / ±HHMM) to get the raw wall-clock time
-  let s = String(dateStr).trim()
-    .replace(/Z$/, '')
-    .replace(/[+-]\d{2}:?\d{2}$/, '');
-  // If there's a time component, parse as local time on the server (Replit = UTC)
+  let s = String(dateStr).trim();
+
+  // If the AI obeyed the prompt, the string is already "YYYY-MM-DDTHH:MM:SS" (no suffix).
+  // When it still includes a timezone offset (e.g. "2026-06-01T10:00:00-06:00"), the hour
+  // digit ("10") already represents the intended wall-clock time — we just need to strip the
+  // offset so JS doesn't interpret it as UTC-adjusted time. We extract the offset first so we
+  // can detect the special "Z" / "+00:00" case where the AI accidentally converted to UTC.
+
+  const offsetMatch = s.match(/([+-])(\d{2}):?(\d{2})$/);
+  const hasZ = s.endsWith("Z");
+
+  if (hasZ) {
+    // AI returned UTC ("Z"): strip and use as-is.  The COMMAND_PROMPT says never to do
+    // this, so if it happens the best we can do is treat the UTC hour as wall-clock.
+    s = s.slice(0, -1);
+  } else if (offsetMatch) {
+    // AI returned a local-time offset like "-06:00" or "+05:30".
+    // The hours before the offset ARE the intended wall-clock hours, so stripping the
+    // offset gives us the correct "local" time to store on the (UTC) server.
+    const [full] = offsetMatch;
+    s = s.slice(0, s.length - full.length);
+  }
+
   if (s.includes("T")) return new Date(s);
   // Date-only string — use noon to avoid DST rollover issues
   return new Date(s + "T12:00:00");
