@@ -152,7 +152,12 @@ export default function MinutesEditor() {
                       {comment.person?.name?.charAt(0) || '?'}
                     </div>
                     <div className="flex-1">
-                      <div className="font-medium text-[#1d1d1f]">{comment.person?.name || 'Unknown'}</div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-medium text-[#1d1d1f]">{comment.person?.name || 'Unknown'}</span>
+                        <span className="text-[#b0b0b8]" style={{ fontSize: '9px' }}>
+                          {comment.createdAt ? new Date(comment.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                        </span>
+                      </div>
                       <div className="text-[#86868b] mt-0.5">{comment.commentText}</div>
                     </div>
                   </div>

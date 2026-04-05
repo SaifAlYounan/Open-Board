@@ -174,10 +174,13 @@ export default function MinutesViewer() {
                                 setCommentText('');
                               }
                             }}
-                            className={`flex-shrink-0 p-1 rounded text-[#86868b] hover:text-[#0071e3] hover:bg-[#0071e3]/10 transition-all mt-0.5 ${hoveredBlock === i || activeBlock?.index === i ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'}`}
-                            title="Comment on this paragraph"
+                            className={`flex-shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all mt-1 whitespace-nowrap ${
+                              activeBlock?.index === i
+                                ? 'bg-[#0071e3]/10 text-[#0071e3]'
+                                : 'bg-[#f5f5f7] text-[#86868b] hover:bg-[#0071e3]/10 hover:text-[#0071e3]'
+                            }`}
                           >
-                            <MessageSquare size={13} />
+                            💬 Comment
                           </button>
                         )}
                       </div>
@@ -274,7 +277,12 @@ export default function MinutesViewer() {
                             {comment.person?.name?.charAt(0) || '?'}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-[#1d1d1f]">{comment.person?.name}</div>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="font-medium text-[#1d1d1f]">{comment.person?.name}</span>
+                              <span className="text-[#b0b0b8]" style={{ fontSize: '9px' }}>
+                                {comment.createdAt ? new Date(comment.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
                             <div className="text-[#86868b] mt-0.5 break-words">{comment.commentText}</div>
                           </div>
                         </div>
