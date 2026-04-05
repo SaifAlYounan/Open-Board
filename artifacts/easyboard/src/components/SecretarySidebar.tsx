@@ -3,11 +3,12 @@ import { cn } from '@/lib/utils';
 import { useAuth, getAvatarInitials } from '@/lib/auth';
 import { useListPendingActions } from '@workspace/api-client-react';
 import {
-  Inbox, FileText, Vote, Calendar, CheckSquare,
+  LayoutDashboard, Inbox, FileText, Vote, Calendar, CheckSquare,
   File, Users, Settings, LogOut, ShieldCheck
 } from 'lucide-react';
 
 const navItems = [
+  { href: '/secretary', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { href: '/secretary/pending', icon: Inbox, label: 'Pending AI Actions' },
   { href: '/secretary/minutes', icon: FileText, label: 'Minutes' },
   { href: '/secretary/votes', icon: Vote, label: 'Votes' },
@@ -42,8 +43,8 @@ export function SecretarySidebar() {
       </div>
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navItems.map(({ href, icon: Icon, label }) => {
-          const isActive = location === href || location.startsWith(href + '/');
+        {navItems.map(({ href, icon: Icon, label, exact }) => {
+          const isActive = exact ? location === href : (location === href || location.startsWith(href + '/'));
           const isPending = href === '/secretary/pending';
 
           return (
