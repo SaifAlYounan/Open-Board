@@ -2,8 +2,11 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PendingActionCard } from "./PendingActionCard";
+import { useQueryClient } from "@tanstack/react-query";
+import { getListDocumentsQueryKey } from "@workspace/api-client-react";
 
 export function DocumentUploadPanel() {
+  const queryClient = useQueryClient();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -77,6 +80,9 @@ export function DocumentUploadPanel() {
 
       const data = await response.json();
       setResult(data);
+
+      // Invalidate documents list so the uploaded file appears immediately
+      queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() });
 
       if (data.classifying && data.document?.id) {
         setClassifying(true);

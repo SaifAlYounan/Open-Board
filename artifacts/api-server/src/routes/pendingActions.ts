@@ -45,12 +45,27 @@ router.get("/pending-actions", requireAuth, requireAdmin, async (req, res): Prom
 async function executeAction(actionType: string, actionData: Record<string, unknown>): Promise<unknown> {
   switch (actionType) {
     case "create_meeting": {
-      const { boardId, title, date, location, agenda_items } = actionData as any;
+      const { boardId, date, location, agenda_items } = actionData as any;
+      const rawTitle = (actionData as any).title || (actionData as any).details?.title;
+
+      // Generate meaningful title if none provided
+      let resolvedTitle = rawTitle;
+      if (!resolvedTitle) {
+        let boardName = "Board";
+        if (boardId) {
+          const [b] = await db.select().from(boardsTable).where(eq(boardsTable.id, boardId));
+          if (b) boardName = b.name;
+        }
+        const d = date ? new Date(date) : new Date();
+        const dateLabel = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+        resolvedTitle = `${boardName} — ${dateLabel}`;
+      }
+
       const [meeting] = await db
         .insert(meetingsTable)
         .values({
           boardId,
-          title: title || "Untitled Meeting",
+          title: resolvedTitle,
           date: date ? new Date(date) : new Date(),
           location,
         })

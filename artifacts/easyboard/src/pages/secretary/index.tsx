@@ -89,6 +89,9 @@ export default function SecretaryDashboard() {
             )}
           </div>
 
+          {/* Document Upload — above stats */}
+          <DocumentUploadPanel />
+
           {/* Stats */}
           <div className="grid grid-cols-4 gap-4">
             <StatCard label="Pending AI Actions" value={s?.pendingActionsCount ?? 0} color="#ff9500" testId="stat-pending-actions" />
@@ -96,9 +99,6 @@ export default function SecretaryDashboard() {
             <StatCard label="Minutes in Review" value={s?.minutesInReviewCount ?? 0} color="#34c759" testId="stat-minutes-review" />
             <StatCard label="Upcoming Meeting" value={s?.nextMeeting?.title || 'None scheduled'} color="#5856d6" testId="stat-next-meeting" />
           </div>
-
-          {/* Document Upload */}
-          <DocumentUploadPanel />
         </div>
       </main>
     </div>
