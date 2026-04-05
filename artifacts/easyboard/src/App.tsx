@@ -12,6 +12,7 @@ import SecretaryDashboard from "@/pages/secretary/index";
 import SecretaryPendingActions from "@/pages/secretary/pending";
 import SecretaryVotes from "@/pages/secretary/votes";
 import SecretaryMeetings from "@/pages/secretary/meetings";
+import SecretaryMeetingDetail from "@/pages/secretary/meeting-detail";
 import SecretaryMinutesList from "@/pages/secretary/minutes";
 import MinutesEditor from "@/pages/secretary/minutes-editor";
 import SecretaryTasks from "@/pages/secretary/tasks";
@@ -21,6 +22,7 @@ import SecretarySettings from "@/pages/secretary/settings";
 
 import BoardMemberDashboard from "@/pages/board/index";
 import BoardRoom from "@/pages/board/room";
+import BoardMeetingDetail from "@/pages/board/meeting-detail";
 import MinutesViewer from "@/pages/board/minutes-viewer";
 import MinutesSigning from "@/pages/board/signing";
 
@@ -87,6 +89,13 @@ function Router() {
           <SecretaryVotes />
         </ProtectedRoute>
       </Route>
+      <Route path="/secretary/meetings/:id">
+        {() => (
+          <ProtectedRoute roles={['admin']}>
+            <SecretaryMeetingDetail />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/secretary/meetings">
         <ProtectedRoute roles={['admin']}>
           <SecretaryMeetings />
@@ -135,6 +144,13 @@ function Router() {
         {(params) => (
           <ProtectedRoute roles={['member']}>
             <BoardRoom />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/board/meetings/:id">
+        {() => (
+          <ProtectedRoute roles={['member']}>
+            <BoardMeetingDetail />
           </ProtectedRoute>
         )}
       </Route>

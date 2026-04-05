@@ -10,7 +10,7 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, FileText, Vote, MapPin, CheckCircle, Clock } from 'lucide-react';
+import { Calendar, FileText, Vote, MapPin, CheckCircle, Clock, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Tab = 'votes' | 'meetings' | 'minutes';
@@ -246,17 +246,24 @@ export default function BoardRoom() {
         {tab === 'meetings' && (
           <div className="space-y-3">
             {((meetings as any[]) || []).map((meeting: any) => (
-              <div key={meeting.id} className="bg-white rounded-2xl border border-[#e5e5e7] p-5" data-testid={`meeting-${meeting.id}`}>
-                <div className="font-medium text-[#1d1d1f]">{meeting.title}</div>
-                <div className="flex items-center gap-4 mt-2 text-xs text-[#86868b]">
-                  <span className="flex items-center gap-1">
-                    <Calendar size={12} />
-                    {new Date(meeting.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  {meeting.location && <span className="flex items-center gap-1"><MapPin size={12} /> {meeting.location}</span>}
-                  {meeting.agendaItemCount !== undefined && <span>{meeting.agendaItemCount} agenda items</span>}
+              <button key={meeting.id} onClick={() => setLocation(`/board/meetings/${meeting.id}`)}
+                className="w-full bg-white rounded-2xl border border-[#e5e5e7] p-5 text-left hover:border-[#0071e3]/30 hover:shadow-sm transition-all"
+                data-testid={`meeting-${meeting.id}`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-medium text-[#1d1d1f]">{meeting.title}</div>
+                    <div className="flex items-center gap-4 mt-2 text-xs text-[#86868b]">
+                      <span className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        {new Date(meeting.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {meeting.location && <span className="flex items-center gap-1"><MapPin size={12} /> {meeting.location}</span>}
+                      {meeting.agendaItemCount !== undefined && <span>{meeting.agendaItemCount} agenda items</span>}
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-[#86868b] flex-shrink-0 mt-1" />
                 </div>
-              </div>
+              </button>
             ))}
             {!meetings || (meetings as any[]).length === 0 && (
               <div className="text-center py-16 text-[#86868b] text-sm">No meetings for this board.</div>

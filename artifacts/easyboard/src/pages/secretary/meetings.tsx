@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { useLocation } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
 import { useListMeetings, useCreateMeeting, useListBoards, getListMeetingsQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Calendar, MapPin } from 'lucide-react';
+import { Plus, Calendar, MapPin, ChevronRight } from 'lucide-react';
 
 export default function SecretaryMeetings() {
   const { data: meetings, isLoading } = useListMeetings();
@@ -12,6 +13,7 @@ export default function SecretaryMeetings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const createMeeting = useCreateMeeting();
+  const [, setLocation] = useLocation();
 
   const [form, setForm] = useState({
     boardId: '', title: '', date: '', location: '',
@@ -100,7 +102,9 @@ export default function SecretaryMeetings() {
 
           <div className="space-y-3">
             {(meetings as any[] || []).map((meeting: any) => (
-              <div key={meeting.id} className="bg-white rounded-2xl border border-[#e5e5e7] p-5" data-testid={`meeting-card-${meeting.id}`}>
+              <button key={meeting.id} onClick={() => setLocation(`/secretary/meetings/${meeting.id}`)}
+                className="w-full bg-white rounded-2xl border border-[#e5e5e7] p-5 text-left hover:border-[#0071e3]/30 hover:shadow-sm transition-all"
+                data-testid={`meeting-card-${meeting.id}`}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -126,8 +130,9 @@ export default function SecretaryMeetings() {
                       )}
                     </div>
                   </div>
+                  <ChevronRight size={16} className="text-[#86868b] flex-shrink-0 mt-1" />
                 </div>
-              </div>
+              </button>
             ))}
             {!isLoading && (!meetings || (meetings as any[]).length === 0) && (
               <div className="text-center py-16 text-[#86868b] text-sm">No meetings yet. Create one to get started.</div>
