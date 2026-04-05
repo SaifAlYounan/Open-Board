@@ -22,8 +22,10 @@ import {
 
 const router = Router();
 
+const hasAI = () => !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+
 router.get("/ai/status", requireAuth, async (_req, res): Promise<void> => {
-  const configured = !!process.env.ANTHROPIC_API_KEY;
+  const configured = hasAI();
   res.json({
     configured,
     message: configured ? null : "AI features require configuration. Add your Anthropic API key in Settings.",
@@ -37,7 +39,7 @@ router.post("/ai/command", requireAuth, requireAdmin, async (req, res): Promise<
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasAI()) {
     res.json({
       understood: false,
       interpretation: "AI features require configuration. Add your Anthropic API key in Settings.",
@@ -97,7 +99,7 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!hasAI()) {
     res.json({
       answer: "AI search requires configuration. Add your Anthropic API key in Settings.",
       sources: [],

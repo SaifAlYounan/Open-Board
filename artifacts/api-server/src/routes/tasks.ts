@@ -224,7 +224,7 @@ router.post("/tasks/:id/evidence", requireAuth, upload.single("file"), async (re
   await db.update(tasksTable).set({ status: "evidence_submitted" }).where(eq(tasksTable.id, taskId));
 
   // AI Review (async)
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) {
     try {
       let evidenceText = "";
       try {

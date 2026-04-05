@@ -187,8 +187,10 @@ const TOKEN_LIMITS: Record<string, number> = {
 };
 
 function getClient(): Anthropic | null {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+  const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
+  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
 }
 
 export async function callAI(
@@ -196,10 +198,6 @@ export async function callAI(
   modePrompt: string,
   userContent: string
 ): Promise<{ success?: boolean; data?: unknown; error?: string; message?: string; raw?: string }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return { error: "no_api_key", message: "AI features require configuration." };
-  }
-
   const client = getClient();
   if (!client) {
     return { error: "no_api_key", message: "AI features require configuration." };
@@ -207,7 +205,7 @@ export async function callAI(
 
   try {
     const response = await client.messages.create({
-      model: "claude-opus-4-20250514",
+      model: "claude-opus-4-6",
       max_tokens: TOKEN_LIMITS[mode] || 2048,
       system: AI_BRAIN_PROMPT + modePrompt,
       messages: [{ role: "user", content: userContent }],
