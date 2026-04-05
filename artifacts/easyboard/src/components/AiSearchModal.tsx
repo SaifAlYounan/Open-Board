@@ -63,6 +63,12 @@ export function AiSearchModal({ onClose }: AiSearchModalProps) {
             </div>
           )}
 
+          {searchMutation.isError && (
+            <div className="text-center py-8 text-[#ff3b30] text-sm">
+              Search failed. Please try again.
+            </div>
+          )}
+
           {searchMutation.data && (
             <div className="space-y-6">
               <div className="prose prose-sm max-w-none text-[#1d1d1f]">

@@ -1,16 +1,41 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { TopNav } from '@/components/TopNav';
-import { useAuth, getAvatarInitials } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import {
   useGetMinutes, useGetMinutesComments, useAddMinutesComment,
   getGetMinutesQueryKey, getGetMinutesCommentsQueryKey,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
 import { MessageSquare, PenLine, CheckCircle } from 'lucide-react';
+
+interface ParsedBlock {
+  type: 'paragraph' | 'heading' | 'other';
+  html: string;
+  text: string;
+  tag: string;
+}
+
+function parseContentBlocks(html: string): ParsedBlock[] {
+  if (!html) return [];
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const blocks: ParsedBlock[] = [];
+  doc.body.childNodes.forEach((node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    const text = el.textContent?.trim() || '';
+    if (!text) return;
+    const type: ParsedBlock['type'] =
+      tag === 'p' ? 'paragraph'
+      : /^h[1-6]$/.test(tag) ? 'heading'
+      : 'other';
+    blocks.push({ type, html: el.outerHTML, tag, text });
+  });
+  return blocks;
+}
 
 export default function MinutesViewer() {
   const params = useParams<{ id: string }>();
@@ -23,20 +48,11 @@ export default function MinutesViewer() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [commentDraft, setCommentDraft] = useState<{ text: string; selected: string } | null>(null);
+  const [hoveredBlock, setHoveredBlock] = useState<number | null>(null);
 
   const m = minutes as any;
 
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: m?.content || '',
-    editable: false,
-  });
-
-  useEffect(() => {
-    if (m?.content && editor) {
-      editor.commands.setContent(m.content);
-    }
-  }, [m?.content]);
+  const blocks = useMemo(() => parseContentBlocks(m?.content || ''), [m?.content]);
 
   const handleAddComment = () => {
     if (!commentDraft?.selected || !commentDraft?.text) return;
@@ -50,6 +66,10 @@ export default function MinutesViewer() {
         setCommentDraft(null);
       }
     });
+  };
+
+  const handleParagraphComment = (text: string) => {
+    setCommentDraft({ text: '', selected: text.slice(0, 200) });
   };
 
   const handleSelection = () => {
@@ -100,12 +120,36 @@ export default function MinutesViewer() {
               )}
             </div>
 
-            <div className="bg-white rounded-2xl border border-[#e5e5e7] p-8" onMouseUp={handleSelection}>
-              <EditorContent
-                editor={editor}
-                className="prose prose-sm max-w-none [&_.ProseMirror]:focus:outline-none"
-                data-testid="minutes-content"
-              />
+            <div className="bg-white rounded-2xl border border-[#e5e5e7] p-8" onMouseUp={handleSelection} data-testid="minutes-content">
+              {blocks.length > 0 ? (
+                <div className="prose prose-sm max-w-none space-y-1">
+                  {blocks.map((block, i) => (
+                    <div
+                      key={i}
+                      className="group relative flex items-start gap-1"
+                      onMouseEnter={() => setHoveredBlock(i)}
+                      onMouseLeave={() => setHoveredBlock(null)}
+                    >
+                      <div
+                        className="flex-1 min-w-0"
+                        dangerouslySetInnerHTML={{ __html: block.html }}
+                      />
+                      {block.type === 'paragraph' && block.text.length > 5 && (
+                        <button
+                          data-testid={`paragraph-comment-btn-${i}`}
+                          onClick={() => handleParagraphComment(block.text)}
+                          className={`flex-shrink-0 p-1 rounded text-[#86868b] hover:text-[#0071e3] hover:bg-[#0071e3]/10 transition-all mt-0.5 ${hoveredBlock === i ? 'opacity-100' : 'opacity-0'}`}
+                          title="Comment on this paragraph"
+                        >
+                          <MessageSquare size={13} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-[#86868b] italic">No content available.</div>
+              )}
             </div>
 
             {commentDraft && (

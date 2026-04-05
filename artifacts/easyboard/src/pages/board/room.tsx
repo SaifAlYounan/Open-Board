@@ -298,7 +298,11 @@ export default function BoardRoom() {
                     {minutes.meetingDate && <div className="text-xs text-[#86868b] mt-0.5">{new Date(minutes.meetingDate).toLocaleDateString()}</div>}
                   </div>
                   {minutes.status === 'signing' && !minutes.hasSigned && (
-                    <span className="text-xs px-2 py-1 bg-[#0071e3] text-white rounded-lg font-medium">Sign</span>
+                    <button
+                      data-testid={`sign-btn-${minutes.id}`}
+                      onClick={(e) => { e.stopPropagation(); setLocation(`/board/minutes/${minutes.id}/sign`); }}
+                      className="text-xs px-2 py-1 bg-[#0071e3] text-white rounded-lg font-medium hover:bg-[#0077ed] transition-colors"
+                    >Sign</button>
                   )}
                 </button>
               );
