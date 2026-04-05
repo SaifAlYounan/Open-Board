@@ -419,7 +419,7 @@ router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, async (req
 
 // TEMPORARY: one-shot admin endpoint to clear all transactional data in production.
 // Remove this after use.
-router.post("/admin/clear-transactional", requireAdmin, async (_req, res): Promise<void> => {
+router.post("/admin/clear-transactional", requireAuth, requireAdmin, async (_req, res): Promise<void> => {
   const { sql: drizzleSql } = await import("drizzle-orm");
   await db.execute(drizzleSql`
     TRUNCATE TABLE
