@@ -281,10 +281,13 @@ export default function BoardRoom() {
             {((minutesList as any[]) || []).filter((m: any) => m.status !== 'draft').map((minutes: any) => {
               const statusInfo = MINUTES_STATUS_COLOR[minutes.status] || { label: minutes.status, color: '#86868b' };
               return (
-                <button
+                <div
                   key={minutes.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setLocation(`/board/minutes/${minutes.id}`)}
-                  className="w-full bg-white rounded-2xl border border-[#e5e5e7] p-5 text-left hover:border-[#0071e3]/30 transition-colors flex items-center gap-4"
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setLocation(`/board/minutes/${minutes.id}`); }}
+                  className="w-full bg-white rounded-2xl border border-[#e5e5e7] p-5 text-left hover:border-[#0071e3]/30 transition-colors flex items-center gap-4 cursor-pointer"
                   data-testid={`minutes-${minutes.id}`}
                 >
                   <FileText size={18} className="text-[#86868b] flex-shrink-0" />
@@ -299,12 +302,13 @@ export default function BoardRoom() {
                   </div>
                   {minutes.status === 'signing' && !minutes.hasSigned && (
                     <button
+                      type="button"
                       data-testid={`sign-btn-${minutes.id}`}
                       onClick={(e) => { e.stopPropagation(); setLocation(`/board/minutes/${minutes.id}/sign`); }}
                       className="text-xs px-2 py-1 bg-[#0071e3] text-white rounded-lg font-medium hover:bg-[#0077ed] transition-colors"
                     >Sign</button>
                   )}
-                </button>
+                </div>
               );
             })}
             {!minutesList || (minutesList as any[]).filter((m: any) => m.status !== 'draft').length === 0 && (

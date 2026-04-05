@@ -153,8 +153,9 @@ router.get("/minutes/:id", requireAuth, async (req, res): Promise<void> => {
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
     : [null];
 
-  // Non-admin: verify board membership
-  if (user.role !== "admin" && meeting?.boardId) {
+  // Non-admin, non-management: verify board membership
+  // Management users see all non-draft minutes (same as the list endpoint).
+  if (user.role !== "admin" && user.role !== "management" && meeting?.boardId) {
     const membership = await db
       .select()
       .from(boardMembershipsTable)
