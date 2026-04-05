@@ -43,7 +43,8 @@ All passwords: `Meridian2024!`
 - Votes (/secretary/votes) — create resolutions with approval rules
 - Meetings (/secretary/meetings) — create and manage meetings
 - Minutes (/secretary/minutes) — list and edit board minutes
-- Tasks (/secretary/tasks) — create and track action items
+- Tasks (/secretary/tasks) — create and track action items; each task card is clickable
+- Task Detail (/secretary/tasks/:id) — view and edit task details (title, status, assignee, due date)
 - Documents (/secretary/documents) — upload and AI-classify documents
 - Members (/secretary/members) — view all people
 - Admin Panel (/secretary/admin) — manage users (edit/activate/deactivate/create) and board memberships
@@ -56,8 +57,10 @@ All passwords: `Meridian2024!`
 - Minutes Signing (/board/minutes/:id/sign) — SHA-256 signed with Dancing Script font
 
 ### Management (/management)
-- Task dashboard with overdue alerts
+- Dashboard with task summary, overdue alerts, and recent Board Minutes section
+- My Tasks List (/management/tasks) — all tasks assigned to the user
 - Task Detail (/management/task/:id) — file evidence upload with AI review
+- Board Minutes (/management/minutes) — list of published minutes (review/signing/signed)
 
 ### Observer (/observer)
 - Read-only view of boards and published minutes
@@ -73,13 +76,17 @@ All passwords: `Meridian2024!`
 - No AI key → blue info banner, never crashes
 
 ## Key Technical Decisions
-- Vote buttons removed from DOM after voting (submittedVotes state in room.tsx)
+- Vote buttons removed from DOM after voting (submittedVotes state in room.tsx); vote comment is stored and displayed in the green confirmation banner
 - 409 on duplicate vote — handled with "Already voted" toast
 - SHA-256 signature: SHA256(content + name + ISO_timestamp)
 - `signature-appear` CSS animation in index.css
 - Tiptap editor for minutes (read-only in viewer, editable in editor)
 - React Query with 30s staleTime, retry 1
 - Socket.io configured for real-time vote/signature updates
+- AI date parsing strips timezone suffix (Z or ±HH:MM) to treat times as wall-clock (no UTC conversion)
+- `migratePeopleTitles()` runs at every server startup to keep people titles up-to-date
+- Pending Actions: per-type structured edit forms (create_meeting/vote/task/minutes each have typed fields instead of raw JSON)
+- create_minutes actions auto-show meeting picker pre-populated with most recent meeting
 
 ## Database
 - 20-table PostgreSQL schema via Drizzle ORM

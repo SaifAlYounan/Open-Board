@@ -38,7 +38,7 @@ export default function BoardRoom() {
   const castVote = useCastVote();
 
   const [votingState, setVotingState] = useState<Record<string, { decision: string; comment: string; showComment: boolean }>>({});
-  const [submittedVotes, setSubmittedVotes] = useState<Record<string, { decision: string; votedAt: string }>>({});
+  const [submittedVotes, setSubmittedVotes] = useState<Record<string, { decision: string; votedAt: string; comment?: string }>>({});
 
   const b = board as any;
 
@@ -57,7 +57,7 @@ export default function BoardRoom() {
     castVote.mutate({ id: voteId, data: { decision, comment } }, {
       onSuccess: () => {
         toast({ title: 'Vote cast', description: `Your vote: ${decision.replace(/_/g, ' ')}` });
-        setSubmittedVotes((prev) => ({ ...prev, [voteId]: { decision, votedAt: new Date().toISOString() } }));
+        setSubmittedVotes((prev) => ({ ...prev, [voteId]: { decision, votedAt: new Date().toISOString(), comment: comment || undefined } }));
         setVotingState((prev) => { const n = { ...prev }; delete n[voteId]; return n; });
         queryClient.invalidateQueries({ queryKey: getListVotesQueryKey({ boardId }) });
       },
@@ -147,15 +147,20 @@ export default function BoardRoom() {
                         />
 
                         {hasVoted ? (
-                          <div className="mt-4 p-3 bg-[#f0fdf4] rounded-xl flex items-center gap-2 text-sm" data-testid={`vote-confirmed-${vote.id}`}>
-                            <CheckCircle size={16} className="text-[#34c759]" />
-                            <span className="text-[#1d1d1f]">
-                              Your vote: <strong>{(myVote?.decision || '').replace(/_/g, ' ')}</strong>
-                            </span>
-                            {myVote?.votedAt && (
-                              <span className="text-[#86868b] text-xs ml-auto">
-                                {new Date(myVote.votedAt).toLocaleString()}
+                          <div className="mt-4 p-3 bg-[#f0fdf4] rounded-xl space-y-1" data-testid={`vote-confirmed-${vote.id}`}>
+                            <div className="flex items-center gap-2 text-sm">
+                              <CheckCircle size={16} className="text-[#34c759]" />
+                              <span className="text-[#1d1d1f]">
+                                Your vote: <strong>{(myVote?.decision || '').replace(/_/g, ' ')}</strong>
                               </span>
+                              {myVote?.votedAt && (
+                                <span className="text-[#86868b] text-xs ml-auto">
+                                  {new Date(myVote.votedAt).toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                            {myVote?.comment && (
+                              <div className="text-xs text-[#1d1d1f] pl-6 italic">"{myVote.comment}"</div>
                             )}
                           </div>
                         ) : user?.role === 'member' ? (

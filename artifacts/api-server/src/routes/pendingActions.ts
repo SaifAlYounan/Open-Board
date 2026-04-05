@@ -17,18 +17,19 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 
 /**
- * Parse an AI-proposed date string without timezone conversion bugs.
- * If no timezone is present, treat as UTC to preserve the AI's intended time.
+ * Parse an AI-proposed date string treating it as wall-clock time (no timezone conversion).
+ * Strips any timezone suffix so that "10:00 AM" is stored as 10:00, not converted to UTC.
  */
 function parseAIDate(dateStr: string | undefined | null): Date {
   if (!dateStr) return new Date();
-  const s = String(dateStr).trim();
-  // Already has timezone info — parse as-is
-  if (s.includes("Z") || /[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
-  // Has 'T' separator but no timezone — append Z to preserve exact time as UTC
-  if (s.includes("T")) return new Date(s + "Z");
-  // Date-only string — parse as UTC
-  return new Date(s + "T00:00:00Z");
+  // Strip any timezone suffix (Z or ±HH:MM / ±HHMM) to get the raw wall-clock time
+  let s = String(dateStr).trim()
+    .replace(/Z$/, '')
+    .replace(/[+-]\d{2}:?\d{2}$/, '');
+  // If there's a time component, parse as local time on the server (Replit = UTC)
+  if (s.includes("T")) return new Date(s);
+  // Date-only string — use noon to avoid DST rollover issues
+  return new Date(s + "T12:00:00");
 }
 
 /**
