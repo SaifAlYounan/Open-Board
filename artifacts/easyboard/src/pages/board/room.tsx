@@ -286,7 +286,7 @@ export default function BoardRoom() {
                   role="button"
                   tabIndex={0}
                   onClick={() => setLocation(`/board/minutes/${minutes.id}`)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setLocation(`/board/minutes/${minutes.id}`); }}
+                  onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setLocation(`/board/minutes/${minutes.id}`); } }}
                   className="w-full bg-white rounded-2xl border border-[#e5e5e7] p-5 text-left hover:border-[#0071e3]/30 transition-colors flex items-center gap-4 cursor-pointer"
                   data-testid={`minutes-${minutes.id}`}
                 >
