@@ -90,56 +90,49 @@ router.post("/documents/upload", requireAuth, upload.single("file"), async (req,
     .values({ entityType: "document", entityId: doc.id, personId: user.id, hasAccess: true })
     .onConflictDoNothing();
 
-  // AI Classification (async — respond with partial data)
-  let aiResult: unknown = null;
-  let pendingActionIds: string[] = [];
+  // Respond immediately — don't wait for AI
+  res.json({ document: doc, classifying: !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) });
 
+  // AI Classification runs in background (fire-and-forget)
   const hasAI = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
   if (hasAI) {
-    try {
-      const text = await extractText(filePath, mimetype, originalname);
-      const truncated = truncateText(text);
-      const dbContext = await getDatabaseContext();
-      const userContent = `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`;
+    setImmediate(async () => {
+      try {
+        const text = await extractText(filePath, mimetype, originalname);
+        const truncated = truncateText(text);
+        const dbContext = await getDatabaseContext();
+        const userContent = `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`;
 
-      const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, userContent);
+        const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, userContent);
 
-      if (result.success && result.data) {
-        aiResult = result.data;
+        if (result.success && result.data) {
+          await db
+            .update(documentsTable)
+            .set({ aiClassification: result.data as any })
+            .where(eq(documentsTable.id, doc.id));
 
-        // Update document with classification
-        await db
-          .update(documentsTable)
-          .set({ aiClassification: result.data as any })
-          .where(eq(documentsTable.id, doc.id));
-
-        // Create pending_actions
-        const classified = result.data as {
-          proposed_actions?: Array<{ action_type: string; description: string; details: unknown }>;
-          confidence?: number;
-        };
-        if (classified.proposed_actions?.length) {
-          const actions = await db
-            .insert(pendingActionsTable)
-            .values(
-              classified.proposed_actions.map((action) => ({
-                documentId: doc.id,
-                actionType: action.action_type as any,
-                actionData: { ...(action.details as object), description: action.description, confidence: classified.confidence },
-                status: "pending" as const,
-              }))
-            )
-            .returning();
-          pendingActionIds = actions.map((a) => a.id);
+          const classified = result.data as {
+            proposed_actions?: Array<{ action_type: string; description: string; details: unknown }>;
+            confidence?: number;
+          };
+          if (classified.proposed_actions?.length) {
+            await db
+              .insert(pendingActionsTable)
+              .values(
+                classified.proposed_actions.map((action) => ({
+                  documentId: doc.id,
+                  actionType: action.action_type as any,
+                  actionData: { ...(action.details as object), description: action.description, confidence: classified.confidence },
+                  status: "pending" as const,
+                }))
+              );
+          }
         }
+      } catch {
+        // AI failed silently — document already stored
       }
-    } catch {
-      // AI failed — document stored without classification
-    }
+    });
   }
-
-  const [updatedDoc] = await db.select().from(documentsTable).where(eq(documentsTable.id, doc.id));
-  res.json({ document: updatedDoc, aiClassification: aiResult, pendingActionIds });
 });
 
 router.get("/documents", requireAuth, async (req, res): Promise<void> => {
