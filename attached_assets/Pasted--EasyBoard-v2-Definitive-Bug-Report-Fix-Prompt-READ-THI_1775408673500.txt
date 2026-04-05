@@ -1,0 +1,335 @@
+# EasyBoard v2 — Definitive Bug Report & Fix Prompt
+
+## READ THIS FIRST
+
+This is based on exhaustive end-to-end browser testing across all 4 roles (Secretary, Board Member, Management, Observer). The AI pipeline is excellent — do NOT touch the AI prompts, brain system prompt, or classification logic. The bugs are in the data layer, approval execution, and missing UI features.
+
+**CRITICAL ARCHITECTURE NOTE:** This must be ONE app with ONE database. All 4 roles (/secretary, /board, /management, /observer) are just different frontend views of the SAME data. When the Secretary creates a meeting for BoD, every BoD board member must see it. When minutes are created, they must be linked to their meeting and board. There must be NO orphaned entities. Currently meetings and votes work correctly (linked to board_id 455aebdd), but minutes are created with meetingId: null and boardName: null — making them invisible to everyone except the Secretary.
+
+Fix these in EXACT order. Test each fix with the verification steps provided before moving to the next.
+
+---
+
+## ROUND 1 — CRITICAL DATA LAYER FIXES
+
+### FIX 1: API endpoints must be role-protected (SECURITY)
+
+**Problem:** Board member browser calls /api/pending-actions, /api/people, /api/documents, /api/tasks — all return 200 with full data. Frontend routing protects the UI but API endpoints are wide open.
+
+**Fix:** Add role-based middleware to all endpoints:
+- /api/pending-actions/* → admin only
+- /api/people → admin sees all; others see only their board's members
+- /api/documents → admin sees all; others filtered by board membership
+- /api/tasks → admin sees all; management sees only their assigned tasks
+- /api/minutes → admin sees all; others filtered by board membership
+- /api/meetings → admin sees all; others filtered by board membership
+- /api/votes → admin sees all; others filtered by board membership
+
+**Test:** Log in as board member (s.chen@meridian-energy.com / Meridian2024!). Open browser DevTools → Console. Run:
+```javascript
+fetch('/api/pending-actions?status=pending', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }).then(r => console.log('Status:', r.status))
+```
+Must return 403, not 200.
+
+---
+
+### FIX 2: Minutes must be linked to meeting and board on creation
+
+**Problem:** When the AI proposes create_minutes and Secretary approves, the minutes are created with meetingId: null and boardName: null. This makes them invisible in board rooms (board members, management, observers see "No minutes").
+
+**Fix:** In the approval handler for action_type === 'create_minutes':
+1. Set minutes.meeting_id from action_data (the AI proposes linking to an existing meeting)
+2. If no meeting match, look up the board from the document's AI classification
+3. The minutes list queries in board rooms filter by meeting.board_id — so minutes MUST have a meeting_id that links to a meeting with a board_id
+
+Also fix the same issue for create_vote and create_task — ensure board_id is always set.
+
+**Test:** As Secretary, upload a .txt file with board minutes. Approve the "Create Minutes" action. Then run in console:
+```javascript
+fetch('/api/minutes', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }).then(r => r.json()).then(m => console.log('meetingId:', m[m.length-1].meetingId, 'boardName:', m[m.length-1].boardName))
+```
+meetingId must NOT be null. Then log in as board member → enter BoD room → minutes tab → the minutes must be visible.
+
+---
+
+### FIX 3: AI-approved meetings must include agenda items AND attendance
+
+**Problem:** Manual meeting creation correctly inserts agenda items and attendance rows. But AI-approved meetings (via pending_actions) create the meeting with 0 agenda items and 0 attendance. The bug is isolated to the pending action approval handler.
+
+**Fix:** In the approval handler for action_type === 'create_meeting':
+1. After inserting the meeting row, iterate over action_data.details.agenda_items and INSERT each into the agenda_items table
+2. Query board_memberships for the meeting's board and INSERT attendance rows (status: 'pending') for each member
+
+The manual creation path already does both of these correctly — copy that logic into the approval handler.
+
+**Test:** As Secretary, type in the AI Command bar: "Schedule a BoD meeting for May 15 at 2pm with ESG Review and Budget Approval on the agenda". Approve the pending action. Navigate to /secretary/meetings → click the new meeting. Verify:
+- Agenda shows "ESG Review" and "Budget Approval" (not "0 agenda items")
+- Attendance shows all 10 BoD members
+
+---
+
+### FIX 4: Timezone bug on AI-proposed meeting times
+
+**Problem:** AI Command "schedule meeting at 10am" → stored as 4:00 AM. Manual datetime-local input works correctly. Bug is isolated to parsing AI time strings.
+
+**Fix:** When the AI returns a time in action_data (e.g., "10:00 AM" or "2026-04-20T10:00"), treat it as local time. Don't apply UTC conversion. Store directly.
+
+**Test:** As Secretary, use AI Command: "Schedule a BoD meeting for June 1 at 3pm." Approve. Check meetings list — must show 3:00 PM, not a different time.
+
+---
+
+### FIX 5: Duplicate vote returns 500 instead of 409
+
+**Problem:** UNIQUE constraint on vote_records(vote_id, person_id) prevents duplicates (good), but the error isn't caught — returns 500 with HTML error page.
+
+**Fix:** In the vote cast endpoint, catch the unique constraint error and return: `{ status: 409, message: "You have already voted on this resolution" }`
+
+**Test:** Log in as board member. Vote on a resolution. Then run in console:
+```javascript
+fetch('/api/votes/VOTE_ID/cast', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('token') }, body: JSON.stringify({ decision: 'approved' }) }).then(r => console.log(r.status))
+```
+Must return 409, not 500.
+
+---
+
+### FIX 6: "Mark Concluded" button is dead
+
+**Problem:** On meeting detail page, the "Mark Concluded" button has no click handler. No API call fires, no console error, no state change.
+
+**Fix:** Wire the button to call PATCH /api/meetings/{id} with { status: 'concluded' }. After success, update the UI to show "Concluded" status and hide the "Mark Concluded" button.
+
+**Test:** As Secretary, go to a meeting detail → click "Mark Concluded." Status must change to "concluded." Meeting list must show "concluded" badge instead of "scheduled."
+
+---
+
+## ROUND 2 — MISSING FEATURES (build these)
+
+### BUILD 1: Comment system on minutes (HIGHEST PRIORITY)
+
+This is the core of the review workflow. When minutes are in "review" status:
+
+**For Board Members, Management, and Observers:**
+- Each paragraph of the minutes text must have a "💬 Add Comment" button below it
+- Clicking opens a textarea for the comment text
+- Submitting saves to `minutes_suggestions` table with: minutes_id, person_id, type='comment', original_text=(the paragraph text), comment_text=(user's comment), color=(user's avatar_color)
+- Comments appear in a right sidebar, grouped by paragraph
+
+**For Secretary:**
+- See all comments in the sidebar
+- Each comment has "Resolve" and "Dismiss" buttons
+- Resolve sets status='resolved', Dismiss deletes or hides
+
+**API:** The endpoint /api/minutes/{id}/comments already returns 200. Wire up the frontend:
+- GET /api/minutes/{id}/comments → list comments
+- POST /api/minutes/{id}/comments → create comment { original_text, comment_text }
+- PATCH /api/minutes/{id}/comments/{commentId} → resolve/dismiss
+
+**Test:**
+1. Secretary: create minutes, send to review
+2. Board member (n.petrov): enter BoD room → minutes tab → click minutes → see "💬 Add Comment" below each paragraph → add comment "Please clarify the budget figure"
+3. Observer (d.park): enter BoD room → minutes tab → see Petrov's comment in sidebar → add own comment "Legal review needed on clause 6"
+4. Secretary: open minutes → see both comments → resolve Petrov's, dismiss Park's
+
+---
+
+### BUILD 2: Minutes signing with SHA-256
+
+When minutes are in "signing" status:
+
+**For Board Members:**
+- "✍️ Sign" button appears on the minutes page
+- Click renders the signer's name in Dancing Script cursive font
+- CSS animation: opacity 0→1 + transform scale(0.8)→scale(1) over 0.5s
+- Compute: SHA-256(minutes_content + signer_name + ISO_timestamp)
+- Store in minutes_signatures table: minutes_id, person_id, signature_hash, signed_at
+- Display the hash below the signature in small monospace text
+- After signing, button replaced with "Signed ✓" + timestamp
+
+**Font:** Bundle Dancing Script locally in /public/fonts/ with @font-face. Remove all Google Fonts CDN links/imports.
+
+**For Secretary:**
+- See all signatures collected so far
+- "Mark as Signed" button becomes available when all required signatures are collected
+- Clicking it changes minutes status to 'signed'
+
+**Test:**
+1. Secretary: send minutes to signing status
+2. Board member (n.petrov): enter BoD room → minutes tab → click minutes in signing → click "✍️ Sign" → verify name appears in cursive with animation → verify SHA-256 hash displayed
+3. Board member (s.chen): same flow → second signature appears
+4. Secretary: see both signatures → click "Mark as Signed" → status changes to "signed"
+
+---
+
+### BUILD 3: Management and Observer access to minutes
+
+**Problem:** /management/minutes returns 404. Observers see "No published minutes" in board rooms. Management and observers cannot access minutes for review or commenting.
+
+**Fix:**
+1. Add /management/minutes route showing minutes the user has access to (based on board membership)
+2. Add minutes to the management dashboard navigation
+3. Fix observer board room minutes query to include review/signing status (not just signed)
+4. Both roles must be able to click into minutes and see content + comments (read-only minutes text + comment sidebar)
+
+**Test:**
+1. Secretary creates minutes for BoD, sends to review
+2. Management (o.mansour — on TPC, not BoD): should NOT see BoD minutes
+3. Management (r.taylor — not on any board but has a BoD task): discuss whether to grant access
+4. Observer (d.park — BoD observer): enter BoD room → minutes tab → MUST see the minutes → can comment
+5. Observer (a.khalil — BoD observer): same
+
+---
+
+### BUILD 4: Secretary admin panel — wire up Edit button
+
+**Problem:** Admin panel exists at /secretary/admin with People and Board Memberships tabs. Add Person works. Board membership display works. But the Edit button on the People tab does nothing — no modal or form appears.
+
+**Fix:** Clicking Edit should open a modal pre-filled with the person's current data (name, email, role, title). Save updates the person via PATCH /api/people/{id}. Add password reset option.
+
+**Test:** As Secretary, go to /secretary/admin → People tab → click Edit on any user → modal opens with current data → change title → Save → verify title updated in the table.
+
+---
+
+### BUILD 5: Edit on pending actions — show form instead of raw JSON
+
+**Problem:** Clicking "Edit" on a pending action shows raw JSON blob. Secretary has to manually edit JSON fields like "source_agenda_item": 4.
+
+**Fix:** Show a labeled form based on the action_type:
+- create_meeting: Board dropdown, date picker, title, location, agenda item list
+- create_task: Assignee dropdown, title, description, due date
+- create_vote: Board, title, resolution text, type, deadline
+- create_minutes: Meeting picker, content
+- flag_confidential: Passage text, reason
+
+**Test:** As Secretary, upload a document → go to pending actions → click Edit on a "Create Task" action → see a form with Assignee dropdown, Title, Due Date fields (not raw JSON) → modify the assignee → click Save & Approve → task created with the modified assignee.
+
+---
+
+### BUILD 6: Create Task form — add title and description fields
+
+**Problem:** Manual Create Task form only has assignee dropdown and due date. No way to specify task title or description.
+
+**Fix:** Add: Title (text input, required), Description (textarea, optional), Board (dropdown) before the assignee and due date fields.
+
+**Test:** Secretary → Tasks → Create Task → form shows Title, Description, Board, Assignee, Due Date → fill all fields → Create → task appears with correct title and assignee.
+
+---
+
+### BUILD 7: Task detail page from Secretary view
+
+**Problem:** Tasks are not clickable from the Secretary tasks list. No task detail page for Secretary.
+
+**Fix:** Make task cards clickable → navigate to /secretary/tasks/{id} → show: title, description, assignee, due date, status, source paragraph, source minutes/meeting link, evidence uploaded, AI verdict, Secretary confirm/reject buttons.
+
+**Test:** Secretary → Tasks → click a task → detail page loads with all fields.
+
+---
+
+## ROUND 3 — POLISH
+
+### POLISH 1: Custom approval rule builder on votes
+Add expandable Custom panel below the 4 presets: min_approvals, required_voters (multi-select), weighted_votes (toggle + per-person weights), recused_members (multi-select), quorum, deadline_behavior (Lapse/Extend/Notify). Show plain-English summary.
+
+### POLISH 2: AI Search fix
+/api/ai/search returns 500. Debug — likely missing error handling when no results found. Show toast on failure.
+
+### POLISH 3: AI Insights stale data
+Board member dashboard showed "You have not yet cast your vote" AFTER voting. The SUGGEST mode receives stale data. Before calling AI, query vote_records and minutes_signatures to get current state.
+
+### POLISH 4: Pending actions counter refresh
+After document upload creates new actions, the dashboard counter doesn't update without page reload. Invalidate/refetch the count query after upload.
+
+### POLISH 5: Landing page sovereignty cards
+Add 6 cards below hero: Self-hosted, Open source, AI-native, Tamper-proof, No per-seat pricing, Deploy in 3 commands.
+
+### POLISH 6: Management "Board Decisions Affecting Me"
+Add read-only section on management dashboard showing votes/resolutions that affect them. Add board room cards for boards they have access to.
+
+### POLISH 7: Cross-references ("📎 Connections")
+On every detail page, show related entities. Task → source minutes + meeting. Vote → meeting. Document → linked agenda items.
+
+### POLISH 8: Some titles still wrong in seed
+- Elena Rossi: shows "Head of Finance" → should be "Head of Compliance"
+- Sophie Blanc: shows "Chief Risk Officer" → should be "Head of ESG"
+- Sarah Chen: shows "Board Director" → should be "Independent Director"
+- Fatima Al-Hosani: shows "Executive Director" → should be "Non-Executive Director"
+- Yuki Tanaka: shows "Board Director" → should be "Independent Director"
+- Maria Santos: shows "Board Director" → should be "Non-Executive Director"
+
+### POLISH 9: Document polling loop
+After upload, frontend polls /api/documents/{id} 15+ times waiting for classification. Use a single callback, WebSocket notification, or exponential backoff — not tight polling.
+
+### POLISH 10: Vote comment not shown after casting
+Board member votes "Approved with Comments" and writes a comment, but after voting, only sees "Your vote: approved with comments" — the actual comment text isn't displayed.
+
+---
+
+## COMPLETE TEST CHECKLIST
+
+After ALL fixes, run this full end-to-end test. Every step must pass.
+
+### Test 1: Secretary creates content via AI
+1. Login: a.alrashid@meridian-energy.com / Meridian2024!
+2. AI Command: "Schedule a BoD meeting for May 20 at 10am with ESG Review and Budget Approval on the agenda"
+3. Approve the pending action
+4. VERIFY: Meeting shows 2 agenda items AND 10 BoD members in attendance AND time shows 10:00 AM
+
+### Test 2: Secretary uploads document
+1. Upload a .txt file with board minutes content (include "MINUTES OF THE", "Present:", "RESOLVED THAT", "ACTION:" items)
+2. VERIFY: AI classifies as draft_minutes with 90%+ confidence
+3. VERIFY: Pending actions include create_minutes, create_task(s), flag_confidential
+4. Approve create_minutes
+5. VERIFY: Minutes have meetingId (not null), boardName (not null), actual document content
+
+### Test 3: Board member sees everything
+1. Login: s.chen@meridian-energy.com / Meridian2024!
+2. VERIFY: Dashboard shows pending votes count, next meeting
+3. Enter BoD room → meetings tab → VERIFY the May 20 meeting is visible with agenda items
+4. Votes tab → VERIFY votes are visible
+5. Minutes tab → VERIFY minutes in review are visible
+
+### Test 4: Board member votes
+1. In BoD room votes tab, click "Approved with Comments" on a vote
+2. Type a comment → Submit
+3. VERIFY: Shows "Your vote: approved with comments" + the comment text
+4. VERIFY: Vote buttons removed from DOM (not hidden)
+5. VERIFY: Duplicate vote attempt returns 409
+
+### Test 5: Comment workflow
+1. Login as board member (n.petrov) → minutes in review → add comment on first paragraph
+2. Login as observer (d.park) → same minutes → VERIFY Petrov's comment visible → add own comment
+3. Login as Secretary → open minutes → VERIFY both comments in sidebar → resolve one, dismiss other
+
+### Test 6: Signing workflow
+1. Secretary sends minutes to signing status
+2. Login as n.petrov → minutes → click "✍️ Sign" → VERIFY: name in cursive, SHA-256 hash displayed
+3. Login as s.chen → same → VERIFY: second signature, both visible
+4. Secretary → VERIFY both signatures shown → Mark as Signed → status = signed
+
+### Test 7: Management tasks
+1. Login: r.taylor@meridian-energy.com / Meridian2024!
+2. VERIFY: "My Tasks" shows assigned task with title, due date, assignee
+3. Click task → detail page with evidence upload
+4. Upload evidence file → VERIFY AI reviews it
+
+### Test 8: Observer read-only
+1. Login: d.park@meridian-energy.com / Meridian2024!
+2. VERIFY: Can view BoD meetings, votes, minutes
+3. VERIFY: Can comment on minutes in review
+4. VERIFY: CANNOT vote, upload documents, or see admin buttons
+5. VERIFY: No Create/Edit/Delete/Approve buttons in DOM
+
+### Test 9: API security
+1. Login as board member. Open DevTools Console.
+2. fetch('/api/pending-actions?status=pending', {headers:{Authorization:'Bearer '+localStorage.getItem('token')}}).then(r=>console.log(r.status))
+3. MUST return 403
+4. fetch('/api/people', {headers:{Authorization:'Bearer '+localStorage.getItem('token')}}).then(r=>console.log(r.status))
+5. MUST return 403 or filtered list (only board members visible to this user)
+
+### Test 10: Single system verification
+1. As Secretary, create a vote for BoD
+2. As board member (s.chen), enter BoD room → vote MUST be visible
+3. Vote as s.chen
+4. As Secretary, check votes page → vote count MUST show 1/10
+5. As different board member (k.weber), enter BoD room → MUST see same vote with 1/10
+
+This verifies ALL roles see the SAME data from the SAME database with the SAME board IDs.

@@ -3,8 +3,8 @@ import { TopNav } from '@/components/TopNav';
 import { StatCard } from '@/components/StatCard';
 import { AiBanner } from '@/components/AiBanner';
 import { useAuth } from '@/lib/auth';
-import { useListTasks, useGetDashboardSummary } from '@workspace/api-client-react';
-import { CheckSquare, AlertTriangle, ArrowRight, Clock } from 'lucide-react';
+import { useListTasks, useGetDashboardSummary, useListMinutes } from '@workspace/api-client-react';
+import { CheckSquare, AlertTriangle, ArrowRight, Clock, FileText } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, { color: string; label: string }> = {
   todo: { color: '#86868b', label: 'To Do' },
@@ -20,10 +20,12 @@ export default function ManagementDashboard() {
   const [, setLocation] = useLocation();
   const { data: summary } = useGetDashboardSummary();
   const { data: tasks } = useListTasks({ assigneeId: user?.id });
+  const { data: minutesList } = useListMinutes({});
 
   const s = summary as any;
   const taskList = ((tasks as any[]) || []).filter((t: any) => t.status !== 'done');
   const overdueTasks = taskList.filter((t: any) => t.dueDate && new Date(t.dueDate) < new Date());
+  const recentMinutes = ((minutesList as any[]) || []).filter((m: any) => m.status !== 'draft').slice(0, 3);
 
   return (
     <div className="min-h-screen bg-[#f5f5f7]">
@@ -91,6 +93,38 @@ export default function ManagementDashboard() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Board Minutes */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-[#1d1d1f]">Board Minutes</h2>
+            <button onClick={() => setLocation('/management/minutes')} className="text-sm text-[#0071e3] hover:underline">
+              View all
+            </button>
+          </div>
+
+          {recentMinutes.length === 0 && (
+            <div className="text-center py-10 bg-white rounded-2xl border border-[#e5e5e7]">
+              <FileText size={32} className="text-[#86868b] mx-auto mb-3" />
+              <div className="text-[#1d1d1f] font-medium text-sm">No published minutes yet</div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {recentMinutes.map((m: any) => (
+              <button key={m.id} onClick={() => setLocation(`/board/minutes/${m.id}`)}
+                className="w-full bg-white rounded-2xl border border-[#e5e5e7] p-4 text-left hover:border-[#0071e3]/30 hover:shadow-sm transition-all flex items-center gap-3"
+                data-testid={`minutes-${m.id}`}>
+                <FileText size={16} className="text-[#86868b] flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-[#1d1d1f] text-sm truncate">{m.meetingTitle || 'Board Minutes'}</div>
+                  {m.meetingDate && <div className="text-xs text-[#86868b] mt-0.5">{new Date(m.meetingDate).toLocaleDateString()}</div>}
+                </div>
+                <ArrowRight size={14} className="text-[#86868b] flex-shrink-0" />
+              </button>
+            ))}
           </div>
         </div>
       </main>

@@ -17,6 +17,7 @@ import SecretaryMeetingDetail from "@/pages/secretary/meeting-detail";
 import SecretaryMinutesList from "@/pages/secretary/minutes";
 import MinutesEditor from "@/pages/secretary/minutes-editor";
 import SecretaryTasks from "@/pages/secretary/tasks";
+import SecretaryTaskDetail from "@/pages/secretary/task-detail";
 import SecretaryDocuments from "@/pages/secretary/documents";
 import SecretaryMembers from "@/pages/secretary/members";
 import SecretarySettings from "@/pages/secretary/settings";
@@ -30,6 +31,8 @@ import MinutesSigning from "@/pages/board/signing";
 
 import ManagementDashboard from "@/pages/management/index";
 import TaskDetail from "@/pages/management/task-detail";
+import ManagementTasks from "@/pages/management/tasks";
+import ManagementMinutes from "@/pages/management/minutes";
 
 import ObserverDashboard from "@/pages/observer/index";
 import ObserverRoom from "@/pages/observer/room";
@@ -116,6 +119,13 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
+      <Route path="/secretary/tasks/:id">
+        {() => (
+          <ProtectedRoute roles={['admin']}>
+            <SecretaryTaskDetail />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/secretary/tasks">
         <ProtectedRoute roles={['admin']}>
           <SecretaryTasks />
@@ -164,7 +174,7 @@ function Router() {
       </Route>
       <Route path="/board/minutes/:id">
         {(params) => (
-          <ProtectedRoute roles={['member', 'observer']}>
+          <ProtectedRoute roles={['member', 'observer', 'management']}>
             <MinutesViewer />
           </ProtectedRoute>
         )}
@@ -181,6 +191,16 @@ function Router() {
       <Route path="/management">
         <ProtectedRoute roles={['management']}>
           <ManagementDashboard />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/management/tasks">
+        <ProtectedRoute roles={['management']}>
+          <ManagementTasks />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/management/minutes">
+        <ProtectedRoute roles={['management']}>
+          <ManagementMinutes />
         </ProtectedRoute>
       </Route>
       <Route path="/management/task/:id">

@@ -30,12 +30,12 @@ const PASSWORD = "Meridian2024!";
 const PEOPLE = [
   { email: "a.alrashid@meridian-energy.com",  name: "Ahmed Al-Rashid",    role: "admin"      as const, title: "Board Secretary",            avatarColor: "#5856d6" },
   { email: "n.petrov@meridian-energy.com",    name: "Nadia Petrov",       role: "member"     as const, title: "Chairperson",                 avatarColor: "#0071e3" },
-  { email: "s.chen@meridian-energy.com",      name: "Sarah Chen",         role: "member"     as const, title: "Board Director",              avatarColor: "#34c759" },
+  { email: "s.chen@meridian-energy.com",      name: "Sarah Chen",         role: "member"     as const, title: "Independent Director",        avatarColor: "#34c759" },
   { email: "k.weber@meridian-energy.com",     name: "Dr. Klaus Weber",    role: "member"     as const, title: "Independent Director",        avatarColor: "#ff9500" },
-  { email: "f.alhosani@meridian-energy.com",  name: "Fatima Al-Hosani",   role: "member"     as const, title: "Executive Director",          avatarColor: "#ff3b30" },
+  { email: "f.alhosani@meridian-energy.com",  name: "Fatima Al-Hosani",   role: "member"     as const, title: "Non-Executive Director",      avatarColor: "#ff3b30" },
   { email: "j.obrien@meridian-energy.com",    name: "James O'Brien",      role: "member"     as const, title: "Independent Director",        avatarColor: "#af52de" },
-  { email: "y.tanaka@meridian-energy.com",    name: "Yuki Tanaka",        role: "member"     as const, title: "Board Director",              avatarColor: "#ff2d55" },
-  { email: "m.santos@meridian-energy.com",    name: "Maria Santos",       role: "member"     as const, title: "Board Director",              avatarColor: "#30b0c7" },
+  { email: "y.tanaka@meridian-energy.com",    name: "Yuki Tanaka",        role: "member"     as const, title: "Independent Director",        avatarColor: "#ff2d55" },
+  { email: "m.santos@meridian-energy.com",    name: "Maria Santos",       role: "member"     as const, title: "Non-Executive Director",      avatarColor: "#30b0c7" },
   { email: "d.park@meridian-energy.com",      name: "David Park",         role: "observer"   as const, title: "External Legal Counsel",      avatarColor: "#64d2ff" },
   { email: "a.khalil@meridian-energy.com",    name: "Amira Khalil",       role: "observer"   as const, title: "External Auditor",            avatarColor: "#5ac8fa" },
   { email: "t.henderson@meridian-energy.com", name: "Thomas Henderson",   role: "observer"   as const, title: "Regulatory Advisor",          avatarColor: "#0071e3" },
@@ -44,9 +44,9 @@ const PEOPLE = [
   { email: "p.sharma@meridian-energy.com",    name: "Priya Sharma",       role: "management" as const, title: "General Counsel",             avatarColor: "#5856d6" },
   { email: "l.wei@meridian-energy.com",       name: "Li Wei",             role: "management" as const, title: "VP Strategy",                 avatarColor: "#34c759" },
   { email: "o.mansour@meridian-energy.com",   name: "Omar Mansour",       role: "management" as const, title: "VP Operations",               avatarColor: "#ff9500" },
-  { email: "e.rossi@meridian-energy.com",     name: "Elena Rossi",        role: "management" as const, title: "Head of Finance",             avatarColor: "#ff2d55" },
+  { email: "e.rossi@meridian-energy.com",     name: "Elena Rossi",        role: "management" as const, title: "Head of Compliance",          avatarColor: "#ff2d55" },
   { email: "j.kim@meridian-energy.com",       name: "Jun Kim",            role: "management" as const, title: "Head of HR",                  avatarColor: "#30b0c7" },
-  { email: "s.blanc@meridian-energy.com",     name: "Sophie Blanc",       role: "management" as const, title: "Chief Risk Officer",          avatarColor: "#af52de" },
+  { email: "s.blanc@meridian-energy.com",     name: "Sophie Blanc",       role: "management" as const, title: "Head of ESG",                 avatarColor: "#af52de" },
   { email: "r.nair@meridian-energy.com",      name: "Raj Nair",           role: "management" as const, title: "CTO",                         avatarColor: "#64d2ff" },
 ];
 
@@ -200,6 +200,9 @@ export async function seed() {
     allPeople = await db.select().from(peopleTable);
     allBoards = await db.select().from(boardsTable);
   }
+
+  // Always run title migration regardless of seed state
+  await migratePeopleTitles();
 
   // Always check if demo data needs to be added
   const existingMeetings = await db.select().from(meetingsTable);
@@ -466,4 +469,27 @@ export async function seed() {
   await grantAccess("task", task4.id, [raj.id, ahmed.id]);
 
   logger.info("Demo data seeded: meetings, votes, minutes, tasks");
+}
+
+/**
+ * One-time migration: correct people titles that were wrong in earlier seeds.
+ * Safe to run repeatedly — only updates rows where the title still has the old value.
+ */
+async function migratePeopleTitles() {
+  const TITLE_FIXES: Array<{ email: string; oldTitles: string[]; newTitle: string }> = [
+    { email: "s.chen@meridian-energy.com",     oldTitles: ["Board Director"],        newTitle: "Independent Director"    },
+    { email: "f.alhosani@meridian-energy.com", oldTitles: ["Executive Director"],    newTitle: "Non-Executive Director"  },
+    { email: "y.tanaka@meridian-energy.com",   oldTitles: ["Board Director"],        newTitle: "Independent Director"    },
+    { email: "m.santos@meridian-energy.com",   oldTitles: ["Board Director"],        newTitle: "Non-Executive Director"  },
+    { email: "e.rossi@meridian-energy.com",    oldTitles: ["Head of Finance"],       newTitle: "Head of Compliance"      },
+    { email: "s.blanc@meridian-energy.com",    oldTitles: ["Chief Risk Officer"],    newTitle: "Head of ESG"             },
+  ];
+
+  for (const fix of TITLE_FIXES) {
+    const [person] = await db.select().from(peopleTable).where(eq(peopleTable.email, fix.email));
+    if (person && fix.oldTitles.includes(person.title || "")) {
+      await db.update(peopleTable).set({ title: fix.newTitle }).where(eq(peopleTable.email, fix.email));
+      logger.info({ email: fix.email, newTitle: fix.newTitle }, "Migrated person title");
+    }
+  }
 }

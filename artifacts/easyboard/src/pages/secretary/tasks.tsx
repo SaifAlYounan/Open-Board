@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { useLocation } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
 import { useListTasks, useListPeople, useListBoards, useCreateTask, getListTasksQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, CheckSquare, AlertTriangle } from 'lucide-react';
+import { Plus, CheckSquare, AlertTriangle, ArrowRight } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, { color: string; label: string }> = {
   todo: { color: '#86868b', label: 'To Do' },
@@ -19,6 +20,7 @@ export default function SecretaryTasks() {
   const { data: people } = useListPeople();
   const { data: boards } = useListBoards();
   const [showCreate, setShowCreate] = useState(false);
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const createTask = useCreateTask();
@@ -107,31 +109,31 @@ export default function SecretaryTasks() {
               const statusInfo = STATUS_COLORS[task.status] || { color: '#86868b', label: task.status };
               const overdue = isOverdue(task);
               return (
-                <div key={task.id}
-                  className={`bg-white rounded-2xl border p-5 ${overdue ? 'border-[#ff3b30]/30' : 'border-[#e5e5e7]'}`}
+                <button key={task.id}
+                  onClick={() => setLocation(`/secretary/tasks/${task.id}`)}
+                  className={`w-full bg-white rounded-2xl border p-5 text-left hover:shadow-sm transition-all flex items-center gap-4 ${overdue ? 'border-[#ff3b30]/30' : 'border-[#e5e5e7]'}`}
                   style={overdue ? { borderLeftWidth: 4, borderLeftColor: '#ff3b30' } : {}}
                   data-testid={`task-card-${task.id}`}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        {task.taskNumber && <span className="text-xs font-mono text-[#86868b]">{task.taskNumber}</span>}
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                          backgroundColor: statusInfo.color + '20', color: statusInfo.color
-                        }}>{statusInfo.label}</span>
-                        {task.aiExtracted && <span className="text-xs bg-[#0071e3]/10 text-[#0071e3] px-1.5 py-0.5 rounded-full font-medium">AI</span>}
-                        {overdue && <AlertTriangle size={12} className="text-[#ff3b30]" />}
-                      </div>
-                      <div className="font-medium text-[#1d1d1f]">{task.title}</div>
-                      {task.assignee && <div className="text-xs text-[#86868b] mt-0.5">Assigned to {task.assignee.name}</div>}
-                      {task.dueDate && (
-                        <div className={`text-xs mt-1 ${overdue ? 'text-[#ff3b30] font-medium' : 'text-[#86868b]'}`}>
-                          Due: {new Date(task.dueDate).toLocaleDateString()}
-                        </div>
-                      )}
-                      {task.sourceMeetingTitle && <div className="text-xs text-[#86868b] mt-0.5">From: {task.sourceMeetingTitle}</div>}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      {task.taskNumber && <span className="text-xs font-mono text-[#86868b]">{task.taskNumber}</span>}
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
+                        backgroundColor: statusInfo.color + '20', color: statusInfo.color
+                      }}>{statusInfo.label}</span>
+                      {task.aiExtracted && <span className="text-xs bg-[#0071e3]/10 text-[#0071e3] px-1.5 py-0.5 rounded-full font-medium">AI</span>}
+                      {overdue && <AlertTriangle size={12} className="text-[#ff3b30]" />}
                     </div>
+                    <div className="font-medium text-[#1d1d1f] truncate">{task.title}</div>
+                    {task.assignee && <div className="text-xs text-[#86868b] mt-0.5">Assigned to {task.assignee.name}</div>}
+                    {task.dueDate && (
+                      <div className={`text-xs mt-1 ${overdue ? 'text-[#ff3b30] font-medium' : 'text-[#86868b]'}`}>
+                        Due: {new Date(task.dueDate).toLocaleDateString()}
+                      </div>
+                    )}
+                    {task.sourceMeetingTitle && <div className="text-xs text-[#86868b] mt-0.5">From: {task.sourceMeetingTitle}</div>}
                   </div>
-                </div>
+                  <ArrowRight size={14} className="text-[#86868b] flex-shrink-0" />
+                </button>
               );
             })}
             {!isLoading && (!tasks || (tasks as any[]).length === 0) && (
