@@ -345,7 +345,7 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
       res.status(409).json({ error: "You have already voted" });
       return;
     }
-    console.error("[votes] cast error:", (anyErr as any).message);
+    console.error("[votes] cast error:", anyErr.message);
     res.status(500).json({ error: "Failed to record vote" });
   }
 });

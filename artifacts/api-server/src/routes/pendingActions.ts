@@ -40,15 +40,23 @@ function parseAIDate(dateStr: string | undefined | null): Date {
   }
 
   if (bare.includes("T")) {
-    // Parse components explicitly and construct a UTC Date directly from the wall-clock
-    // digits. Using Date.UTC avoids any JS engine timezone interpretation — new Date(str)
-    // can shift times on non-UTC hosts or when the string has an intact offset suffix.
-    // The wall-clock hour (the literal "10" in "10:00:00-06:00") is the intended hour;
-    // we extract it and store it as-is in UTC, ignoring the offset completely.
+    // Parse the date/time components from the bare (suffix-free) string.
     const [datePart, timePart] = bare.split("T");
     const [yr, mo, dy] = datePart.split("-").map(Number);
     const [hh = 0, mm = 0, ss = 0] = timePart.split(":").map(Number);
-    return new Date(Date.UTC(yr, mo - 1, dy, hh, mm, ss));
+
+    // If the AI included a timezone offset, convert the local wall-clock time to UTC:
+    //   UTC = local − offset  →  UTC_minutes = local_minutes − offset_minutes
+    // Example: "10:00:00-06:00" means 10am in UTC-6, which is 16:00 UTC.
+    //   offsetSign=-1, offH=6, offM=0 → offsetMins = -1*(360) = -360
+    //   utcMins = 0 − (−360) = +360  →  Date.UTC(yr,mo,dy, 10, 360, 0) = 16:00 UTC ✓
+    // Without an offset (Z is treated as UTC, offsetMins stays 0): store as-is in UTC.
+    let offsetMins = 0;
+    if (offsetMatch) {
+      const sign = offsetMatch[1] === "+" ? 1 : -1;
+      offsetMins = sign * (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3]));
+    }
+    return new Date(Date.UTC(yr, mo - 1, dy, hh, mm - offsetMins, ss));
   }
 
   // Date-only string — use noon UTC to avoid DST rollover issues
