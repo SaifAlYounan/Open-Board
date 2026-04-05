@@ -8,8 +8,10 @@ import {
   tasksTable,
   pendingActionsTable,
   accessControlTable,
+  boardMembershipsTable,
+  voteRecordsTable,
 } from "@workspace/db";
-import { eq, and, ne, sql } from "drizzle-orm";
+import { eq, and, ne, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { callAI, getDatabaseContext, SUGGEST_PROMPT } from "../lib/ai";
 import { boardsTable } from "@workspace/db";
@@ -171,22 +173,32 @@ router.get("/dashboard/ai-insights", requireAuth, async (req, res): Promise<void
   const pendingItems: string[] = [];
 
   if (user.role === "member") {
-    // Accurate vote status — check if user has ALREADY voted (MISSING 8 fix)
-    const { boardMembershipsTable: bmTable, voteRecordsTable: vrTable } = await import("@workspace/db");
-    const memberships = await db.select().from(bmTable).where(eq(bmTable.personId, user.id));
+    // Vote status: query vote_records for req.user.id scoped to the user's open votes
+    // so the AI prompt context accurately reflects "ALREADY CAST YOUR VOTE" post-vote.
+    const memberships = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.personId, user.id));
     const memberBoardIds = new Set(memberships.map((m) => m.boardId));
 
     const openVotes = await db.select().from(votesTable).where(eq(votesTable.status, "open"));
-    const myOpenVotes = openVotes.filter((v) => v.boardId && memberBoardIds.has(v.boardId));
-    const myVoteRecords = await db.select().from(vrTable).where(eq(vrTable.personId, user.id));
+    const myOpenVotes = openVotes.filter((v) => v.boardId && memberBoardIds.has(v.boardId)).slice(0, 5);
+
+    // Fetch vote records scoped to only the open votes this user can see — prevents
+    // stale records from closed/archived ballots from influencing the insight context.
+    const myVoteRecords = myOpenVotes.length > 0
+      ? await db.select().from(voteRecordsTable).where(
+          and(
+            eq(voteRecordsTable.personId, user.id),
+            inArray(voteRecordsTable.voteId, myOpenVotes.map((v) => v.id))
+          )
+        )
+      : [];
     const votedIds = new Set(myVoteRecords.map((r) => r.voteId));
 
-    for (const v of myOpenVotes.slice(0, 5)) {
+    for (const v of myOpenVotes) {
       const alreadyVoted = votedIds.has(v.id);
       pendingItems.push(`Open vote: "${v.title}" [${v.resolutionNumber}] — ${alreadyVoted ? "you have ALREADY CAST YOUR VOTE" : "AWAITING YOUR VOTE"} deadline: ${v.deadline || "none"}`);
     }
 
-    // Accurate signing status — check if user has ALREADY signed (MISSING 8 fix)
+    // Signing status: check if user has ALREADY signed each set of minutes in the signing stage.
     const signingMinutes = await db.select().from(minutesTable).where(eq(minutesTable.status, "signing"));
     const mySignatures = await db.select().from(minutesSignaturesTable).where(eq(minutesSignaturesTable.personId, user.id));
     const signedIds = new Set(mySignatures.map((s) => s.minutesId));
