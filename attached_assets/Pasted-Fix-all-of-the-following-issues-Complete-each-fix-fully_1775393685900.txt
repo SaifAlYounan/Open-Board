@@ -1,0 +1,39 @@
+Fix all of the following issues. Complete each fix fully before moving to the next.
+
+**FIX 1 — SEED DATA (CRITICAL)**
+Delete all current seed data and replace with EXACTLY the 20 people from the build prompt's Seed Script section. The current seed has wrong names (Sarah Al-Mansoori instead of Nadia Petrov), wrong emails (@meridian.ae instead of @meridian-energy.com), wrong titles, and wrong board memberships. Use the EXACT emails, names, titles, roles, avatar colors, and board memberships specified in the prompt. All passwords: Meridian2024! hashed with bcryptjs. Re-run the seed on restart.
+
+**FIX 2 — MINUTES WORKFLOW**
+When AI classifies a document as draft_minutes and the Secretary approves the create_minutes action:
+- Create a minutes entity in the minutes table with the document's extracted text as content
+- Let Secretary pick which meeting to link it to (dropdown of existing meetings, or "No meeting — create standalone")
+- Set status to draft
+- Add status transition buttons on the minutes detail page: Draft → Review → Signing → Signed
+- When status = review: board members see the minutes with "💬 Add Comment" below each paragraph. Comments saved to minutes_suggestions with original_text = the paragraph text. Comments appear in right sidebar grouped by paragraph.
+- When status = signing: board members see "✍️ Sign" button. Signature animation (CSS fade-in + scale 0.5s, Dancing Script font). SHA-256 hash = SHA-256(content + name + ISO timestamp). Hash displayed in signature block.
+- When all required signers have signed, status automatically moves to signed.
+
+**FIX 3 — MANUAL CRUD FORMS**
+Add manual create forms accessible from each section. The Secretary must be able to create everything without AI:
+- Meetings page: blue "+ Create Meeting" button top right → form with title, date/time, board (dropdown), location, and dynamic agenda items (add/remove items with title, type dropdown information/discussion/decision, description)
+- Votes page: blue "+ Create Vote" button → form with title, resolution text (textarea), board (dropdown), type (meeting/circulation radio), deadline (date picker), and approval rule configuration (presets: Unanimous, Simple Majority, Two-Thirds, Three-Quarters; or Custom with min_approvals, required_voters, weighted, recused, quorum, deadline_behavior)
+- Minutes page: blue "+ Create Minutes" button → form with meeting (dropdown of existing meetings), content (Tiptap rich text editor, editable for Secretary)
+- Tasks page: blue "+ Create Task" button → form with title, description, assignee (dropdown of all people), board (dropdown), deadline (date picker), source paragraph (optional textarea)
+These forms create entities directly in the database with no AI, no pending_actions. Call grantDefaultAccess() after creation.
+
+**FIX 4 — DOCUMENT UPLOAD ZONE POSITION**
+Move the document upload drop zone ABOVE the stat cards on the Secretary dashboard. It should be the first thing visible after the AI Command bar.
+
+**FIX 5 — "RETRY CLASSIFICATION" BUTTON**
+On the Documents page, any document with aiClassification = null should show a badge "⚠️ Classification pending" and a "Retry Classification" button. Clicking it re-sends the document text to the AI CLASSIFY endpoint and updates the document.
+
+**FIX 6 — MEETING TITLE FROM AI**
+When a meeting is created via AI (either CLASSIFY or COMMAND), use the title from action_data.details.title. If no title exists, generate one from board name + date (e.g., "Board of Directors — 6 April 2026"). Never show "Untitled Meeting".
+
+**FIX 7 — INVALID DATE ON DOCUMENTS**
+The document card shows "Invalid Date" next to file size. Fix the date formatter — createdAt is a valid ISO timestamp. Display as "Apr 5, 2026".
+
+**FIX 8 — SIDEBAR SCROLL**
+Make the Secretary sidebar navigation scroll independently from the main content. All 8 items (Pending AI Actions, Minutes, Votes, Meetings, Tasks, Documents, Members, Settings) should be visible or scrollable without scrolling the main content.
+
+TEST after all fixes: Log in as a.alrashid@meridian-energy.com / Meridian2024! (Secretary). Verify all 20 users exist with correct names. Upload a .txt file and verify AI classification runs. Create a meeting manually. Create a vote manually. Check that documents show proper dates.
