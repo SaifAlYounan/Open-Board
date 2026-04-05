@@ -3,20 +3,42 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: EasyBoard v2 API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: people
+    description: User management
+  - name: boards
+    description: Board management
+  - name: meetings
+    description: Meeting management
+  - name: votes
+    description: Vote management
+  - name: minutes
+    description: Minutes management
+  - name: documents
+    description: Document management
+  - name: tasks
+    description: Task management
+  - name: pending-actions
+    description: AI pending actions queue
+  - name: ai
+    description: AI features
+  - name: dashboard
+    description: Dashboard aggregates
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +46,1081 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Auth
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with email/password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  # Dashboard
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary for current user
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/ai-insights:
+    get:
+      operationId: getDashboardAiInsights
+      tags: [dashboard]
+      summary: Get AI-generated dashboard insights for current user
+      responses:
+        "200":
+          description: AI insights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiInsightsResponse"
+
+  # People
+  /people:
+    get:
+      operationId: listPeople
+      tags: [people]
+      summary: List all people
+      responses:
+        "200":
+          description: List of people
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Person"
+    post:
+      operationId: createPerson
+      tags: [people]
+      summary: Create a new person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePersonBody"
+      responses:
+        "201":
+          description: Created person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+
+  /people/{id}:
+    get:
+      operationId: getPerson
+      tags: [people]
+      summary: Get a person by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+    patch:
+      operationId: updatePerson
+      tags: [people]
+      summary: Update a person
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePersonBody"
+      responses:
+        "200":
+          description: Updated person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+    delete:
+      operationId: deletePerson
+      tags: [people]
+      summary: Delete a person
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  # Boards
+  /boards:
+    get:
+      operationId: listBoards
+      tags: [boards]
+      summary: List boards accessible to current user
+      responses:
+        "200":
+          description: List of boards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Board"
+    post:
+      operationId: createBoard
+      tags: [boards]
+      summary: Create a new board
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBoardBody"
+      responses:
+        "201":
+          description: Created board
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Board"
+
+  /boards/{id}:
+    get:
+      operationId: getBoard
+      tags: [boards]
+      summary: Get a board by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Board with members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BoardWithMembers"
+
+  /boards/{id}/members:
+    get:
+      operationId: getBoardMembers
+      tags: [boards]
+      summary: Get members of a board
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Board members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BoardMember"
+    post:
+      operationId: addBoardMember
+      tags: [boards]
+      summary: Add a member to a board
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddBoardMemberBody"
+      responses:
+        "201":
+          description: Member added
+
+  # Meetings
+  /meetings:
+    get:
+      operationId: listMeetings
+      tags: [meetings]
+      summary: List meetings accessible to current user
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of meetings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Meeting"
+    post:
+      operationId: createMeeting
+      tags: [meetings]
+      summary: Create a meeting (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMeetingBody"
+      responses:
+        "201":
+          description: Created meeting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+
+  /meetings/{id}:
+    get:
+      operationId: getMeeting
+      tags: [meetings]
+      summary: Get a meeting by ID with agenda
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meeting with agenda
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeetingDetail"
+    patch:
+      operationId: updateMeeting
+      tags: [meetings]
+      summary: Update a meeting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeetingBody"
+      responses:
+        "200":
+          description: Updated meeting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Meeting"
+    delete:
+      operationId: deleteMeeting
+      tags: [meetings]
+      summary: Delete a meeting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /meetings/{id}/attendance:
+    get:
+      operationId: getMeetingAttendance
+      tags: [meetings]
+      summary: Get attendance for a meeting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Attendance list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttendanceRecord"
+    patch:
+      operationId: updateAttendance
+      tags: [meetings]
+      summary: Update attendance status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAttendanceBody"
+      responses:
+        "200":
+          description: Updated attendance
+
+  # Votes
+  /votes:
+    get:
+      operationId: listVotes
+      tags: [votes]
+      summary: List votes accessible to current user
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of votes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vote"
+    post:
+      operationId: createVote
+      tags: [votes]
+      summary: Create a vote (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVoteBody"
+      responses:
+        "201":
+          description: Created vote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vote"
+
+  /votes/{id}:
+    get:
+      operationId: getVote
+      tags: [votes]
+      summary: Get a vote by ID with vote records
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vote detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoteDetail"
+    patch:
+      operationId: updateVote
+      tags: [votes]
+      summary: Update a vote (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVoteBody"
+      responses:
+        "200":
+          description: Updated vote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vote"
+    delete:
+      operationId: deleteVote
+      tags: [votes]
+      summary: Delete a vote (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /votes/{id}/cast:
+    post:
+      operationId: castVote
+      tags: [votes]
+      summary: Cast a vote (member only, once per vote)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CastVoteBody"
+      responses:
+        "200":
+          description: Vote cast
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoteRecord"
+        "409":
+          description: Already voted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /votes/{id}/certificate:
+    get:
+      operationId: getVoteCertificate
+      tags: [votes]
+      summary: Get vote certificate HTML
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Certificate data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoteCertificate"
+
+  # Minutes
+  /minutes:
+    get:
+      operationId: listMinutes
+      tags: [minutes]
+      summary: List minutes accessible to current user
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of minutes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Minutes"
+    post:
+      operationId: createMinutes
+      tags: [minutes]
+      summary: Create minutes (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMinutesBody"
+      responses:
+        "201":
+          description: Created minutes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Minutes"
+
+  /minutes/{id}:
+    get:
+      operationId: getMinutes
+      tags: [minutes]
+      summary: Get minutes by ID with content, comments, signatures
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Minutes detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MinutesDetail"
+    patch:
+      operationId: updateMinutes
+      tags: [minutes]
+      summary: Update minutes content (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMinutesBody"
+      responses:
+        "200":
+          description: Updated minutes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Minutes"
+
+  /minutes/{id}/status:
+    patch:
+      operationId: updateMinutesStatus
+      tags: [minutes]
+      summary: Advance minutes workflow status (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMinutesStatusBody"
+      responses:
+        "200":
+          description: Updated status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Minutes"
+
+  /minutes/{id}/sign:
+    post:
+      operationId: signMinutes
+      tags: [minutes]
+      summary: Sign minutes (member only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MinutesSignature"
+
+  /minutes/{id}/comments:
+    get:
+      operationId: getMinutesComments
+      tags: [minutes]
+      summary: Get comments on minutes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MinutesComment"
+    post:
+      operationId: addMinutesComment
+      tags: [minutes]
+      summary: Add a comment to minutes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMinutesCommentBody"
+      responses:
+        "201":
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MinutesComment"
+
+  /minutes/{id}/comments/{commentId}:
+    patch:
+      operationId: resolveMinutesComment
+      tags: [minutes]
+      summary: Resolve a comment (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveCommentBody"
+      responses:
+        "200":
+          description: Comment resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MinutesComment"
+
+  # Documents
+  /documents:
+    get:
+      operationId: listDocuments
+      tags: [documents]
+      summary: List documents accessible to current user
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Document"
+
+  /documents/{id}:
+    get:
+      operationId: getDocument
+      tags: [documents]
+      summary: Get a document by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+    delete:
+      operationId: deleteDocument
+      tags: [documents]
+      summary: Delete a document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /documents/{id}/reclassify:
+    post:
+      operationId: reclassifyDocument
+      tags: [documents]
+      summary: Retry AI classification for a document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Classification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+
+  # Tasks
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List tasks accessible to current user
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: assigneeId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create a task (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskBody"
+      responses:
+        "201":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get a task by ID with evidence
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+    patch:
+      operationId: updateTask
+      tags: [tasks]
+      summary: Update a task (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskBody"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      tags: [tasks]
+      summary: Delete a task (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /tasks/{id}/evidence/review:
+    post:
+      operationId: reviewTaskEvidence
+      tags: [tasks]
+      summary: Secretary confirms or rejects AI-approved evidence
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewEvidenceBody"
+      responses:
+        "200":
+          description: Evidence review saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskEvidence"
+
+  # Pending Actions (AI queue)
+  /pending-actions:
+    get:
+      operationId: listPendingActions
+      tags: [pending-actions]
+      summary: List pending AI actions (admin only)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of pending actions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingAction"
+
+  /pending-actions/{id}/approve:
+    post:
+      operationId: approvePendingAction
+      tags: [pending-actions]
+      summary: Approve a pending AI action (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveActionBody"
+      responses:
+        "200":
+          description: Action approved and entity created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApproveActionResponse"
+
+  /pending-actions/{id}/reject:
+    post:
+      operationId: rejectPendingAction
+      tags: [pending-actions]
+      summary: Reject a pending AI action (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectActionBody"
+      responses:
+        "200":
+          description: Action rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingAction"
+
+  # AI endpoints
+  /ai/command:
+    post:
+      operationId: aiCommand
+      tags: [ai]
+      summary: Execute a natural language command (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiCommandBody"
+      responses:
+        "200":
+          description: Command processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCommandResponse"
+
+  /ai/search:
+    post:
+      operationId: aiSearch
+      tags: [ai]
+      summary: Natural language search across board data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiSearchBody"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSearchResponse"
+
+  /ai/status:
+    get:
+      operationId: getAiStatus
+      tags: [ai]
+      summary: Check if AI features are configured
+      responses:
+        "200":
+          description: AI status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatusResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +1131,1231 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    # Auth
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/Person"
+      required:
+        - token
+        - user
+
+    # Person
+    Person:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, member, observer, management]
+        title:
+          type: ["string", "null"]
+        avatarColor:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - email
+        - name
+        - role
+        - createdAt
+
+    CreatePersonBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, member, observer, management]
+        title:
+          type: ["string", "null"]
+        avatarColor:
+          type: ["string", "null"]
+      required:
+        - email
+        - password
+        - name
+        - role
+
+    UpdatePersonBody:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        avatarColor:
+          type: ["string", "null"]
+        role:
+          type: ["string", "null"]
+
+    # Board
+    Board:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: ["string", "null"]
+        name:
+          type: string
+        abbreviation:
+          type: ["string", "null"]
+        type:
+          type: string
+          enum: [board, committee]
+        memberCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - type
+        - memberCount
+        - createdAt
+
+    BoardWithMembers:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: ["string", "null"]
+        name:
+          type: string
+        abbreviation:
+          type: ["string", "null"]
+        type:
+          type: string
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/BoardMember"
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - type
+        - members
+        - createdAt
+
+    BoardMember:
+      type: object
+      properties:
+        id:
+          type: string
+        personId:
+          type: string
+        boardId:
+          type: string
+        roleInBoard:
+          type: ["string", "null"]
+        person:
+          $ref: "#/components/schemas/Person"
+      required:
+        - id
+        - personId
+        - boardId
+        - person
+
+    CreateBoardBody:
+      type: object
+      properties:
+        name:
+          type: string
+        abbreviation:
+          type: ["string", "null"]
+        type:
+          type: string
+          enum: [board, committee]
+      required:
+        - name
+        - type
+
+    AddBoardMemberBody:
+      type: object
+      properties:
+        personId:
+          type: string
+        roleInBoard:
+          type: ["string", "null"]
+      required:
+        - personId
+
+    # Meeting
+    Meeting:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: string
+        title:
+          type: string
+        date:
+          type: string
+        location:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [scheduled, concluded]
+        boardName:
+          type: ["string", "null"]
+        boardAbbreviation:
+          type: ["string", "null"]
+        agendaItemCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - boardId
+        - title
+        - date
+        - status
+        - agendaItemCount
+        - createdAt
+
+    MeetingDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: string
+        title:
+          type: string
+        date:
+          type: string
+        location:
+          type: ["string", "null"]
+        status:
+          type: string
+        boardName:
+          type: ["string", "null"]
+        boardAbbreviation:
+          type: ["string", "null"]
+        agendaItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgendaItem"
+        attendance:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceRecord"
+        createdAt:
+          type: string
+      required:
+        - id
+        - boardId
+        - title
+        - date
+        - status
+        - agendaItems
+        - attendance
+        - createdAt
+
+    AgendaItem:
+      type: object
+      properties:
+        id:
+          type: string
+        meetingId:
+          type: string
+        position:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          enum: [information, discussion, decision]
+        description:
+          type: ["string", "null"]
+        voteId:
+          type: ["string", "null"]
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+      required:
+        - id
+        - meetingId
+        - position
+        - title
+        - type
+        - documents
+
+    AttendanceRecord:
+      type: object
+      properties:
+        personId:
+          type: string
+        meetingId:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, pending, proxy, absent]
+        proxyHolderId:
+          type: ["string", "null"]
+        person:
+          $ref: "#/components/schemas/Person"
+      required:
+        - personId
+        - meetingId
+        - status
+        - person
+
+    CreateMeetingBody:
+      type: object
+      properties:
+        boardId:
+          type: string
+        title:
+          type: string
+        date:
+          type: string
+        location:
+          type: ["string", "null"]
+        agendaItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreateAgendaItemBody"
+      required:
+        - boardId
+        - title
+        - date
+
+    CreateAgendaItemBody:
+      type: object
+      properties:
+        position:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          enum: [information, discussion, decision]
+        description:
+          type: ["string", "null"]
+      required:
+        - position
+        - title
+        - type
+
+    UpdateMeetingBody:
+      type: object
+      properties:
+        title:
+          type: ["string", "null"]
+        date:
+          type: ["string", "null"]
+        location:
+          type: ["string", "null"]
+        status:
+          type: ["string", "null"]
+
+    UpdateAttendanceBody:
+      type: object
+      properties:
+        updates:
+          type: array
+          items:
+            type: object
+            properties:
+              personId:
+                type: string
+              status:
+                type: string
+                enum: [confirmed, pending, proxy, absent]
+              proxyHolderId:
+                type: ["string", "null"]
+            required:
+              - personId
+              - status
+      required:
+        - updates
+
+    # Vote
+    Vote:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: string
+        meetingId:
+          type: ["string", "null"]
+        resolutionNumber:
+          type: string
+        title:
+          type: string
+        resolutionText:
+          type: string
+        type:
+          type: string
+          enum: [meeting, circulation]
+        deadline:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [open, approved, rejected, lapsed]
+        boardName:
+          type: ["string", "null"]
+        boardAbbreviation:
+          type: ["string", "null"]
+        totalVoters:
+          type: integer
+        votescast:
+          type: integer
+        approvalsCount:
+          type: integer
+        hasVoted:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - boardId
+        - resolutionNumber
+        - title
+        - resolutionText
+        - type
+        - status
+        - totalVoters
+        - votescast
+        - approvalsCount
+        - hasVoted
+        - createdAt
+
+    VoteDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: string
+        meetingId:
+          type: ["string", "null"]
+        resolutionNumber:
+          type: string
+        title:
+          type: string
+        resolutionText:
+          type: string
+        type:
+          type: string
+        deadline:
+          type: ["string", "null"]
+        status:
+          type: string
+        boardName:
+          type: ["string", "null"]
+        totalVoters:
+          type: integer
+        votescast:
+          type: integer
+        approvalsCount:
+          type: integer
+        hasVoted:
+          type: boolean
+        myVote:
+          $ref: "#/components/schemas/VoteRecord"
+        voteRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoteRecord"
+        approvalRule:
+          $ref: "#/components/schemas/ApprovalRule"
+        certificateHash:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - boardId
+        - resolutionNumber
+        - title
+        - resolutionText
+        - type
+        - status
+        - totalVoters
+        - votescast
+        - approvalsCount
+        - hasVoted
+        - voteRecords
+        - createdAt
+
+    VoteRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        voteId:
+          type: string
+        personId:
+          type: string
+        decision:
+          type: string
+          enum: [approved, approved_with_comments, not_approved, not_approved_with_comments]
+        comment:
+          type: ["string", "null"]
+        votedAt:
+          type: string
+        person:
+          $ref: "#/components/schemas/Person"
+      required:
+        - id
+        - voteId
+        - personId
+        - decision
+        - votedAt
+        - person
+
+    ApprovalRule:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [unanimous, majority, two_thirds, three_quarters, custom]
+        minApprovals:
+          type: ["integer", "null"]
+        quorum:
+          type: ["integer", "null"]
+        weighted:
+          type: boolean
+        deadlineBehavior:
+          type: string
+        summaryText:
+          type: string
+      required:
+        - id
+        - type
+        - weighted
+        - deadlineBehavior
+        - summaryText
+
+    VoteCertificate:
+      type: object
+      properties:
+        voteId:
+          type: string
+        resolutionNumber:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        boardName:
+          type: string
+        closedAt:
+          type: ["string", "null"]
+        hash:
+          type: ["string", "null"]
+        voteRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoteRecord"
+      required:
+        - voteId
+        - resolutionNumber
+        - title
+        - status
+        - boardName
+        - voteRecords
+
+    CreateVoteBody:
+      type: object
+      properties:
+        boardId:
+          type: string
+        meetingId:
+          type: ["string", "null"]
+        resolutionNumber:
+          type: string
+        title:
+          type: string
+        resolutionText:
+          type: string
+        type:
+          type: string
+          enum: [meeting, circulation]
+        deadline:
+          type: ["string", "null"]
+        approvalRule:
+          $ref: "#/components/schemas/CreateApprovalRuleBody"
+      required:
+        - boardId
+        - resolutionNumber
+        - title
+        - resolutionText
+        - type
+
+    CreateApprovalRuleBody:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [unanimous, majority, two_thirds, three_quarters, custom]
+        minApprovals:
+          type: ["integer", "null"]
+        quorum:
+          type: ["integer", "null"]
+        weighted:
+          type: boolean
+        deadlineBehavior:
+          type: string
+          enum: [lapse, extend, notify]
+        requiredVoterIds:
+          type: array
+          items:
+            type: string
+        recusedIds:
+          type: array
+          items:
+            type: string
+      required:
+        - type
+
+    UpdateVoteBody:
+      type: object
+      properties:
+        title:
+          type: ["string", "null"]
+        resolutionText:
+          type: ["string", "null"]
+        deadline:
+          type: ["string", "null"]
+        status:
+          type: ["string", "null"]
+
+    CastVoteBody:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approved, approved_with_comments, not_approved, not_approved_with_comments]
+        comment:
+          type: ["string", "null"]
+      required:
+        - decision
+
+    # Minutes
+    Minutes:
+      type: object
+      properties:
+        id:
+          type: string
+        meetingId:
+          type: string
+        status:
+          type: string
+          enum: [draft, review, signing, signed]
+        meetingTitle:
+          type: ["string", "null"]
+        meetingDate:
+          type: ["string", "null"]
+        boardName:
+          type: ["string", "null"]
+        signatureCount:
+          type: integer
+        commentCount:
+          type: integer
+        hasSigned:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - meetingId
+        - status
+        - signatureCount
+        - commentCount
+        - hasSigned
+        - createdAt
+        - updatedAt
+
+    MinutesDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        meetingId:
+          type: string
+        content:
+          type: string
+        status:
+          type: string
+        meetingTitle:
+          type: ["string", "null"]
+        meetingDate:
+          type: ["string", "null"]
+        boardName:
+          type: ["string", "null"]
+        signatures:
+          type: array
+          items:
+            $ref: "#/components/schemas/MinutesSignature"
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/MinutesComment"
+        hasSigned:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - meetingId
+        - content
+        - status
+        - signatures
+        - comments
+        - hasSigned
+        - createdAt
+        - updatedAt
+
+    MinutesSignature:
+      type: object
+      properties:
+        id:
+          type: string
+        minutesId:
+          type: string
+        personId:
+          type: string
+        signatureHash:
+          type: string
+        signedAt:
+          type: string
+        person:
+          $ref: "#/components/schemas/Person"
+      required:
+        - id
+        - minutesId
+        - personId
+        - signatureHash
+        - signedAt
+        - person
+
+    MinutesComment:
+      type: object
+      properties:
+        id:
+          type: string
+        minutesId:
+          type: string
+        personId:
+          type: string
+        originalText:
+          type: string
+        commentText:
+          type: string
+        status:
+          type: string
+          enum: [pending, resolved]
+        color:
+          type: string
+        createdAt:
+          type: string
+        person:
+          $ref: "#/components/schemas/Person"
+      required:
+        - id
+        - minutesId
+        - personId
+        - originalText
+        - commentText
+        - status
+        - color
+        - createdAt
+        - person
+
+    CreateMinutesBody:
+      type: object
+      properties:
+        meetingId:
+          type: string
+        content:
+          type: string
+      required:
+        - meetingId
+        - content
+
+    UpdateMinutesBody:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    UpdateMinutesStatusBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [draft, review, signing, signed]
+      required:
+        - status
+
+    AddMinutesCommentBody:
+      type: object
+      properties:
+        originalText:
+          type: string
+        commentText:
+          type: string
+      required:
+        - originalText
+        - commentText
+
+    ResolveCommentBody:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, resolved]
+      required:
+        - status
+
+    # Document
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: ["string", "null"]
+        title:
+          type: string
+        filename:
+          type: string
+        fileSize:
+          type: ["integer", "null"]
+        mimeType:
+          type: ["string", "null"]
+        aiClassification:
+          type: ["object", "null"]
+        uploadedBy:
+          type: ["string", "null"]
+        uploaderName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - title
+        - filename
+        - createdAt
+
+    # Task
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: ["string", "null"]
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        assigneeId:
+          type: ["string", "null"]
+        taskNumber:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [todo, in_progress, evidence_submitted, pending_review, done, overdue]
+        dueDate:
+          type: ["string", "null"]
+        aiExtracted:
+          type: boolean
+        sourceParagraph:
+          type: ["string", "null"]
+        sourceMeetingId:
+          type: ["string", "null"]
+        sourceMinutesId:
+          type: ["string", "null"]
+        assignee:
+          $ref: "#/components/schemas/Person"
+        sourceMeetingTitle:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - title
+        - status
+        - aiExtracted
+        - createdAt
+
+    TaskDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        boardId:
+          type: ["string", "null"]
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        assigneeId:
+          type: ["string", "null"]
+        taskNumber:
+          type: ["string", "null"]
+        status:
+          type: string
+        dueDate:
+          type: ["string", "null"]
+        aiExtracted:
+          type: boolean
+        sourceParagraph:
+          type: ["string", "null"]
+        sourceMeetingId:
+          type: ["string", "null"]
+        sourceMinutesId:
+          type: ["string", "null"]
+        assignee:
+          $ref: "#/components/schemas/Person"
+        sourceMeetingTitle:
+          type: ["string", "null"]
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskEvidence"
+        createdAt:
+          type: string
+      required:
+        - id
+        - title
+        - status
+        - aiExtracted
+        - evidence
+        - createdAt
+
+    TaskEvidence:
+      type: object
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        submittedBy:
+          type: ["string", "null"]
+        fileName:
+          type: ["string", "null"]
+        fileSize:
+          type: ["integer", "null"]
+        aiVerdict:
+          type: ["string", "null"]
+          enum: [approved, rejected, pending, null]
+        aiReasoning:
+          type: ["string", "null"]
+        aiMissing:
+          type: ["object", "null"]
+        secretaryDecision:
+          type: ["string", "null"]
+          enum: [confirmed, rejected, pending, null]
+        secretaryComment:
+          type: ["string", "null"]
+        submittedAt:
+          type: string
+        reviewedAt:
+          type: ["string", "null"]
+        submitter:
+          $ref: "#/components/schemas/Person"
+      required:
+        - id
+        - taskId
+        - submittedAt
+        - submitter
+
+    CreateTaskBody:
+      type: object
+      properties:
+        boardId:
+          type: ["string", "null"]
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        assigneeId:
+          type: ["string", "null"]
+        sourceMeetingId:
+          type: ["string", "null"]
+        sourceMinutesId:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        sourceParagraph:
+          type: ["string", "null"]
+      required:
+        - title
+
+    UpdateTaskBody:
+      type: object
+      properties:
+        title:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        assigneeId:
+          type: ["string", "null"]
+        status:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+
+    ReviewEvidenceBody:
+      type: object
+      properties:
+        evidenceId:
+          type: string
+        decision:
+          type: string
+          enum: [confirmed, rejected]
+        comment:
+          type: ["string", "null"]
+      required:
+        - evidenceId
+        - decision
+
+    # Pending Actions
+    PendingAction:
+      type: object
+      properties:
+        id:
+          type: string
+        documentId:
+          type: ["string", "null"]
+        actionType:
+          type: string
+          enum: [create_minutes, create_vote, create_meeting, create_task, close_task, attach_to_meeting, flag_confidential]
+        actionData:
+          type: object
+        status:
+          type: string
+          enum: [pending, approved, rejected, modified]
+        secretaryNotes:
+          type: ["string", "null"]
+        documentTitle:
+          type: ["string", "null"]
+        documentFilename:
+          type: ["string", "null"]
+        aiConfidence:
+          type: ["number", "null"]
+        aiDescription:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        resolvedAt:
+          type: ["string", "null"]
+      required:
+        - id
+        - actionType
+        - actionData
+        - status
+        - createdAt
+
+    ApproveActionBody:
+      type: object
+      properties:
+        actionData:
+          type: object
+        secretaryNotes:
+          type: ["string", "null"]
+
+    ApproveActionResponse:
+      type: object
+      properties:
+        action:
+          $ref: "#/components/schemas/PendingAction"
+        createdEntity:
+          type: object
+      required:
+        - action
+
+    RejectActionBody:
+      type: object
+      properties:
+        secretaryNotes:
+          type: ["string", "null"]
+
+    # AI
+    AiCommandBody:
+      type: object
+      properties:
+        command:
+          type: string
+      required:
+        - command
+
+    AiCommandResponse:
+      type: object
+      properties:
+        understood:
+          type: boolean
+        interpretation:
+          type: string
+        pendingActionIds:
+          type: array
+          items:
+            type: string
+        error:
+          type: ["string", "null"]
+      required:
+        - understood
+        - interpretation
+        - pendingActionIds
+
+    AiSearchBody:
+      type: object
+      properties:
+        query:
+          type: string
+      required:
+        - query
+
+    AiSearchResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchSource"
+        error:
+          type: ["string", "null"]
+      required:
+        - answer
+        - sources
+
+    SearchSource:
+      type: object
+      properties:
+        entityType:
+          type: string
+        entityId:
+          type: string
+        title:
+          type: string
+      required:
+        - entityType
+        - entityId
+        - title
+
+    AiStatusResponse:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        message:
+          type: ["string", "null"]
+      required:
+        - configured
+
+    # Dashboard
+    DashboardSummary:
+      type: object
+      properties:
+        pendingVotesCount:
+          type: integer
+        minutesToSignCount:
+          type: integer
+        nextMeeting:
+          $ref: "#/components/schemas/Meeting"
+        minutesInReviewCount:
+          type: integer
+        myTasksCount:
+          type: integer
+        overdueTasksCount:
+          type: integer
+        pendingActionsCount:
+          type: integer
+        openVotesCount:
+          type: integer
+      required:
+        - pendingVotesCount
+        - minutesToSignCount
+        - minutesInReviewCount
+        - myTasksCount
+        - overdueTasksCount
+        - pendingActionsCount
+        - openVotesCount
+
+    AiInsightsResponse:
+      type: object
+      properties:
+        insights:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiInsight"
+        error:
+          type: ["string", "null"]
+      required:
+        - insights
+
+    AiInsight:
+      type: object
+      properties:
+        icon:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        actionLink:
+          type: ["object", "null"]
+          properties:
+            entityType:
+              type: string
+            entityId:
+              type: string
+      required:
+        - icon
+        - title
+        - detail

@@ -1,0 +1,1106 @@
+# EasyBoard v2 — Complete Build Prompt
+
+## Read This First
+
+EasyBoard v2 is an **AI-native board management portal**. The AI IS the product. Every document uploaded is parsed, classified, and cross-referenced by Claude. The AI proposes the next action. The Secretary approves or overrides. Everything else follows.
+
+**The demo IS the product.** Upload a document. Watch the AI process it. Approve the actions. See the results appear across all interfaces. The system starts empty — no pre-seeded meetings, votes, or documents.
+
+This is NOT a rebuild of v1. It is a reimagining of the core interaction model.
+
+**CRITICAL BUILD RULES:**
+1. Build in 4 phases. Complete each phase fully and test before starting the next.
+2. Do NOT skip steps or reorder phases.
+3. When a test checkpoint says "TEST:", stop and verify before proceeding.
+4. If something breaks, fix it before moving on — do NOT accumulate tech debt.
+
+---
+
+## The Core Concept: 5 Layers
+
+```
+Layer 0 — Document Brain     (invisible infrastructure)
+Layer 1 — Secretary          (AI copilot, approval queue)
+Layer 2 — Board Member       (zero friction, AI search)
+Layer 3 — Management         (tasks + evidence)
+Layer 4 — Observer           (read-only + comments)
+```
+
+**Layer 0 — Document Brain** is the invisible foundation. Every uploaded file goes through Claude classification. The AI returns structured JSON: `document_type`, `extracted_data`, `proposed_actions`. This is a trained classification system with clear rules for each document type.
+
+**Layer 1 — Secretary Interface** is an AI copilot. Upload a document → AI tells you what it will create and why → you approve, edit, or cancel. Natural language commands: "Schedule a BoD meeting for April 15 with GreenTech on the agenda" → AI creates it. Full CRUD override always available.
+
+**Layer 2 — Board Member Interface** is zero friction. One dashboard: pending votes, minutes to sign, next meeting. AI search bar: "When did we discuss Kazakhstan?" → AI finds the answer with source links. Vote in 2 clicks. Sign in 1 click. No admin controls anywhere.
+
+**Layer 3 — Management Interface** is task-centric. My Tasks front and center with status, deadlines, and source links. Evidence upload per task with AI review. Read-only view of board decisions.
+
+**Layer 4 — Observer Interface** is management minus task upload. Read-only access. Can comment on minutes in review. AI search.
+
+---
+
+## Environment Variables
+
+```
+DATABASE_URL=postgresql://...
+JWT_SECRET=<random 64 char hex>
+ANTHROPIC_API_KEY=sk-...
+NODE_ENV=production
+PORT=3000
+```
+
+The app MUST work without ANTHROPIC_API_KEY — all AI features show a blue banner: "AI features require configuration. Add your Anthropic API key in Settings." No crashes, no broken pages, no console errors.
+
+---
+
+## Package Choices
+
+```json
+{
+  "dependencies": {
+    "express": "^4.18",
+    "pg": "^8.11",
+    "bcryptjs": "^2.4",
+    "jsonwebtoken": "^9.0",
+    "socket.io": "^4.7",
+    "@anthropic-ai/sdk": "^0.30",
+    "@tiptap/react": "^2.2",
+    "@tiptap/starter-kit": "^2.2",
+    "@tiptap/extension-highlight": "^2.2",
+    "react": "^18.2",
+    "react-dom": "^18.2",
+    "react-router-dom": "^6.22",
+    "tailwindcss": "^3.4",
+    "crypto-js": "^4.2",
+    "multer": "^1.4",
+    "pdf-parse": "^1.1",
+    "mammoth": "^1.6"
+  }
+}
+```
+
+Use `bcryptjs` (pure JS, not `bcrypt` which has native bindings that fail on Replit). Use `pg` directly — no ORM. For PDF output, render as HTML with print styles and call `window.print()` — do NOT use puppeteer. Bundle Inter and Dancing Script fonts locally in `/public/fonts/` — do NOT use Google Fonts CDN.
+
+---
+
+## Full Database Schema (SQL)
+
+**CRITICAL:** Create tables in EXACTLY this order to satisfy foreign key dependencies. Do NOT reorder.
+
+```sql
+-- 1. Organization
+CREATE TABLE organizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  logo_path TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Boards/Committees
+CREATE TABLE boards (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID REFERENCES organizations(id),
+  name TEXT NOT NULL,
+  abbreviation TEXT,
+  type TEXT CHECK (type IN ('board', 'committee')) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. People
+CREATE TABLE people (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  role TEXT CHECK (role IN ('admin', 'member', 'observer', 'management')) NOT NULL,
+  title TEXT,
+  avatar_color TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Board Memberships
+CREATE TABLE board_memberships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id UUID REFERENCES boards(id),
+  person_id UUID REFERENCES people(id),
+  role_in_board TEXT DEFAULT 'member',
+  UNIQUE(board_id, person_id)
+);
+
+-- 5. Meetings (no FK to votes — votes reference meetings, not vice versa)
+CREATE TABLE meetings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id UUID REFERENCES boards(id),
+  title TEXT NOT NULL,
+  date TIMESTAMPTZ NOT NULL,
+  location TEXT,
+  status TEXT CHECK (status IN ('scheduled', 'concluded')) DEFAULT 'scheduled',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. Votes (references meetings — must come after meetings)
+CREATE TABLE votes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id UUID REFERENCES boards(id),
+  meeting_id UUID REFERENCES meetings(id),
+  resolution_number TEXT UNIQUE NOT NULL,
+  title TEXT NOT NULL,
+  resolution_text TEXT NOT NULL,
+  type TEXT CHECK (type IN ('meeting', 'circulation')) NOT NULL,
+  deadline TIMESTAMPTZ,
+  status TEXT CHECK (status IN ('open', 'approved', 'rejected', 'lapsed')) DEFAULT 'open',
+  certificate_hash TEXT,
+  closed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Agenda Items (references meetings AND votes — must come after both)
+CREATE TABLE agenda_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id UUID REFERENCES meetings(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  type TEXT CHECK (type IN ('information', 'discussion', 'decision')) NOT NULL,
+  description TEXT,
+  vote_id UUID REFERENCES votes(id)
+);
+
+-- 8. Documents
+CREATE TABLE documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id UUID REFERENCES boards(id),
+  title TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  file_path TEXT,
+  file_size INTEGER,
+  mime_type TEXT DEFAULT 'application/pdf',
+  ai_classification JSONB,
+  uploaded_by UUID REFERENCES people(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Agenda-Document Links
+CREATE TABLE agenda_documents (
+  agenda_item_id UUID REFERENCES agenda_items(id) ON DELETE CASCADE,
+  document_id UUID REFERENCES documents(id),
+  PRIMARY KEY (agenda_item_id, document_id)
+);
+
+-- 10. Vote Records
+CREATE TABLE vote_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vote_id UUID REFERENCES votes(id),
+  person_id UUID REFERENCES people(id),
+  decision TEXT CHECK (decision IN ('approved', 'approved_with_comments', 'not_approved', 'not_approved_with_comments')) NOT NULL,
+  comment TEXT,
+  proxy_for UUID REFERENCES people(id),
+  voted_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(vote_id, person_id)
+);
+
+-- 11. Minutes
+CREATE TABLE minutes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id UUID REFERENCES meetings(id) UNIQUE,
+  content TEXT NOT NULL,
+  status TEXT CHECK (status IN ('draft', 'review', 'signing', 'signed')) DEFAULT 'draft',
+  pdf_path TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. Minutes Suggestions (comments ONLY — no edit or deletion types)
+CREATE TABLE minutes_suggestions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  minutes_id UUID REFERENCES minutes(id),
+  person_id UUID REFERENCES people(id),
+  type TEXT CHECK (type IN ('comment')) NOT NULL DEFAULT 'comment',
+  original_text TEXT NOT NULL,
+  comment_text TEXT NOT NULL,
+  status TEXT CHECK (status IN ('pending', 'resolved')) DEFAULT 'pending',
+  color TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 13. Minutes Signatures
+CREATE TABLE minutes_signatures (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  minutes_id UUID REFERENCES minutes(id),
+  person_id UUID REFERENCES people(id),
+  signature_hash TEXT NOT NULL,
+  signed_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(minutes_id, person_id)
+);
+
+-- 14. Attendance
+CREATE TABLE attendance (
+  meeting_id UUID REFERENCES meetings(id) ON DELETE CASCADE,
+  person_id UUID REFERENCES people(id),
+  status TEXT CHECK (status IN ('confirmed', 'pending', 'proxy', 'absent')) DEFAULT 'pending',
+  proxy_holder_id UUID REFERENCES people(id),
+  PRIMARY KEY (meeting_id, person_id)
+);
+
+-- 15. Access Control (per-item permissions)
+CREATE TABLE access_control (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_type TEXT NOT NULL,
+  entity_id UUID NOT NULL,
+  person_id UUID REFERENCES people(id),
+  has_access BOOLEAN DEFAULT true,
+  UNIQUE(entity_type, entity_id, person_id)
+);
+
+-- 16. Approval Rules
+CREATE TABLE approval_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vote_id UUID REFERENCES votes(id) UNIQUE,
+  type TEXT CHECK (type IN ('unanimous', 'majority', 'two_thirds', 'three_quarters', 'custom')) NOT NULL,
+  min_approvals INTEGER,
+  quorum INTEGER,
+  weighted BOOLEAN DEFAULT false,
+  deadline_behavior TEXT CHECK (deadline_behavior IN ('lapse', 'extend', 'notify')) DEFAULT 'lapse',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE approval_rule_required_voters (
+  rule_id UUID REFERENCES approval_rules(id) ON DELETE CASCADE,
+  person_id UUID REFERENCES people(id),
+  PRIMARY KEY (rule_id, person_id)
+);
+
+CREATE TABLE approval_rule_weights (
+  rule_id UUID REFERENCES approval_rules(id) ON DELETE CASCADE,
+  person_id UUID REFERENCES people(id),
+  weight NUMERIC DEFAULT 1,
+  PRIMARY KEY (rule_id, person_id)
+);
+
+CREATE TABLE approval_rule_recusals (
+  rule_id UUID REFERENCES approval_rules(id) ON DELETE CASCADE,
+  person_id UUID REFERENCES people(id),
+  reason TEXT,
+  PRIMARY KEY (rule_id, person_id)
+);
+
+-- 17. Tasks
+CREATE TABLE tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id UUID REFERENCES boards(id),
+  title TEXT NOT NULL,
+  description TEXT,
+  assignee_id UUID REFERENCES people(id),
+  source_meeting_id UUID REFERENCES meetings(id),
+  source_minutes_id UUID REFERENCES minutes(id),
+  task_number TEXT UNIQUE,
+  status TEXT CHECK (status IN ('todo', 'in_progress', 'evidence_submitted', 'pending_review', 'done', 'overdue')) DEFAULT 'todo',
+  due_date DATE,
+  ai_extracted BOOLEAN DEFAULT false,
+  source_paragraph TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 18. Task Evidence
+CREATE TABLE task_evidence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id UUID REFERENCES tasks(id),
+  submitted_by UUID REFERENCES people(id),
+  file_path TEXT,
+  file_name TEXT,
+  file_size INTEGER,
+  ai_verdict TEXT CHECK (ai_verdict IN ('approved', 'rejected', 'pending')),
+  ai_reasoning TEXT,
+  ai_missing JSONB,
+  secretary_decision TEXT CHECK (secretary_decision IN ('confirmed', 'rejected', 'pending')),
+  secretary_comment TEXT,
+  submitted_at TIMESTAMPTZ DEFAULT NOW(),
+  reviewed_at TIMESTAMPTZ
+);
+
+-- 19. Pending Actions (core to v2 — the AI pipeline)
+CREATE TABLE pending_actions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id UUID REFERENCES documents(id),
+  action_type TEXT NOT NULL CHECK (action_type IN ('create_minutes', 'create_vote', 'create_meeting', 'create_task', 'close_task', 'attach_to_meeting', 'flag_confidential')),
+  action_data JSONB NOT NULL,
+  status TEXT CHECK (status IN ('pending', 'approved', 'rejected', 'modified')) DEFAULT 'pending',
+  secretary_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
+
+-- 20. Audit Trail
+CREATE TABLE audit_trail (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  person_id UUID REFERENCES people(id),
+  action TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id UUID,
+  details JSONB,
+  ip_address TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Schema notes:**
+- Tables are ordered to satisfy all foreign key dependencies — execute in order.
+- `agenda_items.vote_id` references `votes(id)` — votes table MUST be created before agenda_items.
+- `ai_classification` on `documents` stores the full Claude response as JSONB.
+- `minutes_suggestions` uses `type = 'comment'` only — no edit or deletion types in v2.
+- `pending_actions` is the central pipeline: every AI-proposed action lands here before execution.
+- `original_text` in suggestions is the paragraph/sentence being commented on — used to anchor the comment in the read-only minutes view.
+- All `approval_rule_*` junction tables use `ON DELETE CASCADE` from the rule.
+
+---
+
+## Access Control — Default Grant Logic
+
+**CRITICAL:** When any entity is created (via AI approval or manual CRUD), the backend MUST automatically create `access_control` rows using these rules:
+
+| Entity Created | Who Gets Access |
+|---|---|
+| Meeting | All members of the meeting's board (via `board_memberships`) + all observers of that board |
+| Vote | All voting members of the vote's board + all observers of that board |
+| Minutes | All members + observers of the minutes' meeting's board |
+| Task | The assignee + all admin users + all observers of the source board |
+| Document | All members + observers of the document's board. If no board assigned, admin only until Secretary assigns. |
+
+**Implementation:** Create a helper function `grantDefaultAccess(entityType, entityId, boardId)` that queries `board_memberships` for the given board and inserts `access_control` rows. Call this function in every entity creation path (both AI-approved and manual CRUD).
+
+**Secretary (admin role)** always has implicit access to everything — queries should include `WHERE person.role = 'admin' OR EXISTS (SELECT 1 FROM access_control ...)`.
+
+---
+
+## AI Configuration
+
+### Model Selection
+
+Use `claude-opus-4-20250514` for ALL AI calls. Classification accuracy and nuanced reasoning (confidentiality detection, evidence matching, vague deadline computation) are critical for a board management tool — this is a governance product where a misclassification has real consequences. Opus is slower and more expensive than Sonnet, but the accuracy tradeoff is worth it for a demo and for production at low-to-moderate volume.
+
+**For high-volume production deployments:** If API costs become a concern at scale, switch SEARCH, SUGGEST, and COMMAND modes to `claude-sonnet-4-20250514` (these are simpler tasks where Sonnet performs well). Keep CLASSIFY and REVIEW on Opus.
+
+### Token Limits
+
+| AI Mode | Max Input (document text) | Max Output Tokens |
+|---|---|---|
+| CLASSIFY | Truncate document text to 12,000 tokens (~48,000 chars). If longer, extract first 6,000 + last 6,000 tokens. | 4,096 |
+| COMMAND | N/A (user input is short) | 2,048 |
+| SEARCH | Search results capped at 8,000 tokens | 2,048 |
+| REVIEW | Evidence text truncated to 8,000 tokens | 2,048 |
+| SUGGEST | Pending items capped at 4,000 tokens | 1,024 |
+
+### Error Handling
+
+**CRITICAL:** Every AI call MUST be wrapped in try/catch with these fallbacks:
+
+```javascript
+async function callAI(mode, systemPrompt, userContent) {
+  // 1. Check if API key exists
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return { error: 'no_api_key', message: 'AI features require configuration.' };
+  }
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-20250514',
+      max_tokens: TOKEN_LIMITS[mode],
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }]
+    });
+
+    const text = response.content[0]?.text;
+    if (!text) {
+      return { error: 'empty_response', message: 'AI returned no content.' };
+    }
+
+    // 2. Parse JSON — strip markdown fences if present
+    const clean = text.replace(/```json\n?|```\n?/g, '').trim();
+    const parsed = JSON.parse(clean);
+    return { success: true, data: parsed };
+
+  } catch (err) {
+    // 3. Handle specific error types
+    if (err.status === 429) {
+      return { error: 'rate_limited', message: 'AI is busy. Try again in a moment.' };
+    }
+    if (err.status === 401) {
+      return { error: 'invalid_key', message: 'API key is invalid. Check Settings.' };
+    }
+    if (err instanceof SyntaxError) {
+      // AI returned non-JSON — store raw response, let Secretary handle manually
+      return { error: 'parse_error', message: 'AI response could not be parsed.', raw: text };
+    }
+    return { error: 'unknown', message: 'AI service unavailable. Create entities manually.' };
+  }
+}
+```
+
+**In the UI:** When AI fails, show a toast with the error message and a "Create Manually" button that opens the standard CRUD form. The system must NEVER block the Secretary from working because the AI is down.
+
+**For CLASSIFY errors:** Store the document in the `documents` table with `ai_classification = NULL`. Show the document in the Secretary's document library with a badge: "⚠️ AI classification failed — classify manually." Provide a "Retry Classification" button.
+
+---
+
+## The EasyBoard AI Brain — Master System Prompt
+
+This is the SOUL of the AI. Store it as a constant `AI_BRAIN_PROMPT` in the backend. It gets prepended to EVERY AI call.
+
+```
+You are the AI brain of EasyBoard, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
+
+## WHAT YOU ARE
+
+You are a professional board secretary's brain. You know corporate governance:
+- What board minutes look like, what must be in them, what shouldn't
+- What a resolution is, how voting works, what quorum means
+- What action items are, how they flow from minutes to tasks to evidence to closure
+- What confidential information looks like and when to flag it
+- How boards, committees, and their memberships work
+- The difference between information items, discussion items, and decision items
+- Proxy voting, recusals, conflicts of interest
+
+## THE SYSTEM YOU CONTROL
+
+EasyBoard has these entities. You can propose creating any of them:
+
+**Meetings** — have a date, location, board, and numbered agenda items. Each agenda item has a type (information/discussion/decision) and can link to documents and votes.
+
+**Votes** — can be "meeting" votes (taken during a meeting) or "circulation" votes (asynchronous, with a deadline). Each has a resolution number (e.g., RES-BOD-2026-001), resolution text, and an approval rule. 4 vote options: Approved, Approved with Comments, Not Approved, Not Approved with Comments. NO Abstain.
+
+**Minutes** — HTML text linked to a meeting. Workflow: draft → review → signing → signed. When minutes are signed, you extract action items and propose creating tasks.
+
+**Tasks** — have an assignee, deadline, source meeting/minutes, and status. When evidence is uploaded, you review it and propose closing the task.
+
+**Documents** — uploaded files (PDF, DOCX, TXT). You classify every upload, summarize it, and propose what to do with it.
+
+**Access Control** — the Secretary controls who can see what. You MUST respect these permissions in every response. Never reference an entity a user cannot access.
+
+## WHAT YOU CAN DO
+
+When called, you operate in one of these modes:
+
+**CLASSIFY** — A document was uploaded. Determine its type, extract structured data, and propose actions.
+**COMMAND** — The Secretary gave a natural language instruction. Parse it and propose the actions to execute.
+**SEARCH** — A user asked a question. Search the document database and answer with source links. Respect their access permissions.
+**REVIEW** — Evidence was uploaded for a task. Compare it against the task requirements and return a verdict.
+**SUGGEST** — Generate proactive dashboard insights for a specific user based on their role and pending items.
+
+## THE RULES
+
+1. You NEVER execute actions directly. You propose. The Secretary approves. This is not optional — it is a legal requirement of board governance.
+2. You respect permissions. If a user can't see a document, it does not exist in your responses.
+3. You are precise. When extracting action items, each must have a clear assignee and deadline. If either is ambiguous, flag it for the Secretary to clarify.
+4. You flag confidentiality. If you detect negotiation strategies, pricing terms, personal performance data, or legal privilege, flag the passage.
+5. You cross-reference. When you see a document that relates to an existing meeting, vote, or task, link them.
+6. You are honest. If you're unsure about a classification, say so and give your confidence score. Don't guess.
+7. Ahmed Al-Rashid is the Board Secretary (admin, non-voting). He manages everything but does not vote.
+
+## THE BOARDS
+
+- Board of Directors (BoD) — 7 voting members + Secretary + 2 observers
+- Finance & Audit Committee (FAC) — 4 members + 2 observers
+- Strategy & Investment Committee (SIC) — 5 members + 1 observer
+- Nomination & Remuneration Committee (NRC) — 3 members + 1 observer
+- Technical & Projects Committee (TPC) — 3 members + 1 observer
+```
+
+---
+
+## AI Mode: CLASSIFY (Document Upload)
+
+Call Claude with: `system: AI_BRAIN_PROMPT + CLASSIFY_PROMPT`, `user: DATABASE_CONTEXT + DOCUMENT_TEXT`
+
+**CLASSIFY_PROMPT (append to system prompt):**
+
+```
+MODE: CLASSIFY
+
+A document has been uploaded. Analyze it and return ONLY valid JSON — no preamble, no markdown fences, no explanation outside the JSON.
+
+Return this exact structure:
+{
+  "document_type": "draft_minutes" | "resolution" | "financial_report" | "legal_opinion" | "evidence" | "meeting_agenda" | "general",
+  "confidence": 0.0-1.0,
+  "extracted_data": { /* varies by type — see rules below */ },
+  "proposed_actions": [
+    {
+      "action_type": "create_minutes" | "create_vote" | "create_meeting" | "create_task" | "close_task" | "attach_to_meeting" | "flag_confidential",
+      "description": "human-readable description of what this action will do",
+      "details": { /* action-specific data needed to create the entity */ }
+    }
+  ]
+}
+
+CLASSIFICATION RULES:
+
+## 1. DRAFT MINUTES
+How to recognize: Contains "MINUTES OF THE", "Present:", "Apologies:", numbered agenda items, "RESOLVED THAT", "ACTION:", "The meeting was adjourned at".
+Extract: meeting_date, board_name, attendees[], agenda_items[], action_items[{assignee, task, deadline}], resolutions[], confidential_passages[]
+Action item triggers — look for:
+  - "ACTION: [Person] to [task] by [date]"
+  - "[Person] was tasked with..."
+  - "The Board directed [Person] to..."
+  - "[Person] to submit/prepare/complete [deliverable] by [deadline]"
+  Each must have: a named person, a clear deliverable, and a deadline. If the deadline is vague ("by next quarter"), calculate the actual date.
+Confidentiality triggers — flag any paragraph containing:
+  - Pricing, discount percentages, negotiation positions
+  - Individual compensation or performance data
+  - Legal privilege ("legal advice", "attorney-client", "without prejudice")
+  - Acquisition valuations before public announcement
+Propose: create_minutes + create_task (one per action item) + flag_confidential (one per flagged passage)
+
+## 2. RESOLUTION / REQUEST FOR APPROVAL
+How to recognize: Contains "RESOLVED THAT", "IT IS HEREBY RESOLVED", "REQUEST FOR BOARD APPROVAL", formal resolution language.
+Extract: resolution_text (the full "RESOLVED THAT..." paragraph), board_name, subject, suggested_deadline
+Propose: create_vote — in your description, tell the Secretary: "This can be put to the Board as a meeting vote (if a meeting is scheduled) or a circulation vote (asynchronous with deadline). Which do you prefer?"
+If the document mentions a specific meeting: link the vote to that meeting's agenda.
+
+## 3. FINANCIAL REPORT
+How to recognize: Contains "Financial Statements", "Revenue", "EBITDA", "Balance Sheet", "Cash Flow", period references (Q1 2025, FY 2024).
+Extract: period, key_figures[{label, value}], summary
+Propose: attach_to_meeting — check DATABASE_CONTEXT for upcoming meetings of the relevant board. If a meeting exists, propose attaching. If no meeting exists, just store it with no proposed actions.
+
+## 4. EVIDENCE / DELIVERABLE
+How to recognize: A document that appears to be a deliverable or proof of completion — a report, assessment, permit, certificate, compliance document.
+How to match: Compare the document's content against the OPEN TASKS in DATABASE_CONTEXT. Look for keyword overlap between document summary and task title/description.
+Propose: close_task — include reasoning: "This document appears to satisfy [task_number] because [reasons]."
+If no task matches: classify as "general" instead. Do not force a match.
+
+## 5. MEETING AGENDA
+How to recognize: Contains "AGENDA", numbered items with types like "For Information", "For Discussion", "For Decision/Approval", a meeting date and time, a board/committee name.
+Extract: meeting_date, board_name, location, agenda_items[{title, type, description}]
+Propose: create_meeting with the full agenda.
+
+## 6. LEGAL OPINION
+How to recognize: From a law firm, contains legal analysis, references to laws/regulations, "In our opinion", case citations.
+Extract: summary, key_conclusions[], regulatory_deadlines[]
+Propose: attach_to_meeting if it relates to an upcoming agenda item. Always propose flag_confidential.
+
+## 7. GENERAL
+Catch-all for anything that doesn't fit the above. Extract: summary, key_topics[], entities_mentioned[]. Propose no actions beyond storing.
+```
+
+---
+
+## AI Mode: COMMAND (Secretary Natural Language)
+
+Call Claude with: `system: AI_BRAIN_PROMPT + COMMAND_PROMPT`, `user: DATABASE_CONTEXT + USER_INPUT`
+
+**COMMAND_PROMPT:**
+
+```
+MODE: COMMAND
+
+The Secretary is giving you a natural language instruction. Parse it and return ONLY valid JSON.
+
+Return:
+{
+  "understood": true/false,
+  "interpretation": "what you understood the Secretary wants",
+  "proposed_actions": [
+    {
+      "action_type": "create_meeting" | "create_vote" | "create_task" | ...,
+      "description": "human-readable description",
+      "details": { /* the full data to create the entity */ }
+    }
+  ]
+}
+
+If the instruction is ambiguous, set "understood": false and ask a clarifying question in the "interpretation" field. Return an empty proposed_actions array when understood is false.
+
+When creating a meeting, automatically:
+- Link any existing documents that match the agenda topics
+- Link any existing open votes that relate to the agenda items
+- Set attendance to all board members of that board (status: pending)
+- Generate a resolution number for any decision items (format: RES-{BOARD_ABBREV}-{YEAR}-{SEQ})
+```
+
+---
+
+## AI Mode: SEARCH (User Question)
+
+Call Claude with: `system: AI_BRAIN_PROMPT + SEARCH_PROMPT`, `user: USER_CONTEXT + SEARCH_RESULTS + USER_INPUT`
+
+**SEARCH_PROMPT:**
+
+```
+MODE: SEARCH
+
+A user is asking a question. Answer using ONLY the search results provided. Include source links.
+
+The user's role is: {role}
+The user's name is: {name}
+The user's board memberships: {boards}
+
+IMPORTANT: Only reference entities the user has access to. If a document or vote is not in the search results, it does not exist for this user.
+
+Answer concisely. Include entity references as links: [Meeting: BoD Q2 2025], [Vote: RES-BOD-2024-002], [Document: Kazakhstan Investment Memo].
+
+If no search results match the question, say: "I couldn't find anything matching your question in the documents you have access to."
+```
+
+**Backend implementation for SEARCH:** Before calling the AI, query the database with a text search (use PostgreSQL `to_tsvector` / `to_tsquery` or `ILIKE` on relevant columns) filtered by the user's access_control entries. Pass the matching results as `SEARCH_RESULTS` in the user message.
+
+---
+
+## AI Mode: REVIEW (Evidence Verification)
+
+Call Claude with: `system: AI_BRAIN_PROMPT + REVIEW_PROMPT`, `user: TASK_DETAILS + EVIDENCE_TEXT`
+
+**REVIEW_PROMPT:**
+
+```
+MODE: REVIEW
+
+Evidence has been submitted for a task. Verify whether it satisfies the requirements. Return ONLY valid JSON.
+
+Task: {task_title}
+Description: {task_description}
+Source from minutes: {source_paragraph}
+Due date: {due_date}
+
+Return:
+{
+  "verdict": "approved" | "rejected",
+  "reasoning": "detailed explanation",
+  "missing": ["list of missing items, if rejected — empty array if approved"]
+}
+
+Be specific. If rejecting, tell the submitter exactly what's missing so they can fix it.
+```
+
+---
+
+## AI Mode: SUGGEST (Dashboard Insights)
+
+Call Claude with: `system: AI_BRAIN_PROMPT + SUGGEST_PROMPT`, `user: USER_CONTEXT + PENDING_ITEMS`
+
+**SUGGEST_PROMPT:**
+
+```
+MODE: SUGGEST
+
+Generate 3-5 proactive insights for this user's dashboard. Be specific and actionable. Return ONLY valid JSON.
+
+User: {name} ({role}, {title})
+Boards: {memberships}
+
+Pending items:
+{list of open votes, unsigned minutes, upcoming meetings, overdue tasks relevant to this user}
+
+Return:
+{
+  "insights": [
+    {
+      "icon": "emoji",
+      "title": "short headline",
+      "detail": "one sentence with specifics",
+      "action_link": { "entity_type": "vote|meeting|minutes|task", "entity_id": "uuid" }
+    }
+  ]
+}
+
+If there are no pending items, return 1-2 general insights like "All caught up" or a summary of recent activity.
+```
+
+---
+
+## Database Context Injection
+
+**CRITICAL:** Before every CLASSIFY and COMMAND call, the backend queries the database and injects current state into the USER message (not the system prompt):
+
+```
+CURRENT DATABASE STATE:
+
+Boards: [list all boards with abbreviations and member counts]
+
+Open tasks (for evidence matching):
+[...all tasks with status != 'done', showing: task_number, title, assignee name, due_date]
+
+Upcoming meetings (for document attachment):
+[...all meetings with status = 'scheduled', showing: title, date, board abbreviation, agenda item count]
+
+Open votes:
+[...all votes with status = 'open', showing: resolution_number, title, board abbreviation, deadline, votes cast / eligible]
+
+People:
+[...all people with name, role, title — for assignee matching]
+```
+
+This context is queried fresh on each call. Without it, the AI cannot match evidence to tasks, route documents to boards, or link entities. Build a helper function `getDatabaseContext()` that runs these queries and formats the output.
+
+---
+
+## Page Flow
+
+```
+Landing Page (public) → [Enter] → Login Page → Dashboard (role-specific)
+```
+
+### Landing Page (public)
+
+Hero section (dark background):
+- Headline: "The AI is the Secretary. You just approve."
+- Subtitle: "The first AI-native board management platform. Open source. Self-hosted."
+- Two buttons: [Enter →] [View Source Code]
+
+Below: 6 sovereignty cards on dark background:
+- 🔒 Self-hosted — runs on your servers
+- 📖 100% open source — audit every line
+- 🤖 AI-native — the AI bar is the interface
+- 🔐 Tamper-proof — SHA-256 on everything
+- 💰 No per-seat pricing
+- ⚡ Deploy in 3 commands
+
+Footer: "EasyBoard v2 | MIT License"
+
+### Login Page
+
+Clean centered form. No role picker. No demo cards. Looks like a real production login.
+
+```
+ ✦ EasyBoard
+ Meridian Energy Group
+
+ [Email          ]
+ [Password       ]
+ [    Sign In    ]
+
+ Forgot password? Contact your Board Secretary.
+```
+
+Company name appears below logo (in production, each deployment shows its own company name).
+
+---
+
+## The 4 Interfaces (what each role sees)
+
+### Layer 1 — Secretary (AI Copilot)
+
+**AI Upload Panel (always visible at top of dashboard):**
+- Drop zone for PDF, DOCX, TXT files
+- AI response panel shows: document type, confidence score, extracted data summary, list of proposed actions with "Approve" / "Edit" / "Cancel" buttons per action
+- Natural language command bar: "Schedule a meeting for April 15 with GreenTech on the agenda"
+- Full CRUD override: Secretary can always create meetings/votes/tasks manually without going through AI
+
+**Left sidebar navigation:**
+- 📥 Pending AI Actions (badge with count of pending actions)
+- 📝 Minutes
+- 🗳️ Votes
+- 📋 Meetings
+- ✅ Tasks
+- 📄 Documents
+- 👥 Members
+- ⚙️ Settings
+
+**Key behaviors:**
+- Everything the AI proposes lands in the Pending AI Actions queue
+- Approving creates the real entity in the database + creates access_control rows via `grantDefaultAccess()`
+- Rejecting removes the proposed action (sets status to 'rejected')
+- Can edit the proposed action data before approving (modal with pre-filled form)
+- Sees ALL data across ALL boards
+- Admin buttons present in DOM (unlike all other roles — not hidden with CSS, not rendered at all for non-admins)
+
+### Layer 2 — Board Member
+
+**Dashboard (after login):**
+- AI search bar (always visible at top): "Ask anything about past meetings, votes, documents..."
+- Proactive AI insights card (from SUGGEST mode): "GreenTech vote deadline is Friday — 2 of 5 have voted"
+- 4 stat cards: Pending Votes (count + deadlines), Minutes to Sign (count), Next Meeting (date + item count), Minutes in Review (count)
+- Room cards (boards they're a member of)
+
+**Inside a room (3 tabs):**
+- Votes: open votes with progress bars, vote buttons (4 options, no Abstain), closed votes with certificates
+- Meetings: upcoming + past, agenda items with type badges, linked documents
+- Minutes: folders — Signed / Pending Signature / Under Review (Draft folder only visible to Secretary)
+
+**Minutes in Review:**
+- Read-only HTML rendered via Tiptap (editable: false)
+- Below each paragraph: "💬 Add Comment" button
+- Comments appear in right sidebar, anchored to `original_text`
+- Comments update via polling every 10 seconds (Socket.io added in Phase 4)
+- No inline edits, no strikethrough, no colored highlights — comments only
+
+**Vote in 2 clicks:**
+1. Click a vote card
+2. Click one of 4 buttons (Approved / Approved with Comments / Not Approved / Not Approved with Comments)
+- "With Comments" expands a textarea
+- After voting: buttons vanish from DOM, replaced by a confirmation message with timestamp
+
+**Sign in 1 click:**
+- Click "✍️ Sign" on the minutes signing page
+- Name renders in Dancing Script cursive (CSS fade-in + scale over 0.5s)
+- SHA-256 hash = SHA-256(minutes_content + signer_name + ISO_timestamp). Display hash in the signature block.
+
+### Layer 3 — Management
+
+**Dashboard:**
+- AI search bar
+- "My Tasks" front and center: task cards with title, source link (to minutes/meeting), deadline, status badge
+- Overdue tasks highlighted in red
+- "Board Decisions Affecting Me" section (read-only list of relevant votes)
+- Room cards for boards they have access to
+
+**Task detail page:**
+- Task description + source paragraph (from minutes)
+- Evidence upload zone: drag-and-drop or file picker
+- AI review result: approved/rejected with reasoning
+- If rejected: "Missing: [list]" shown to assignee
+- If AI-approved: "Secretary Confirmation Pending" badge → Secretary confirms → task status = done
+
+**Minutes access:** Can view Signed / Pending Signature / Under Review. Can add comments on Under Review minutes. Cannot sign. Cannot access Draft folder.
+
+### Layer 4 — Observer
+
+**Same as Management minus:**
+- No "My Tasks" section
+- No evidence upload
+- Read-only access to meetings, votes, documents they're granted via access_control
+
+**Can:** Comment on minutes in review. Use AI search. View board decisions.
+
+---
+
+## Build Phases
+
+### Phase 1 — Foundation (Build and test FIRST)
+
+1. Initialize project: Express backend, React frontend, Tailwind, pg connection pool
+2. Create database schema — run ALL table creation SQL in the exact order above
+3. Create seed script (see Seed Script section below)
+4. Auth: JWT login/logout, bcryptjs password verification, middleware that extracts user from JWT and attaches to `req.user`
+5. Role-based routing: after login, redirect to role-specific dashboard shell (Secretary / Board Member / Management / Observer)
+6. Landing page + login page (exact layouts above)
+7. Left sidebar navigation for Secretary; top-nav for other roles
+8. Bundle Inter and Dancing Script fonts in `/public/fonts/` with `@font-face` declarations
+
+**→ TEST CHECKPOINT:** All 20 users can log in. Each role sees the correct empty dashboard layout with navigation. Landing page renders correctly. No console errors. Fonts load locally (check Network tab — no requests to fonts.googleapis.com).
+
+### Phase 2 — Document Brain (the core AI pipeline)
+
+9. File upload endpoint: `POST /api/documents/upload` using multer. Accept PDF, DOCX, TXT only. Max 10MB. Store files in `/uploads/` directory.
+10. Text extraction: pdf-parse for PDF, mammoth for DOCX, `fs.readFileSync` for TXT. Store extracted text temporarily for AI classification.
+11. AI classification endpoint: `POST /api/ai/classify`. Uses the `callAI()` wrapper with CLASSIFY mode. Stores result in `documents.ai_classification` and creates `pending_actions` rows.
+12. Secretary approval queue UI: Page listing all `pending_actions` with status = 'pending'. Each action shows: document name, action type, AI description, confidence score, and 3 buttons: Approve / Edit / Reject.
+13. Secretary approval flow:
+    - **Approve:** Backend creates the real entity (meeting, vote, task, minutes) from `action_data`. Calls `grantDefaultAccess()`. Sets `pending_actions.status = 'approved'`.
+    - **Edit:** Opens a modal with the proposed data pre-filled. Secretary edits. On save, updates `action_data` and then executes as if approved. Sets status = 'modified'.
+    - **Reject:** Sets `pending_actions.status = 'rejected'`. No entity created.
+14. Natural language command bar (Secretary only): Text input at top of dashboard. `POST /api/ai/command` → returns proposed actions → adds to pending_actions queue → same approval flow.
+
+**→ TEST CHECKPOINT:** Upload a .txt file containing mock board minutes (include "MINUTES OF THE", "Present:", action items with names and dates). Verify: (1) AI classifies it as "draft_minutes", (2) pending_actions rows are created for create_minutes + create_task per action item, (3) approving creates the actual minutes and tasks in the database with correct data. Test with ANTHROPIC_API_KEY removed: verify the blue banner appears and no errors occur.
+
+### Phase 3 — Core Features
+
+15. Meetings list page: shows meetings created via AI or manually by Secretary. Secretary can create manually via a form. Board members see meetings for their boards only (filtered by access_control).
+16. Votes: List view with progress bars. Vote buttons (4 options). Backend enforces `UNIQUE(vote_id, person_id)` — returns 409 on duplicate. After voting, buttons vanish from DOM. Vote certificates (HTML with print styles).
+17. Approval rules: When creating a vote, Secretary configures the approval rule (presets: Unanimous, Simple Majority, Two-Thirds, Three-Quarters; or Custom with min_approvals, required_voters, weighted, recused, quorum, deadline_behavior). Show plain-English summary after configuration.
+18. Documents library: Browse all documents with AI classification badges. Upload new documents (triggers AI classification pipeline from Phase 2).
+19. Minutes display: Read-only Tiptap renderer. Comment system: "💬 Add Comment" below each paragraph → comment saved to `minutes_suggestions` with `original_text` = the paragraph text → comments rendered in right sidebar grouped by paragraph.
+20. Minutes signing: Signing page shows minutes content + signature slots. Click "✍️ Sign" → CSS animation (fade-in + scale 0.5s, Dancing Script font) → `signature_hash = SHA-256(content + name + ISO_timestamp)` → saved to `minutes_signatures`.
+21. Tasks list + evidence upload: Management sees "My Tasks". Upload evidence → AI REVIEW mode → `task_evidence` row created with `ai_verdict` + `ai_reasoning` → Secretary confirms or rejects.
+
+**→ TEST CHECKPOINT:** (1) Create a meeting via the AI command bar: "Schedule a BoD meeting for June 15 with ESG Review on the agenda". Verify meeting appears for BoD members. (2) Create a circulation vote. Vote as a board member — verify 409 on second vote attempt. (3) Upload evidence for a task — verify AI review returns verdict. (4) Sign minutes — verify SHA-256 hash is displayed and stored.
+
+### Phase 4 — Polish & Real-time
+
+22. Socket.io integration: Real-time updates for vote counts, new signatures, new comments on minutes, and new pending actions. Set up on server startup; client connects after auth.
+23. AI search bar on every role's pages: Natural language input → `POST /api/ai/search` → backend queries DB (filtered by user's access_control) → passes results to AI SEARCH mode → returns answer with entity links. Entity links are clickable and navigate to the entity detail page.
+24. Dashboard AI insights: On dashboard load, call AI SUGGEST mode with user's pending items → render insight cards with icons, titles, details, and action links.
+25. Cross-references: On every detail page (meeting, vote, document, minutes, task), show a "📎 Connections" section listing all related entities (e.g., a vote's meeting, a task's source minutes, a document's linked agenda items). Query via foreign keys.
+26. Toast notifications for all actions: success (green), error (red), info (blue). Use a toast component, not `alert()`.
+
+**→ TEST CHECKPOINT:** (1) Open two browser tabs as different users. Vote in one tab — verify the other sees the updated count within 2 seconds. (2) Ask the AI search "When did we discuss GreenTech?" — verify it returns the correct meeting/document with a clickable link. (3) Check that dashboard insights are specific and actionable, not generic.
+
+---
+
+## Seed Script
+
+The seed script MUST only create:
+1. The organization (Meridian Energy Group)
+2. The 5 boards
+3. The 20 people (with bcrypt-hashed passwords)
+4. The board memberships
+
+**Do NOT seed:** meetings, votes, documents, minutes, tasks, suggestions, evidence, pending_actions.
+
+The system starts completely empty. Use `INSERT ... ON CONFLICT DO NOTHING` so the script is idempotent. Run on `npm run seed` AND automatically on server startup if the `people` table is empty.
+
+### Organization
+```javascript
+{ name: 'Meridian Energy Group' }
+```
+
+### 5 Boards
+```javascript
+[
+  { name: 'Board of Directors', abbreviation: 'BoD', type: 'board' },
+  { name: 'Finance & Audit Committee', abbreviation: 'FAC', type: 'committee' },
+  { name: 'Strategy & Investment Committee', abbreviation: 'SIC', type: 'committee' },
+  { name: 'Nomination & Remuneration Committee', abbreviation: 'NRC', type: 'committee' },
+  { name: 'Technical & Projects Committee', abbreviation: 'TPC', type: 'committee' },
+]
+```
+
+### 20 People
+```javascript
+[
+  // SECRETARY (admin)
+  { email: 'a.alrashid@meridian-energy.com', password: 'Meridian2024!', name: 'Ahmed Al-Rashid', role: 'admin', title: 'Board Secretary', avatar_color: '#0071e3' },
+
+  // BOARD MEMBERS
+  { email: 'n.petrov@meridian-energy.com', password: 'Meridian2024!', name: 'Nadia Petrov', role: 'member', title: 'Chairman of the Board', avatar_color: '#5ac8fa' },
+  { email: 's.chen@meridian-energy.com', password: 'Meridian2024!', name: 'Sarah Chen', role: 'member', title: 'Independent Director', avatar_color: '#5856d6' },
+  { email: 'k.weber@meridian-energy.com', password: 'Meridian2024!', name: 'Dr. Klaus Weber', role: 'member', title: 'Independent Director', avatar_color: '#34c759' },
+  { email: 'f.alhosani@meridian-energy.com', password: 'Meridian2024!', name: 'Fatima Al-Hosani', role: 'member', title: 'Non-Executive Director', avatar_color: '#ff9500' },
+  { email: 'j.obrien@meridian-energy.com', password: 'Meridian2024!', name: "James O'Brien", role: 'member', title: 'CEO & Executive Director', avatar_color: '#ff3b30' },
+  { email: 'y.tanaka@meridian-energy.com', password: 'Meridian2024!', name: 'Yuki Tanaka', role: 'member', title: 'Independent Director', avatar_color: '#af52de' },
+  { email: 'm.santos@meridian-energy.com', password: 'Meridian2024!', name: 'Maria Santos', role: 'member', title: 'Non-Executive Director', avatar_color: '#ff2d55' },
+
+  // OBSERVERS
+  { email: 'd.park@meridian-energy.com', password: 'Meridian2024!', name: 'David Park', role: 'observer', title: 'External Legal Counsel — Park & Associates', avatar_color: '#64d2ff' },
+  { email: 'a.khalil@meridian-energy.com', password: 'Meridian2024!', name: 'Amira Khalil', role: 'observer', title: 'External Auditor — Deloitte', avatar_color: '#7c3aed' },
+  { email: 't.henderson@meridian-energy.com', password: 'Meridian2024!', name: 'Thomas Henderson', role: 'observer', title: 'Regulatory Advisor — ADGM', avatar_color: '#8e8e93' },
+  { email: 'l.martinez@meridian-energy.com', password: 'Meridian2024!', name: 'Laura Martinez', role: 'observer', title: 'External Tax Counsel — Baker McKenzie', avatar_color: '#a2845e' },
+
+  // MANAGEMENT
+  { email: 'r.taylor@meridian-energy.com', password: 'Meridian2024!', name: 'Robert Taylor', role: 'management', title: 'Chief Financial Officer', avatar_color: '#30b0c7' },
+  { email: 'p.sharma@meridian-energy.com', password: 'Meridian2024!', name: 'Priya Sharma', role: 'management', title: 'General Counsel', avatar_color: '#047857' },
+  { email: 'l.wei@meridian-energy.com', password: 'Meridian2024!', name: 'Li Wei', role: 'management', title: 'Head of Strategy', avatar_color: '#6366f1' },
+  { email: 'o.mansour@meridian-energy.com', password: 'Meridian2024!', name: 'Omar Mansour', role: 'management', title: 'Head of Operations', avatar_color: '#0e7490' },
+  { email: 'e.rossi@meridian-energy.com', password: 'Meridian2024!', name: 'Elena Rossi', role: 'management', title: 'Head of Compliance', avatar_color: '#b45309' },
+  { email: 'j.kim@meridian-energy.com', password: 'Meridian2024!', name: 'Jun Kim', role: 'management', title: 'Head of HR', avatar_color: '#9333ea' },
+  { email: 's.blanc@meridian-energy.com', password: 'Meridian2024!', name: 'Sophie Blanc', role: 'management', title: 'Head of ESG', avatar_color: '#dc2626' },
+  { email: 'r.nair@meridian-energy.com', password: 'Meridian2024!', name: 'Raj Nair', role: 'management', title: 'Chief Technology Officer', avatar_color: '#059669' },
+]
+```
+
+### Board Memberships
+```javascript
+// Board of Directors — 7 voting members + Secretary (non-voting) + 2 observers
+BoD: Nadia Petrov (chairman), Ahmed Al-Rashid (secretary/non-voting), Sarah Chen (member), Dr. Klaus Weber (member), Fatima Al-Hosani (member), James O'Brien (member), Yuki Tanaka (member), Maria Santos (member)
+BoD Observers: David Park, Amira Khalil
+
+// Finance & Audit Committee
+FAC: Dr. Klaus Weber (chair), Fatima Al-Hosani (member), Yuki Tanaka (member), Maria Santos (member)
+FAC Observers: Amira Khalil, Laura Martinez
+
+// Strategy & Investment Committee
+SIC: Sarah Chen (chair), Nadia Petrov (member), James O'Brien (member), Yuki Tanaka (member), Li Wei (member)
+SIC Observers: David Park
+
+// Nomination & Remuneration Committee
+NRC: Fatima Al-Hosani (chair), Dr. Klaus Weber (member), Nadia Petrov (member)
+NRC Observers: Jun Kim
+
+// Technical & Projects Committee
+TPC: James O'Brien (chair), Fatima Al-Hosani (member), Omar Mansour (member)
+TPC Observers: Raj Nair
+```
+
+---
+
+## Design Rules
+
+1. Apple product page aesthetic — massive white space, clean typography, system font stack: `'Inter', -apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif`
+2. Colors: Primary Blue `#0071e3`, Success Green `#34c759`, Danger Red `#ff3b30`, Warning Orange `#ff9500`, Background `#ffffff` and `#f5f5f7`, Text `#1d1d1f`, Secondary Text `#86868b`
+3. 44px minimum touch targets, 13px minimum font size
+4. 16px border radius on cards, 12px on buttons, 8px on badges
+5. Shadows: `0 1px 3px rgba(0,0,0,0.08)` on cards, `0 8px 24px rgba(0,0,0,0.08)` on hover
+6. Transitions: 0.2s ease for hovers, 0.3s for state changes, 0.5s for signature animation
+7. Fonts: Inter (UI text) + Dancing Script (signatures) — bundled locally in `/public/fonts/`, loaded via `@font-face`. NO Google Fonts CDN.
+8. AI elements always use Primary Blue (`#0071e3`) to distinguish them from regular UI
+9. Feedback on every action — CSS animations, toast messages, progress indicators
+10. Everything cross-links: votes ↔ meetings ↔ documents ↔ certificates ↔ minutes ↔ tasks
+
+---
+
+## Approval Rules — Per Vote Configuration
+
+When creating a vote (via AI or manually), the Secretary configures an approval rule:
+
+**Presets (one click):**
+- Unanimous — all eligible voters must approve
+- Simple Majority — more than 50%
+- Two-Thirds — ≥ 66.7%
+- Three-Quarters — ≥ 75%
+
+**Custom builder (expandable panel):**
+- Minimum approvals: number input (e.g., "at least 4 of 7")
+- Required voters: multi-select dropdown (people who MUST approve)
+- Weighted votes: toggle, then assign weights per person
+- Recused members: multi-select (excluded from count, cannot vote)
+- Quorum: number input (minimum participants)
+- Deadline behavior: dropdown (Lapse / Auto-extend 7 days / Notify Secretary)
+
+After configuring, show a plain-English summary:
+> "This resolution passes when at least 4 of 6 eligible voters approve, including Nadia Petrov. James O'Brien is recused. Quorum: 5. Lapses if unresolved by deadline."
+
+---
+
+## Critical Rules (non-negotiable)
+
+1. **Vote ONCE only.** `UNIQUE(vote_id, person_id)` constraint. Backend returns `409 Conflict` on duplicate vote. Frontend removes vote buttons from DOM after voting.
+2. **No Abstain.** Exactly 4 vote options: Approved, Approved with Comments, Not Approved, Not Approved with Comments.
+3. **Admin buttons absent from DOM for non-admins.** Not greyed out, not hidden with CSS — not rendered at all. Use conditional rendering in React: `{user.role === 'admin' && <AdminButton />}`.
+4. **Permissions are live.** Every query joins against `access_control` (or checks `user.role === 'admin'`). If access is revoked, the entity disappears from all views including AI search results.
+5. **SHA-256 on signatures.** `hash = SHA-256(minutes_content + signer_name + ISO_timestamp)`. Display the hash in the signature block.
+6. **App works without ANTHROPIC_API_KEY.** If the key is absent, all AI features show a blue info banner — no crashes, no broken pages, no console errors.
+7. **No pre-seeded data beyond org/boards/people/memberships.** The demo IS uploading a document and watching the AI work.
+8. **Comments only for minutes.** No inline edits, no deletions, no colored highlights, no `String.replace()` on Tiptap content. Comments are anchored to `original_text` and rendered in a sidebar.
+9. **Secretary approval is mandatory.** The AI proposes. The Secretary disposes. No action executes without approval. Every AI-proposed action goes through `pending_actions`.
+10. **Signature animation is CSS only.** `opacity: 0 → 1` + `transform: scale(0.8) → scale(1)` over 0.5s. No letter-by-letter JavaScript.
+11. **PDF output via `window.print()`.** HTML page with `@media print` styles. No puppeteer, no pdf-lib.
+12. **Font bundling.** Inter and Dancing Script served from `/public/fonts/`. Zero external font requests.
+
+---
+
+## What NOT to Build
+
+Do NOT implement any of these:
+- Dark mode
+- Mobile app
+- SSO / OAuth
+- Import from Diligent/Convene
+- Email notifications (show toggle in Settings but label "Coming Soon")
+- File versioning
+- Multi-language / i18n
+- 2FA
+- Chat/messaging between users
+- Desktop installer
+- Inline track changes (comments only — no edits, no deletions, no colored highlights)
+- Pre-seeded meetings, votes, documents, minutes, or tasks
+- Tiptap editing for non-Secretary users (read-only + comments)
+- Drag-and-drop reordering of agenda items (use position numbers)
+
+---
+
+## Production Deployment Notes
+
+When moving from Replit to production:
+
+1. **Database:** Replace Replit's PostgreSQL with a managed instance (e.g., Neon, Supabase, RDS). The schema is standard PostgreSQL — no Replit-specific features used.
+2. **File storage:** Replace `/uploads/` local directory with S3-compatible object storage. The `file_path` column in `documents` and `task_evidence` stores the path — update the upload handler to write to S3 and store the S3 key.
+3. **Auth:** JWT is production-ready. Add token refresh and short expiry (15 min access token + 7 day refresh token) when deploying.
+4. **Environment:** All config is via environment variables — no hardcoded values.
+5. **CORS:** Configure for your domain. Replit's default CORS is permissive.
+6. **Rate limiting:** Add express-rate-limit on auth endpoints and AI endpoints in production.
+
+---
+
+## Key Differences from v1
+
+| Feature | v1 | v2 |
+|---|---|---|
+| Core model | CRUD app + AI sidebar | AI is the product, Secretary approves |
+| Pre-seeded data | 2 years of meetings, votes, documents | Only org/boards/people/memberships |
+| Document pipeline | Manual upload | AI classification → pending_actions → approval |
+| Track changes | Inline Tiptap highlights with String.replace | Comments only, sidebar anchored to original_text |
+| Natural language | AI bar queries | AI bar queries + Secretary command endpoint |
+| Observer role | Not separate | Full Layer 4 interface |
+| pending_actions table | Did not exist | Central to the entire workflow |
+| AI classification | Ad-hoc | Full system prompt with per-type extraction rules |
+| Action execution | Manual Secretary creation | Secretary approval triggers real entity creation |
+| Access control | Implicit via board membership | Explicit per-entity rows with default grant logic |
+| AI error handling | Not specified | Full try/catch with fallbacks and manual override |
+| Model selection | Not specified | Claude Opus 4 with token limits per mode (Sonnet fallback for scale) |
+| Real-time | Not specified | Phase 3 polling → Phase 4 Socket.io upgrade |
