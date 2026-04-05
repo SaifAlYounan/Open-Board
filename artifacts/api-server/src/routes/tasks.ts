@@ -32,6 +32,12 @@ async function getNextTaskNumber(): Promise<string> {
 
 router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
+
+  if (user.role === "member" || user.role === "observer") {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
   const { boardId, assigneeId, status } = req.query;
 
   let tasks = await db.select().from(tasksTable).orderBy(tasksTable.createdAt);
