@@ -1,10 +1,36 @@
 import { Link } from "wouter";
-import { Lock, Book, Bot, Shield, DollarSign, Zap } from "lucide-react";
+import { Lock, Book, Bot, Shield, DollarSign, Zap, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Landing() {
   return (
     <div className="min-h-[100dvh] bg-[#1d1d1f] text-white flex flex-col font-sans">
+      {/* Top navigation bar */}
+      <header className="sticky top-0 z-50 bg-[#1d1d1f]/90 backdrop-blur-md border-b border-white/10 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-[#0071e3] text-white rounded-lg flex items-center justify-center text-sm font-bold">
+            ✦
+          </div>
+          <span className="text-sm font-semibold text-white">EasyBoard v2</span>
+        </div>
+        <nav className="flex items-center gap-3">
+          <Link href="/whitepaper">
+            <button className="text-sm text-[#86868b] hover:text-white transition-colors px-3 py-1.5">
+              Security
+            </button>
+          </Link>
+          <Link href="/login">
+            <button
+              className="flex items-center gap-1.5 text-sm font-medium bg-[#0071e3] hover:bg-[#0077ed] text-white px-4 py-2 rounded-full transition-colors"
+              data-testid="nav-secretary-portal"
+            >
+              Secretary Portal
+              <ArrowRight size={14} />
+            </button>
+          </Link>
+        </nav>
+      </header>
+
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-20 text-center">
         <div className="space-y-6 max-w-3xl">
           <h1 className="text-2xl md:text-3xl font-medium tracking-tight text-white mb-12">✦ EasyBoard v2</h1>
@@ -23,10 +49,25 @@ export default function Landing() {
                 Enter &rarr;
               </Button>
             </Link>
-            <Button size="lg" variant="outline" className="w-full sm:w-auto text-lg h-14 px-8 rounded-full bg-transparent border-[#86868b] text-white hover:bg-white/10" data-testid="button-source">
-              View Source Code
-            </Button>
+            <Link href="/whitepaper" className="w-full sm:w-auto">
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full sm:w-auto text-lg h-14 px-8 rounded-full bg-transparent border-[#86868b] text-white hover:bg-white/10"
+                data-testid="button-source"
+              >
+                Is this secure?
+              </Button>
+            </Link>
           </div>
+
+          <p className="text-sm text-[#86868b] max-w-lg mx-auto pt-2 leading-relaxed">
+            Legacy vendors will tell you that open source is not secure. That is not true.{" "}
+            <Link href="/whitepaper">
+              <span className="text-[#0071e3] hover:underline cursor-pointer">Read the white paper</span>
+            </Link>{" "}
+            and discuss it with your cyber security team.
+          </p>
         </div>
       </main>
 
