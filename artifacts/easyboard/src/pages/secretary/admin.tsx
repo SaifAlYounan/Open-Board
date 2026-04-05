@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ShieldCheck, Users, Layout, Plus, Pencil, Check, X, UserX, UserCheck, Trash2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
+const API_BASE = "";
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   admin: { label: "Secretary", color: "#5856d6" },

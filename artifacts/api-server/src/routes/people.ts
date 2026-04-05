@@ -19,14 +19,23 @@ router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void
     return;
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const [person] = await db
-    .insert(peopleTable)
-    .values({ email, passwordHash, name, role, title, avatarColor })
-    .returning();
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const [person] = await db
+      .insert(peopleTable)
+      .values({ email, passwordHash, name, role, title, avatarColor })
+      .returning();
 
-  const { passwordHash: _, ...safe } = person;
-  res.status(201).json(safe);
+    const { passwordHash: _, ...safe } = person;
+    res.status(201).json(safe);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("unique") || msg.includes("duplicate")) {
+      res.status(409).json({ error: "A person with this email already exists" });
+    } else {
+      res.status(500).json({ error: "Failed to create person" });
+    }
+  }
 });
 
 router.get("/people/:id", requireAuth, async (req, res): Promise<void> => {

@@ -120,11 +120,15 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
     res.status(400).json({ error: "roleInBoard required" });
     return;
   }
+  const { and: andFn } = await import("drizzle-orm");
   await db
     .update(boardMembershipsTable)
     .set({ roleInBoard })
     .where(
-      eq(boardMembershipsTable.boardId, boardId)
+      andFn(
+        eq(boardMembershipsTable.boardId, boardId),
+        eq(boardMembershipsTable.personId, personId)
+      )
     );
   res.json({ ok: true });
 });
