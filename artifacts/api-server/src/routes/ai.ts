@@ -175,28 +175,20 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
           )
         );
 
-      if (accessible.length > 0) {
-        // Normal path: filter by explicit access control entries
-        const accessMap = new Map(accessible.map((a) => [`${a.entityType}:${a.entityId}`, true]));
-        filteredDocs = matchingDocs.filter((d) => accessMap.has(`document:${d.id}`));
-        filteredMeetings = matchingMeetings.filter((m) => accessMap.has(`meeting:${m.id}`));
-        filteredVotes = matchingVotes.filter((v) => accessMap.has(`vote:${v.id}`));
-        filteredMinutes = matchingMinutes.filter((m) => accessMap.has(`minutes:${m.id}`));
-      } else {
-        // Fallback: no access_control entries (freshly cleared DB).
-        // Show all non-draft results so search is still functional.
-        filteredDocs = matchingDocs;
-        filteredMeetings = matchingMeetings;
-        filteredVotes = matchingVotes;
-        filteredMinutes = matchingMinutes.filter((m) => m.status !== "draft");
-      }
+      // Always filter strictly by access control — empty list means no access
+      const accessMap = new Map(accessible.map((a) => [`${a.entityType}:${a.entityId}`, true]));
+      filteredDocs = matchingDocs.filter((d) => accessMap.has(`document:${d.id}`));
+      filteredMeetings = matchingMeetings.filter((m) => accessMap.has(`meeting:${m.id}`));
+      filteredVotes = matchingVotes.filter((v) => accessMap.has(`vote:${v.id}`));
+      filteredMinutes = matchingMinutes.filter((m) => accessMap.has(`minutes:${m.id}`));
     } catch (acErr: unknown) {
-      console.error("[ai/search] Access control query failed, using fallback:", (acErr as Error).message);
-      // Fallback on DB error: show non-draft results
-      filteredDocs = matchingDocs;
-      filteredMeetings = matchingMeetings;
-      filteredVotes = matchingVotes;
-      filteredMinutes = matchingMinutes.filter((m) => m.status !== "draft");
+      // Fail-closed: on access control query error, return no results
+      // to prevent inadvertent data exposure. Log error for ops visibility.
+      console.error("[ai/search] Access control query failed — returning empty results:", (acErr as Error).message);
+      filteredDocs = [];
+      filteredMeetings = [];
+      filteredVotes = [];
+      filteredMinutes = [];
     }
   }
 
