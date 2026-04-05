@@ -4,7 +4,7 @@ import { useAuth, getAvatarInitials } from '@/lib/auth';
 import { useListPendingActions } from '@workspace/api-client-react';
 import {
   Inbox, FileText, Vote, Calendar, CheckSquare,
-  File, Users, Settings, LogOut, Sparkles
+  File, Users, Settings, LogOut, ShieldCheck
 } from 'lucide-react';
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { href: '/secretary/tasks', icon: CheckSquare, label: 'Tasks' },
   { href: '/secretary/documents', icon: File, label: 'Documents' },
   { href: '/secretary/members', icon: Users, label: 'Members' },
+  { href: '/secretary/admin', icon: ShieldCheck, label: 'Admin Panel' },
   { href: '/secretary/settings', icon: Settings, label: 'Settings' },
 ];
 

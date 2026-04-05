@@ -19,6 +19,7 @@ import SecretaryTasks from "@/pages/secretary/tasks";
 import SecretaryDocuments from "@/pages/secretary/documents";
 import SecretaryMembers from "@/pages/secretary/members";
 import SecretarySettings from "@/pages/secretary/settings";
+import SecretaryAdmin from "@/pages/secretary/admin";
 
 import BoardMemberDashboard from "@/pages/board/index";
 import BoardRoom from "@/pages/board/room";
@@ -126,6 +127,11 @@ function Router() {
       <Route path="/secretary/members">
         <ProtectedRoute roles={['admin']}>
           <SecretaryMembers />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/secretary/admin">
+        <ProtectedRoute roles={['admin']}>
+          <SecretaryAdmin />
         </ProtectedRoute>
       </Route>
       <Route path="/secretary/settings">

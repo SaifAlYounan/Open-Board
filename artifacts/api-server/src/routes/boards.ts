@@ -112,4 +112,36 @@ router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): 
   res.status(201).json({ ok: true });
 });
 
+router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const personId = Array.isArray(req.params.personId) ? req.params.personId[0] : req.params.personId;
+  const { roleInBoard } = req.body;
+  if (!roleInBoard) {
+    res.status(400).json({ error: "roleInBoard required" });
+    return;
+  }
+  await db
+    .update(boardMembershipsTable)
+    .set({ roleInBoard })
+    .where(
+      eq(boardMembershipsTable.boardId, boardId)
+    );
+  res.json({ ok: true });
+});
+
+router.delete("/boards/:id/members/:personId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const personId = Array.isArray(req.params.personId) ? req.params.personId[0] : req.params.personId;
+  const { and: andCond } = await import("drizzle-orm");
+  await db
+    .delete(boardMembershipsTable)
+    .where(
+      andCond(
+        eq(boardMembershipsTable.boardId, boardId),
+        eq(boardMembershipsTable.personId, personId)
+      )
+    );
+  res.sendStatus(204);
+});
+
 export default router;

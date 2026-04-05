@@ -23,15 +23,16 @@ EasyBoard v2 is a complete corporate governance portal for Meridian Energy Group
 
 ## Test Credentials
 All passwords: `Meridian2024!`
-- **Secretary**: ahmed@meridian.ae (role: admin)
-- **Board Member**: sarah@meridian.ae (role: member, Chairperson)
-- **Management/CFO**: david@meridian.ae (role: management)
-- **Observer**: james@meridian.ae (role: observer)
+- **Secretary**: `a.alrashid@meridian-energy.com` (Ahmed Al-Rashid, role: admin)
+- **Board Member**: `n.petrov@meridian-energy.com` (Nadia Petrov, role: member, BoD Chair)
+- **Management/CFO**: `r.taylor@meridian-energy.com` (Robert Taylor, role: management)
+- **Observer**: `d.park@meridian-energy.com` (David Park, role: observer)
 
 ## Seeded Data
-- 20 people across all roles (format: firstname@meridian.ae)
-- 5 boards: BOD (Board of Directors), FAC (Finance & Audit), SIC (Strategy & Investment), NRC (Nomination & Remuneration), TPC (Technical & Projects)
-- No pre-seeded meetings/votes/tasks/documents
+- 20 people across all roles (format: firstname.lastname@meridian-energy.com)
+- 5 boards: BoD (Board of Directors), FAC (Finance & Audit), SIC (Strategy & Investment), NRC (Nomination & Remuneration), TPC (Technical & Projects)
+- Seed detection: checks for `s.chen@meridian-energy.com`; if missing, clearAll() + re-seed
+- `people.active` boolean column controls login access (inactive = 403 on login)
 
 ## Role-Based Interfaces
 
@@ -44,6 +45,7 @@ All passwords: `Meridian2024!`
 - Tasks (/secretary/tasks) — create and track action items
 - Documents (/secretary/documents) — upload and AI-classify documents
 - Members (/secretary/members) — view all people
+- Admin Panel (/secretary/admin) — manage users (edit/activate/deactivate/create) and board memberships
 - Settings (/secretary/settings) — AI configuration status
 
 ### Board Member (/board)
@@ -85,6 +87,6 @@ All passwords: `Meridian2024!`
 ## Design System
 - Apple aesthetic: Primary Blue #0071e3, Success #34c759, Danger #ff3b30, Warning #ff9500
 - Background: #f5f5f7, Card: #ffffff, Text: #1d1d1f, Secondary: #86868b
-- Fonts: Inter (system), Dancing Script (signatures) via @font-face
+- Fonts: Inter (self-hosted woff2 at /fonts/), Dancing Script (signatures, TTF) via @font-face — no Google Fonts CDN
 - No dark mode, no emojis in UI
 - Rounded-2xl cards, consistent 12px padding patterns

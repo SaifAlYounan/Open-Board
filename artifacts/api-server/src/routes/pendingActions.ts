@@ -1,4 +1,5 @@
 import { Router } from "express";
+import fs from "fs";
 import {
   db,
   pendingActionsTable,
@@ -14,6 +15,38 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
+
+/**
+ * Parse an AI-proposed date string without timezone conversion bugs.
+ * If no timezone is present, treat as UTC to preserve the AI's intended time.
+ */
+function parseAIDate(dateStr: string | undefined | null): Date {
+  if (!dateStr) return new Date();
+  const s = String(dateStr).trim();
+  // Already has timezone info — parse as-is
+  if (s.includes("Z") || /[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
+  // Has 'T' separator but no timezone — append Z to preserve exact time as UTC
+  if (s.includes("T")) return new Date(s + "Z");
+  // Date-only string — parse as UTC
+  return new Date(s + "T00:00:00Z");
+}
+
+/**
+ * Resolve a boardId that might be a UUID or a board name/abbreviation.
+ */
+async function resolveBoardId(boardIdOrName: string | undefined | null): Promise<string | undefined> {
+  if (!boardIdOrName) return undefined;
+  // UUID format
+  if (/^[0-9a-f-]{36}$/.test(boardIdOrName)) return boardIdOrName;
+  // Try matching by name or abbreviation
+  const boards = await db.select().from(boardsTable);
+  const match = boards.find(
+    (b) =>
+      b.name.toLowerCase().includes(boardIdOrName.toLowerCase()) ||
+      b.abbreviation?.toLowerCase() === boardIdOrName.toLowerCase()
+  );
+  return match?.id;
+}
 
 const router = Router();
 
@@ -45,36 +78,45 @@ router.get("/pending-actions", requireAuth, requireAdmin, async (req, res): Prom
 async function executeAction(actionType: string, actionData: Record<string, unknown>): Promise<unknown> {
   switch (actionType) {
     case "create_meeting": {
-      const { boardId, date, location, agenda_items } = actionData as any;
-      const rawTitle = (actionData as any).title || (actionData as any).details?.title;
+      const d = actionData as any;
+      // Resolve boardId — may be a UUID, name, or abbreviation
+      const resolvedBoardId = await resolveBoardId(d.boardId || d.board_id || d.board_name);
+
+      // Title from multiple possible locations
+      const rawTitle = d.title || d.details?.title;
+
+      // Agenda items from multiple possible locations
+      const agendaItems: any[] = d.agenda_items || d.details?.agenda_items || d.agendaItems || [];
+
+      // Parse date safely (BUG 6 fix)
+      const meetingDate = parseAIDate(d.date || d.meeting_date);
 
       // Generate meaningful title if none provided
       let resolvedTitle = rawTitle;
       if (!resolvedTitle) {
         let boardName = "Board";
-        if (boardId) {
-          const [b] = await db.select().from(boardsTable).where(eq(boardsTable.id, boardId));
+        if (resolvedBoardId) {
+          const [b] = await db.select().from(boardsTable).where(eq(boardsTable.id, resolvedBoardId));
           if (b) boardName = b.name;
         }
-        const d = date ? new Date(date) : new Date();
-        const dateLabel = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+        const dateLabel = meetingDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
         resolvedTitle = `${boardName} — ${dateLabel}`;
       }
 
       const [meeting] = await db
         .insert(meetingsTable)
         .values({
-          boardId,
+          boardId: resolvedBoardId,
           title: resolvedTitle,
-          date: date ? new Date(date) : new Date(),
-          location,
+          date: meetingDate,
+          location: d.location,
         })
         .returning();
 
-      if (agenda_items?.length) {
+      if (agendaItems.length) {
         const agendaItemsTable = (await import("@workspace/db")).agendaItemsTable;
         await db.insert(agendaItemsTable).values(
-          agenda_items.map((item: any, idx: number) => ({
+          agendaItems.map((item: any, idx: number) => ({
             meetingId: meeting.id,
             position: item.position || idx + 1,
             title: item.title || `Agenda Item ${idx + 1}`,
@@ -85,18 +127,18 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       }
 
       // Set attendance for board members
-      if (boardId) {
+      if (resolvedBoardId) {
         const members = await db
           .select()
           .from(boardMembershipsTable)
-          .where(eq(boardMembershipsTable.boardId, boardId));
+          .where(eq(boardMembershipsTable.boardId, resolvedBoardId));
         if (members.length) {
           await db
             .insert(attendanceTable)
             .values(members.map((m) => ({ meetingId: meeting.id, personId: m.personId!, status: "pending" as const })))
             .onConflictDoNothing();
         }
-        await grantDefaultAccess("meeting", meeting.id, boardId);
+        await grantDefaultAccess("meeting", meeting.id, resolvedBoardId);
       }
 
       return meeting;
@@ -142,22 +184,48 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     }
 
     case "create_minutes": {
-      const { meetingId, content, meeting_date, board_name } = actionData as any;
+      const d = actionData as any;
+      const meetingId = d.meetingId || d.meeting_id;
+      const meetingDate = d.meeting_date;
+      const boardName = d.board_name;
+      const documentId = d.documentId;
 
       // Find meeting by date/board if no ID provided
       let resolvedMeetingId = meetingId;
-      if (!resolvedMeetingId && meeting_date) {
+      if (!resolvedMeetingId && meetingDate) {
         const meetings = await db.select().from(meetingsTable);
-        const d = new Date(meeting_date);
+        const dt = parseAIDate(meetingDate);
         const match = meetings.find((m) => {
           const md = new Date(m.date);
-          return md.toDateString() === d.toDateString();
+          return md.toDateString() === dt.toDateString();
         });
         resolvedMeetingId = match?.id;
       }
 
-      // Build content from extracted data
-      const minutesContent = content || `<h1>Board Minutes</h1><p>Meeting date: ${meeting_date || "Unknown"}</p><p>Board: ${board_name || "Unknown"}</p><p>[AI-extracted minutes content — please review and edit before finalizing]</p>`;
+      // Use document text as content if available (MISSING 2 fix)
+      let minutesContent = d.content;
+      if (!minutesContent && documentId) {
+        const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, documentId));
+        if (doc?.filePath && fs.existsSync(doc.filePath)) {
+          try {
+            minutesContent = fs.readFileSync(doc.filePath, "utf-8");
+            // Wrap in HTML paragraphs if plain text
+            if (!minutesContent.trim().startsWith("<")) {
+              minutesContent = minutesContent
+                .split("\n\n")
+                .filter((p: string) => p.trim())
+                .map((p: string) => `<p>${p.trim().replace(/\n/g, " ")}</p>`)
+                .join("\n");
+            }
+          } catch {
+            // Fall through to default
+          }
+        }
+      }
+
+      if (!minutesContent) {
+        minutesContent = `<h1>Board Minutes</h1><p>Meeting date: ${meetingDate || "Unknown"}</p><p>Board: ${boardName || "Unknown"}</p><p>[Minutes content — please review and edit before finalizing]</p>`;
+      }
 
       const [minutes] = await db
         .insert(minutesTable)
@@ -254,8 +322,13 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, async (re
 
   const dataToUse = overrideData || action.actionData;
 
+  // Merge documentId from the action row into the data so create_minutes can read document text
+  const dataWithContext = action.documentId
+    ? { ...(dataToUse as object), documentId: action.documentId }
+    : dataToUse;
+
   try {
-    const entity = await executeAction(action.actionType, dataToUse as Record<string, unknown>);
+    const entity = await executeAction(action.actionType, dataWithContext as Record<string, unknown>);
 
     const [updated] = await db
       .update(pendingActionsTable)

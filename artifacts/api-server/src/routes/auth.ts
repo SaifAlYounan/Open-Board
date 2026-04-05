@@ -25,6 +25,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
+  if (person.active === false) {
+    res.status(403).json({ error: "Account is deactivated. Contact your Board Secretary." });
+    return;
+  }
+
   const token = signToken({ userId: person.id, email: person.email, role: person.role });
   const { passwordHash: _, ...safeUser } = person;
   res.json({ token, user: { ...safeUser, avatarColor: person.avatarColor } });

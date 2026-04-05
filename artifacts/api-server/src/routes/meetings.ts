@@ -62,19 +62,13 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (user.role !== "admin") {
-    // Filter by access control
-    const accessible = await db
+    // Filter by board membership — show meetings for any board the user belongs to
+    const memberships = await db
       .select()
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.entityType, "meeting"),
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const accessibleIds = new Set(accessible.map((a) => a.entityId));
-    meetings = meetings.filter((m) => accessibleIds.has(m.id));
+      .from(boardMembershipsTable)
+      .where(eq(boardMembershipsTable.personId, user.id));
+    const memberBoardIds = new Set(memberships.map((m) => m.boardId));
+    meetings = meetings.filter((m) => m.boardId && memberBoardIds.has(m.boardId));
   }
 
   const result = await Promise.all(
