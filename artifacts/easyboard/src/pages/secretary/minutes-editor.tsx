@@ -156,13 +156,29 @@ export default function MinutesEditor() {
                       <div className="text-[#86868b] mt-0.5">{comment.commentText}</div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleResolveComment(comment.id)}
-                    className="flex items-center gap-1 text-[#34c759] hover:underline"
-                    data-testid={`button-resolve-${comment.id}`}
-                  >
-                    <CheckCircle size={12} /> Resolve
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleResolveComment(comment.id)}
+                      className="flex items-center gap-1 text-[#34c759] hover:underline font-medium"
+                      data-testid={`button-resolve-${comment.id}`}
+                    >
+                      <CheckCircle size={12} /> Resolve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => resolveComment.mutate({ id, commentId: comment.id, data: { status: 'dismissed' } }, {
+                        onSuccess: () => {
+                          queryClient.invalidateQueries({ queryKey: getGetMinutesCommentsQueryKey(id) });
+                          toast({ title: 'Comment dismissed' });
+                        }
+                      })}
+                      className="flex items-center gap-1 text-[#ff3b30] hover:underline font-medium"
+                      data-testid={`button-dismiss-${comment.id}`}
+                    >
+                      <X size={12} /> Dismiss
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
