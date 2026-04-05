@@ -86,8 +86,21 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       // Title from multiple possible locations
       const rawTitle = d.title || d.details?.title;
 
-      // Agenda items from multiple possible locations
-      const agendaItems: any[] = d.agenda_items || d.details?.agenda_items || d.agendaItems || [];
+      // Agenda items from multiple possible locations the AI might use
+      const agendaItems: any[] = (
+        d.agenda_items ||
+        d.details?.agenda_items ||
+        d.agendaItems ||
+        d.agenda ||
+        d.details?.agenda ||
+        []
+      );
+      // If AI mentioned an agenda topic in description but no structured items, create one
+      const normalizedAgenda: any[] = agendaItems.length
+        ? agendaItems
+        : d.description
+          ? [{ title: String(d.description).split('.')[0].trim().slice(0, 120), type: "information" }]
+          : [];
 
       // Parse date safely (BUG 6 fix)
       const meetingDate = parseAIDate(d.date || d.meeting_date);
@@ -114,10 +127,10 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
         })
         .returning();
 
-      if (agendaItems.length) {
+      if (normalizedAgenda.length) {
         const agendaItemsTable = (await import("@workspace/db")).agendaItemsTable;
         await db.insert(agendaItemsTable).values(
-          agendaItems.map((item: any, idx: number) => ({
+          normalizedAgenda.map((item: any, idx: number) => ({
             meetingId: meeting.id,
             position: item.position || idx + 1,
             title: item.title || `Agenda Item ${idx + 1}`,

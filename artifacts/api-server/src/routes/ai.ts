@@ -111,7 +111,13 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
   // Search documents, meetings, votes, minutes with text search
   const searchTerm = `%${query.replace(/[%_]/g, "\\$&")}%`;
 
-  const [matchingDocs, matchingMeetings, matchingVotes, matchingMinutes] = await Promise.all([
+  let matchingDocs: typeof documentsTable.$inferSelect[] = [];
+  let matchingMeetings: typeof meetingsTable.$inferSelect[] = [];
+  let matchingVotes: typeof votesTable.$inferSelect[] = [];
+  let matchingMinutes: typeof minutesTable.$inferSelect[] = [];
+
+  try {
+    [matchingDocs, matchingMeetings, matchingVotes, matchingMinutes] = await Promise.all([
     db
       .select()
       .from(documentsTable)
@@ -142,7 +148,12 @@ router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
       .from(minutesTable)
       .where(sql`${minutesTable.content} ILIKE ${searchTerm}`)
       .limit(3),
-  ]);
+    ]);
+  } catch (dbErr: unknown) {
+    console.error("[ai/search] DB query failed:", (dbErr as Error).message);
+    res.json({ answer: "Search is temporarily unavailable. Please try again.", sources: [] });
+    return;
+  }
 
   // Filter by user access
   let filteredDocs = matchingDocs;

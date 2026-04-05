@@ -197,10 +197,10 @@ export default function SecretaryMeetingDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  {meeting.status === 'scheduled' && (
-                    <button onClick={() => handleStatusChange('concluded')} disabled={savingStatus}
+                  {(!meeting.status || meeting.status === 'scheduled') && (
+                    <button data-testid="btn-mark-concluded" onClick={() => handleStatusChange('concluded')} disabled={savingStatus}
                       className="px-4 py-2 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl text-sm font-medium hover:bg-[#ebebed] transition-colors disabled:opacity-50">
-                      Mark Concluded
+                      {savingStatus ? 'Saving…' : 'Mark Concluded'}
                     </button>
                   )}
                   {meeting.status === 'concluded' && (

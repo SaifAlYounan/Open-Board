@@ -339,12 +339,13 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
     const { passwordHash: _, ...safePerson } = person;
     res.json({ ...record, person: safePerson });
   } catch (err: unknown) {
-    const anyErr = err as { code?: string };
+    const anyErr = err as { code?: string; message?: string };
     if (anyErr.code === "23505") {
       res.status(409).json({ error: "You have already voted on this resolution" });
       return;
     }
-    throw err;
+    console.error("[votes] cast error:", anyErr.message);
+    res.status(500).json({ error: "Failed to record vote" });
   }
 });
 

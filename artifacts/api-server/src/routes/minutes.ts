@@ -95,6 +95,16 @@ router.post("/minutes", requireAuth, requireAdmin, async (req, res): Promise<voi
     return;
   }
 
+  // If minutes already exist for this meeting, update content instead of inserting (unique constraint on meeting_id)
+  const existingList = await db.select().from(minutesTable).where(eq(minutesTable.meetingId, meetingId)).limit(1);
+  if (existingList.length) {
+    const existing = existingList[0];
+    const [updated] = await db.update(minutesTable).set({ content, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
+    const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
+    res.json({ ...updated, meetingTitle: meeting?.title || null, meetingDate: meeting?.date || null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
+    return;
+  }
+
   const [minutes] = await db
     .insert(minutesTable)
     .values({ meetingId, content })
@@ -127,7 +137,7 @@ router.get("/minutes/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  // Non-admin can't see drafts (unless access control says so)
+  // Non-admin can't see drafts
   if (user.role !== "admin" && minutes.status === "draft") {
     res.status(403).json({ error: "Access denied" });
     return;
@@ -139,6 +149,18 @@ router.get("/minutes/:id", requireAuth, async (req, res): Promise<void> => {
   const [board] = meeting?.boardId
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
     : [null];
+
+  // Non-admin: verify board membership
+  if (user.role !== "admin" && meeting?.boardId) {
+    const membership = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+    if (!membership.length) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+  }
 
   const signatures = await db
     .select()

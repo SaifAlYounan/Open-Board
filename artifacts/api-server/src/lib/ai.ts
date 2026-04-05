@@ -134,7 +134,14 @@ If the instruction is ambiguous, set "understood": false and ask a clarifying qu
 
 When creating a meeting, automatically:
 - Set attendance to all board members of that board (status: pending)
-- Generate a resolution number for any decision items (format: RES-{BOARD_ABBREV}-{YEAR}-{SEQ})`;
+- Generate a resolution number for any decision items (format: RES-{BOARD_ABBREV}-{YEAR}-{SEQ})
+
+IMPORTANT — Date/time format rules:
+- Always return dates as "YYYY-MM-DDTHH:MM:SS" (ISO 8601, NO timezone suffix, NO "Z", NO "+00:00").
+  This ensures the time is treated as the local wall-clock time at the meeting location.
+- For "details" of a create_meeting action, include an "agenda_items" array with objects like:
+  { "title": "Agenda item title", "type": "information|discussion|decision", "description": "optional" }
+  Even if only one agenda topic is mentioned, always include it as an item in this array.`;
 
 const SEARCH_PROMPT = `
 MODE: SEARCH
