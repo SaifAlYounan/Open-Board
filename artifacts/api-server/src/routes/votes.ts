@@ -339,8 +339,9 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
     const { passwordHash: _, ...safePerson } = person;
     res.json({ ...record, person: safePerson });
   } catch (err: unknown) {
-    const anyErr = err as { code?: string; message?: string };
-    if (anyErr.code === "23505") {
+    const anyErr = err as { code?: string; message?: string; cause?: { code?: string } };
+    const pgCode = anyErr.code ?? anyErr.cause?.code;
+    if (pgCode === "23505") {
       res.status(409).json({ error: "You have already voted on this resolution" });
       return;
     }
