@@ -55,7 +55,6 @@ export default function MinutesViewer() {
 
   const [activeBlock, setActiveBlock] = useState<{ index: number; text: string } | null>(null);
   const [commentText, setCommentText] = useState('');
-  const [hoveredBlock, setHoveredBlock] = useState<number | null>(null);
 
   const m = minutes as any;
   const isAdmin = user?.role === 'admin';
@@ -79,7 +78,7 @@ export default function MinutesViewer() {
     if (!activeBlock || !commentText.trim()) return;
     addComment.mutate({
       id,
-      data: { originalText: activeBlock.text.slice(0, 200), commentText: commentText.trim() }
+      data: { originalText: activeBlock.text, commentText: commentText.trim() }
     }, {
       onSuccess: () => {
         toast({ title: 'Comment added' });
@@ -152,11 +151,7 @@ export default function MinutesViewer() {
                 <div className="prose prose-sm max-w-none space-y-1">
                   {blocks.map((block, i) => (
                     <div key={i} className="group">
-                      <div
-                        className="relative flex items-start gap-1"
-                        onMouseEnter={() => setHoveredBlock(i)}
-                        onMouseLeave={() => setHoveredBlock(null)}
-                      >
+                      <div className="relative flex items-start gap-1">
                         <div
                           className="flex-1 min-w-0"
                           dangerouslySetInnerHTML={{ __html: block.html }}
@@ -174,7 +169,7 @@ export default function MinutesViewer() {
                                 setCommentText('');
                               }
                             }}
-                            className={`flex-shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all mt-1 whitespace-nowrap ${
+                            className={`flex-shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors mt-1 whitespace-nowrap ${
                               activeBlock?.index === i
                                 ? 'bg-[#0071e3]/10 text-[#0071e3]'
                                 : 'bg-[#f5f5f7] text-[#86868b] hover:bg-[#0071e3]/10 hover:text-[#0071e3]'
