@@ -36,8 +36,11 @@ router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
     allMinutes = allMinutes.filter((m) => m.status !== "draft");
   }
 
-  // Access control — filter by board membership (board members see minutes for their boards)
-  if (user.role !== "admin") {
+  // Access control — filter by board membership for board members/observers.
+  // Management users are not board members but should see all non-draft minutes
+  // (review, signing, signed) so their /management/minutes view is populated.
+  // Admin already sees everything (bypasses this block entirely).
+  if (user.role !== "admin" && user.role !== "management") {
     const memberships = await db
       .select()
       .from(boardMembershipsTable)
