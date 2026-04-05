@@ -1,0 +1,235 @@
+# EasyBoard v2 — Final Fix Instructions from E2E Testing
+
+## TESTED: April 5-6, 2026 | URL: https://easy-board-1.replit.app
+## METHOD: Automated browser testing across all 4 roles with Chrome DevTools
+
+---
+
+## WHAT YOU FIXED (confirmed working — DO NOT BREAK)
+
+1. ✅ Minutes now linked to meetings via the meeting linker dropdown — meetingId and boardName are set correctly on create
+2. ✅ Board members CAN see minutes in their BoD board room minutes tab (was invisible before)
+3. ✅ Observers CAN see minutes in their BoD board room minutes tab (was "No published minutes" before)
+4. ✅ /management/minutes route exists (was returning 404)
+5. ✅ "Board Minutes" section added to management dashboard
+6. ✅ Admin panel at /secretary/admin with People + Board Memberships tabs
+7. ✅ Login placeholder shows @meridian-energy.com
+8. ✅ Seed data has all 20 correct names
+9. ✅ Board memberships correct (BoD=10, FAC=6, SIC=6, NRC=4, TPC=4)
+10. ✅ Minutes status transitions: draft → review → signing all work
+11. ✅ "Sign" button appears on minutes card in board member view when status is "signing"
+12. ✅ AI classification excellent — 97-98% confidence, correct action types
+13. ✅ Manual meeting creation preserves agenda items + attendance
+14. ✅ Manual vote creation with auto-generated resolution numbers
+15. ✅ Board member voting — 4 buttons, "Approved with Comments" textarea expands, buttons removed from DOM after vote
+16. ✅ Reject on pending actions works correctly
+17. ✅ Task detail page exists for management at /management/task/{id} with evidence upload zone
+18. ✅ Frontend route protection — non-admin can't access /secretary
+19. ✅ No admin buttons leak into non-admin DOM
+
+---
+
+## WHAT'S STILL BROKEN — FIX IN THIS EXACT ORDER
+
+### PRIORITY 1: Sign button doesn't fire (CRITICAL — blocks governance workflow)
+
+**What happens:** Board member (Nadia Petrov) sees the "Sign" button on minutes in signing status. Clicking it does NOTHING — no network request, no console error, no UI change. The button is rendered but has no working click handler.
+
+**Expected:** Clicking Sign should:
+1. POST to /api/minutes/{id}/sign with the user's person_id
+2. Store a signature record in minutes_signatures table (person_id, signature_hash, signed_at)
+3. Compute SHA-256 hash: SHA-256(minutes_content + signer_name + ISO_timestamp)
+4. Update the UI to show the signer's name in Dancing Script cursive font with a fade-in animation
+5. Replace the "Sign" button with "Signed ✓" + timestamp
+6. Refresh the signature count
+
+**How to test:** Log in as n.petrov@meridian-energy.com / Meridian2024! → Enter BoD room → Minutes tab → Click "Sign" on the minutes in signing status → MUST see signature appear with name in cursive + hash. Then log in as s.chen@meridian-energy.com → same flow → MUST see both signatures.
+
+---
+
+### PRIORITY 2: Comment system on minutes (CRITICAL — blocks governance workflow)
+
+**What happens:** When minutes are in "review" status, there are ZERO comment-related UI elements on the minutes detail page for any role. No "Add Comment" buttons, no comment textarea, no comment sidebar. The API endpoint /api/minutes/{id}/comments returns 200 but the frontend isn't wired up.
+
+**Build this:**
+
+For Board Members, Management, and Observers on the minutes detail page:
+- Below each paragraph of minutes text, show a "💬 Comment" button
+- Clicking it opens a textarea
+- Submitting calls POST /api/minutes/{id}/comments with { text: "comment text", paragraph_index: N }
+- Comments appear in a right sidebar grouped by paragraph
+- Each comment shows: commenter name, avatar, timestamp, comment text
+
+For Secretary on the minutes detail page:
+- See all comments in the sidebar
+- Each comment has "✓ Resolve" and "✗ Dismiss" buttons
+- Resolve: PATCH /api/minutes/{id}/comments/{commentId} with { status: 'resolved' }
+- Dismiss: PATCH /api/minutes/{id}/comments/{commentId} with { status: 'dismissed' }
+
+**How to test:**
+1. As Secretary: create minutes, send to review
+2. As board member (n.petrov): open minutes → add comment "Please clarify the revenue figure"
+3. As observer (d.park): open same minutes → see Petrov's comment → add "Legal review needed"
+4. As Secretary: open minutes → see both comments → resolve one, dismiss other
+
+---
+
+### PRIORITY 3: Minutes content is placeholder text
+
+**What happens:** When Secretary approves "Create Minutes" from a classified document, the minutes content is "[Minutes content — please review and edit before finalizing]" instead of the actual uploaded document text.
+
+**Fix:** In the create_minutes approval handler, set minutes.content to the extracted text from the source document. The document's text is already stored (the AI read it for classification) — copy it into the minutes content field.
+
+**How to test:** Upload a .txt file with board minutes → approve Create Minutes → open the new minutes → content MUST be the uploaded document text, not placeholder.
+
+---
+
+### PRIORITY 4: Management minutes only shows signed, not review/signing
+
+**What happens:** /management/minutes exists (good!) but says "No minutes available — Published minutes will appear here." It only queries for signed status. Minutes in review or signing are invisible to management users.
+
+**Fix:** The management minutes query should include status IN ('review', 'signing', 'signed'), filtered by the user's board memberships. Management users need to see minutes they might need to comment on.
+
+**How to test:** As Secretary, create BoD minutes and send to review. As r.taylor (management/CFO): /management/minutes should show the minutes with "In Review" badge.
+
+---
+
+### PRIORITY 5: "Mark Concluded" button on meetings is dead
+
+**What happens:** On meeting detail page, clicking "Mark Concluded" does nothing — no API call, no console error, no state change. The button has no click handler.
+
+**Fix:** Wire the button to PATCH /api/meetings/{id} with { status: 'concluded' }. On success, update UI to show "Concluded" status.
+
+**How to test:** As Secretary, go to a meeting detail → click "Mark Concluded" → status changes to "concluded."
+
+---
+
+### PRIORITY 6: AI-approved meetings missing agenda items and attendance
+
+**What happens:** When Secretary uses AI Command to schedule a meeting and approves the pending action, the meeting is created with 0 agenda items and 0 attendance rows. Manual meeting creation works correctly — the bug is isolated to the pending action approval handler.
+
+**Fix:** In the approval handler for action_type === 'create_meeting':
+1. After inserting the meeting, loop over action_data agenda items and INSERT into agenda_items table
+2. Query board_memberships for the meeting's board and INSERT attendance rows with status 'pending'
+
+Copy the logic from the manual meeting creation endpoint — it already does both correctly.
+
+**How to test:** As Secretary, AI Command: "Schedule a BoD meeting for June 1 at 2pm with ESG Review on the agenda" → Approve → open meeting → MUST show agenda item AND 10 BoD members in attendance.
+
+---
+
+### PRIORITY 7: Duplicate vote returns 500 instead of 409
+
+**What happens:** When a board member tries to vote twice on the same resolution, the server returns HTTP 500 (with an HTML error page) instead of 409 Conflict. The UNIQUE constraint prevents the duplicate, but the error isn't caught.
+
+**Fix:** In the vote cast endpoint, wrap the INSERT in a try/catch. If the error is a unique constraint violation, return `{ status: 409, message: "You have already voted" }`.
+
+**How to test:** Vote on a resolution. Then in browser console:
+```javascript
+fetch('/api/votes/VOTE_ID/cast', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('token') }, body: JSON.stringify({ decision: 'approved' }) }).then(r => console.log(r.status))
+```
+Must return 409, not 500.
+
+---
+
+### PRIORITY 8: Timezone on AI-proposed meeting times
+
+**What happens:** AI Command "schedule meeting at 10am" stores the time as 4:00 AM (6 hour offset). Manual datetime-local input works correctly.
+
+**Fix:** When parsing the AI's proposed time string, treat it as local time — don't apply UTC conversion.
+
+---
+
+### PRIORITY 9: API endpoints not role-protected (SECURITY)
+
+**What happens:** A board member's browser can call /api/pending-actions, /api/people, /api/documents, /api/tasks — all return 200 with full data. The frontend routing protects the UI but the API is wide open.
+
+**Fix:** Add role-checking middleware:
+- /api/pending-actions → admin only (403 for others)
+- /api/people → admin sees all, others see only their board members
+- /api/documents → filtered by board membership
+- /api/tasks → admin sees all, management sees only assigned
+
+---
+
+### PRIORITY 10: Remaining UI bugs
+
+**10a. Edit button on Admin Panel People tab** — click does nothing, no modal opens. Wire it to open a pre-filled edit form.
+
+**10b. Edit on pending actions shows raw JSON** — should show a labeled form (assignee dropdown, title, due date) not raw JSON blob.
+
+**10c. Create Task form missing title/description** — only has assignee + due date. Add Title (required) and Description (optional) fields.
+
+**10d. Tasks not clickable from Secretary view** — no /secretary/tasks/{id} detail page. Make task cards clickable.
+
+**10e. Fonts from Google CDN** — 2 requests to fonts.googleapis.com. Bundle Inter and Dancing Script locally in /public/fonts/.
+
+**10f. AI Insights stale data** — board member dashboard said "you haven't voted" after voting. Query vote_records before calling AI SUGGEST.
+
+**10g. AI Search returns 500** — /api/ai/search crashes. Debug and fix.
+
+**10h. Seed titles wrong** — Elena Rossi should be "Head of Compliance" not "Head of Finance", Sophie Blanc should be "Head of ESG" not "Chief Risk Officer", Sarah Chen/Yuki Tanaka should be "Independent Director" not "Board Director", Fatima Al-Hosani should be "Non-Executive Director" not "Executive Director", Maria Santos should be "Non-Executive Director" not "Board Director".
+
+---
+
+## FULL END-TO-END TEST AFTER ALL FIXES
+
+Run this complete test. Every step must pass before shipping.
+
+### Test A: Minutes governance workflow (the critical path)
+```
+1. Login: a.alrashid@meridian-energy.com / Meridian2024!
+2. Upload .txt with "MINUTES OF THE BOARD..." content
+3. AI classifies as draft_minutes → approve Create Minutes (link to BoD meeting)
+4. VERIFY: minutes content is actual document text (not placeholder)
+5. VERIFY: meetingId is NOT null, boardName is NOT null
+6. Click "Send to Review" → status = review
+
+7. Login: n.petrov@meridian-energy.com → BoD room → minutes tab
+8. VERIFY: minutes visible with "In Review" badge
+9. Click into minutes → VERIFY: "Add Comment" buttons exist
+10. Add comment: "Please clarify the revenue figure"
+
+11. Login: d.park@meridian-energy.com → BoD room → minutes tab  
+12. VERIFY: minutes visible, Petrov's comment visible
+13. Add comment: "Legal review needed on clause 6"
+
+14. Login: a.alrashid@meridian-energy.com → minutes detail
+15. VERIFY: both comments visible in sidebar
+16. Resolve Petrov's comment, dismiss Park's comment
+17. Click "Send to Signing" → status = signing
+
+18. Login: n.petrov@meridian-energy.com → BoD room → minutes tab
+19. Click "Sign" → VERIFY: name in cursive, SHA-256 hash shown, button becomes "Signed ✓"
+
+20. Login: s.chen@meridian-energy.com → BoD room → minutes tab
+21. VERIFY: Petrov's signature visible
+22. Click "Sign" → VERIFY: both signatures visible
+
+23. Login: a.alrashid@meridian-energy.com → minutes detail
+24. VERIFY: both signatures shown
+25. Click "Mark as Signed" → status = signed
+```
+
+### Test B: Single system verification
+```
+1. As Secretary: create a vote for BoD "Test Resolution"
+2. As s.chen (board member): enter BoD room → vote tab → MUST see the vote
+3. Vote "Approved"
+4. As k.weber (different board member): enter BoD room → MUST see same vote showing 1/10
+5. As Secretary: votes page → MUST show 1/10
+```
+
+### Test C: Management access
+```
+1. As Secretary: create BoD minutes, send to review
+2. As r.taylor (management): /management/minutes → MUST show minutes with "In Review"
+3. Click into minutes → MUST be able to add comment
+```
+
+### Test D: API security
+```
+1. Login as s.chen (board member)
+2. Browser console: fetch('/api/pending-actions', {headers:{Authorization:'Bearer '+localStorage.getItem('token')}}).then(r=>console.log(r.status))
+3. MUST return 403 (not 200)
+```
