@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
+import Whitepaper from "@/pages/whitepaper";
 
 import SecretaryDashboard from "@/pages/secretary/index";
 import SecretaryPendingActions from "@/pages/secretary/pending";
@@ -73,6 +74,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/login" component={Login} />
+      <Route path="/whitepaper" component={Whitepaper} />
 
       {/* Secretary routes */}
       <Route path="/secretary">
