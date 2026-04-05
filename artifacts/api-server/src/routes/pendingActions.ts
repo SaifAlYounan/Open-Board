@@ -203,26 +203,31 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
         resolvedMeetingId = match?.id;
       }
 
-      // Use document text as content if available (MISSING 2 fix)
-      let minutesContent = d.content;
-      if (!minutesContent && documentId) {
+      // Always prefer the actual source document file over any AI-generated placeholder.
+      // d.content may already be set to placeholder text by the AI, so check documentId first.
+      let minutesContent: string | undefined;
+      if (documentId) {
         const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, documentId));
         if (doc?.filePath && fs.existsSync(doc.filePath)) {
           try {
-            minutesContent = fs.readFileSync(doc.filePath, "utf-8");
-            // Wrap in HTML paragraphs if plain text
-            if (!minutesContent.trim().startsWith("<")) {
-              minutesContent = minutesContent
+            const raw = fs.readFileSync(doc.filePath, "utf-8");
+            // Wrap plain text in HTML paragraphs; leave HTML as-is
+            if (!raw.trim().startsWith("<")) {
+              minutesContent = raw
                 .split("\n\n")
                 .filter((p: string) => p.trim())
                 .map((p: string) => `<p>${p.trim().replace(/\n/g, " ")}</p>`)
                 .join("\n");
+            } else {
+              minutesContent = raw;
             }
           } catch {
-            // Fall through to default
+            // Fall through to d.content fallback
           }
         }
       }
+      // Fall back to AI-provided content only if we couldn't read the file
+      if (!minutesContent) minutesContent = d.content;
 
       if (!minutesContent) {
         minutesContent = `<h1>Board Minutes</h1><p>Meeting date: ${meetingDate || "Unknown"}</p><p>Board: ${boardName || "Unknown"}</p><p>[Minutes content — please review and edit before finalizing]</p>`;
