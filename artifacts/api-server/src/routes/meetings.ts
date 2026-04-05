@@ -198,6 +198,44 @@ router.delete("/meetings/:id", requireAuth, requireAdmin, async (req, res): Prom
   res.sendStatus(204);
 });
 
+router.post("/meetings/:id/agenda", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const { title, type, description } = req.body;
+  if (!title || !type) {
+    res.status(400).json({ error: "title and type required" });
+    return;
+  }
+
+  const existing = await db.select().from(agendaItemsTable).where(eq(agendaItemsTable.meetingId, id));
+  const position = existing.length + 1;
+
+  const [item] = await db
+    .insert(agendaItemsTable)
+    .values({ meetingId: id, position, title, type, description })
+    .returning();
+
+  res.status(201).json(item);
+});
+
+router.patch("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
+  const { title, type, description } = req.body;
+  const updates: Record<string, unknown> = {};
+  if (title != null) updates.title = title;
+  if (type != null) updates.type = type;
+  if (description != null) updates.description = description;
+
+  const [item] = await db.update(agendaItemsTable).set(updates).where(eq(agendaItemsTable.id, itemId)).returning();
+  if (!item) { res.status(404).json({ error: "Agenda item not found" }); return; }
+  res.json(item);
+});
+
+router.delete("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
+  await db.delete(agendaItemsTable).where(eq(agendaItemsTable.id, itemId));
+  res.sendStatus(204);
+});
+
 router.get("/meetings/:id/attendance", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const attendanceRows = await db
