@@ -257,6 +257,12 @@ MIT License. Use it, fork it, deploy it, sell support for it. Attribution apprec
 
 ---
 
+## Author
+
+Alexios van der Slikke-Kirillov
+
+---
+
 <p align="center">
   <strong>Built by a governance professional. Shaped by the community.</strong><br>
   <em>If you work in board governance and want to test this, <a href="https://github.com/SaifAlYounan/EasyBoard/issues">open an issue</a> or reach out.</em>
