@@ -41,6 +41,7 @@ export default function SecretaryVotes() {
     customQuorum: '',
     deadlineBehavior: 'lapse',
     recusedIds: [] as string[],
+    requiredVoterIds: [] as string[],
   });
 
   const { data: boardMembers } = useGetBoardMembers(form.boardId, { query: { enabled: !!form.boardId } });
@@ -51,6 +52,17 @@ export default function SecretaryVotes() {
       recusedIds: prev.recusedIds.includes(personId)
         ? prev.recusedIds.filter((id) => id !== personId)
         : [...prev.recusedIds, personId],
+      requiredVoterIds: prev.requiredVoterIds.filter((id) => id !== personId),
+    }));
+  };
+
+  const toggleRequiredVoter = (personId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      requiredVoterIds: prev.requiredVoterIds.includes(personId)
+        ? prev.requiredVoterIds.filter((id) => id !== personId)
+        : [...prev.requiredVoterIds, personId],
+      recusedIds: prev.recusedIds.filter((id) => id !== personId),
     }));
   };
 
@@ -80,6 +92,7 @@ export default function SecretaryVotes() {
           quorum: form.customQuorum ? parseInt(form.customQuorum) : undefined,
           deadlineBehavior: form.deadlineBehavior,
           recusedIds: form.recusedIds.length > 0 ? form.recusedIds : undefined,
+          requiredVoterIds: form.requiredVoterIds.length > 0 ? form.requiredVoterIds : undefined,
         }
       }
     }, {
@@ -87,7 +100,7 @@ export default function SecretaryVotes() {
         toast({ title: 'Vote created' });
         queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
         setShowCreate(false);
-        setForm({ boardId: '', title: '', resolutionText: '', type: 'circulation', deadline: '', ruleType: 'majority', customMinApprovals: '', customQuorum: '', deadlineBehavior: 'lapse', recusedIds: [] });
+        setForm({ boardId: '', title: '', resolutionText: '', type: 'circulation', deadline: '', ruleType: 'majority', customMinApprovals: '', customQuorum: '', deadlineBehavior: 'lapse', recusedIds: [], requiredVoterIds: [] });
       },
       onError: (err: any) => {
         toast({ title: 'Create failed', description: err.data?.error || 'Please try again.', variant: 'destructive' });
@@ -201,37 +214,76 @@ export default function SecretaryVotes() {
                   </div>
                 )}
 
-                {/* Recusals */}
-                {form.boardId && (boardMembers as any[] || []).length > 0 && (
-                  <div className="mt-3 p-4 bg-[#f5f5f7] rounded-xl">
-                    <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Recused Members</label>
-                    <p className="text-xs text-[#86868b] mb-2">Members who must abstain from this vote due to conflict of interest.</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(boardMembers as any[] || [])
-                        .filter((m: any) => m.roleInBoard !== 'observer' && m.roleInBoard !== 'secretary')
-                        .map((m: any) => {
-                          const pid = m.personId;
-                          const name = m.person?.name || pid;
-                          const isRecused = form.recusedIds.includes(pid);
-                          return (
-                            <button
-                              key={pid}
-                              type="button"
-                              onClick={() => toggleRecusal(pid)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
-                                isRecused
-                                  ? 'border-[#ff3b30] bg-[#fff5f5] text-[#ff3b30]'
-                                  : 'border-[#e5e5e7] bg-white text-[#1d1d1f] hover:border-[#ff3b30]/50'
-                              }`}
-                              data-testid={`btn-recuse-${pid}`}
-                            >
-                              {isRecused ? '✕ ' : ''}{name}
-                            </button>
-                          );
-                        })}
+                {/* Recusals and Key Approvers */}
+                {form.boardId && (boardMembers as any[] || []).length > 0 && (() => {
+                  const votingMembers = (boardMembers as any[] || []).filter(
+                    (m: any) => m.roleInBoard !== 'observer' && m.roleInBoard !== 'secretary'
+                  );
+                  return (
+                    <div className="mt-3 space-y-3">
+                      <div className="p-4 bg-[#f5f5f7] rounded-xl">
+                        <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Recused Members</label>
+                        <p className="text-xs text-[#86868b] mb-2">Members who must abstain from this vote due to a conflict of interest.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {votingMembers.map((m: any) => {
+                            const pid = m.personId;
+                            const name = m.person?.name || pid;
+                            const isRecused = form.recusedIds.includes(pid);
+                            const isRequired = form.requiredVoterIds.includes(pid);
+                            return (
+                              <button
+                                key={pid}
+                                type="button"
+                                onClick={() => !isRequired && toggleRecusal(pid)}
+                                disabled={isRequired}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
+                                  isRecused
+                                    ? 'border-[#ff3b30] bg-[#fff5f5] text-[#ff3b30]'
+                                    : isRequired
+                                    ? 'border-[#e5e5e7] bg-[#f5f5f7] text-[#86868b] cursor-not-allowed opacity-50'
+                                    : 'border-[#e5e5e7] bg-white text-[#1d1d1f] hover:border-[#ff3b30]/50'
+                                }`}
+                                data-testid={`btn-recuse-${pid}`}
+                              >
+                                {isRecused ? '✕ ' : ''}{name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="p-4 bg-[#f5f5f7] rounded-xl">
+                        <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Key Approvers</label>
+                        <p className="text-xs text-[#86868b] mb-2">Members whose approval is required for this resolution to pass, regardless of majority.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {votingMembers.map((m: any) => {
+                            const pid = m.personId;
+                            const name = m.person?.name || pid;
+                            const isRequired = form.requiredVoterIds.includes(pid);
+                            const isRecused = form.recusedIds.includes(pid);
+                            return (
+                              <button
+                                key={pid}
+                                type="button"
+                                onClick={() => !isRecused && toggleRequiredVoter(pid)}
+                                disabled={isRecused}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
+                                  isRequired
+                                    ? 'border-[#0071e3] bg-[#f0f7ff] text-[#0071e3]'
+                                    : isRecused
+                                    ? 'border-[#e5e5e7] bg-[#f5f5f7] text-[#86868b] cursor-not-allowed opacity-50'
+                                    : 'border-[#e5e5e7] bg-white text-[#1d1d1f] hover:border-[#0071e3]/50'
+                                }`}
+                                data-testid={`btn-required-${pid}`}
+                              >
+                                {isRequired ? '★ ' : ''}{name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {form.boardId && (

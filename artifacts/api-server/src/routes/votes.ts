@@ -37,6 +37,21 @@ const upload = multer({
   },
 });
 
+function evaluateByRule(
+  rule: { type: string; minApprovals: number | null; quorum: number | null } | null,
+  approvals: number,
+  totalVoters: number
+): "approved" | "rejected" {
+  if (!rule) return approvals > totalVoters / 2 ? "approved" : "rejected";
+  switch (rule.type) {
+    case "unanimous":      return approvals === totalVoters ? "approved" : "rejected";
+    case "two_thirds":     return approvals >= Math.ceil(totalVoters * 2 / 3) ? "approved" : "rejected";
+    case "three_quarters": return approvals >= Math.ceil(totalVoters * 3 / 4) ? "approved" : "rejected";
+    case "custom":         return rule.minApprovals ? (approvals >= rule.minApprovals ? "approved" : "rejected") : (approvals > totalVoters / 2 ? "approved" : "rejected");
+    default:               return approvals > totalVoters / 2 ? "approved" : "rejected";
+  }
+}
+
 function buildApprovalSummary(rule: {
   type: string;
   minApprovals: number | null;
@@ -222,10 +237,25 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
     })
   );
 
+  const boardMembersWithPeople = await Promise.all(
+    members.map(async (m) => {
+      const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, m.personId!));
+      const { passwordHash: _, ...safePerson } = person || { passwordHash: "" };
+      return { ...m, person: safePerson };
+    })
+  );
+
   const [approvalRule] = await db
     .select()
     .from(approvalRulesTable)
     .where(eq(approvalRulesTable.voteId, id));
+
+  const ruleRecusals = approvalRule
+    ? await db.select().from(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, approvalRule.id))
+    : [];
+  const ruleRequiredVoters = approvalRule
+    ? await db.select().from(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, approvalRule.id))
+    : [];
 
   const ruleWithSummary = approvalRule
     ? {
@@ -237,6 +267,8 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
           weighted: approvalRule.weighted || false,
           deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
         }),
+        recusedIds: ruleRecusals.map((r) => r.personId),
+        requiredVoterIds: ruleRequiredVoters.map((r) => r.personId),
       }
     : null;
 
@@ -273,6 +305,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
         }
       : null,
     voteRecords: voteRecordsWithPeople,
+    boardMembers: boardMembersWithPeople,
     approvalRule: ruleWithSummary,
     certificateHash: vote.certificateHash,
     documents: docsWithUploader,
@@ -288,15 +321,18 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
   if (deadline != null) updates.deadline = new Date(deadline);
   if (status != null) {
     updates.status = status;
-    if (["approved", "rejected", "lapsed"].includes(status)) {
+    if (["approved", "rejected", "lapsed", "cancelled"].includes(status)) {
       updates.closedAt = new Date();
-      const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
-      const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
-      const hash = crypto
-        .createHash("sha256")
-        .update(JSON.stringify({ id, status, approvals, total: records.length, closedAt: new Date().toISOString() }))
-        .digest("hex");
-      updates.certificateHash = hash;
+      // Only generate certificate hash for finalized (non-cancelled) statuses
+      if (["approved", "rejected", "lapsed"].includes(status)) {
+        const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+        const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
+        const hash = crypto
+          .createHash("sha256")
+          .update(JSON.stringify({ id, status, approvals, total: records.length, closedAt: new Date().toISOString() }))
+          .digest("hex");
+        updates.certificateHash = hash;
+      }
     }
   }
 
@@ -414,16 +450,41 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
 
     if (vote.boardId) {
       const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
-      const votingMembers = allMembers.filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary");
-      const allRecords = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+      const eligibleMembers = allMembers.filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary");
 
-      if (allRecords.length >= votingMembers.length && votingMembers.length > 0) {
-        const approvals = allRecords.filter((r) => r.decision.startsWith("approved")).length;
-        const threshold = Math.ceil(votingMembers.length / 2);
-        const newStatus = approvals >= threshold ? "approved" : "rejected";
+      // Fetch the approval rule and recusals so we can exclude recused members from quorum
+      const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
+      const recusals = rule
+        ? await db.select().from(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id))
+        : [];
+      const recusedIds = new Set(recusals.map((r) => r.personId));
+
+      // Required voters: if any, ALL of them must have approved
+      const requiredVoterRows = rule
+        ? await db.select().from(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, rule.id))
+        : [];
+      const requiredIds = requiredVoterRows.map((r) => r.personId);
+
+      const votingMembers = eligibleMembers.filter((m) => !recusedIds.has(m.personId!));
+      const allRecords = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+      const validRecords = allRecords.filter((r) => !recusedIds.has(r.personId!));
+
+      if (validRecords.length >= votingMembers.length && votingMembers.length > 0) {
+        const approvals = validRecords.filter((r) => r.decision.startsWith("approved")).length;
+
+        let newStatus: "approved" | "rejected";
+        if (requiredIds.length > 0) {
+          const allRequiredApproved = requiredIds.every((pid) =>
+            validRecords.some((r) => r.personId === pid && r.decision.startsWith("approved"))
+          );
+          newStatus = allRequiredApproved ? evaluateByRule(rule, approvals, votingMembers.length) : "rejected";
+        } else {
+          newStatus = evaluateByRule(rule, approvals, votingMembers.length);
+        }
+
         const hash = crypto
           .createHash("sha256")
-          .update(JSON.stringify({ id, status: newStatus, approvals, total: allRecords.length, closedAt: new Date().toISOString() }))
+          .update(JSON.stringify({ id, status: newStatus, approvals, total: validRecords.length, closedAt: new Date().toISOString() }))
           .digest("hex");
         await db
           .update(votesTable)

@@ -1,0 +1,215 @@
+# EasyBoard v2 — Remaining Fixes
+
+## CONFIRMED BUGS (tested and broken)
+
+### 1. Vote title "Untitled Resolution" on AI-created votes
+AI proposes "Create Vote" from a committee submission → Secretary approves → vote created with title "Untitled Resolution" instead of something descriptive.
+
+**Fix:** In the create_vote handler in `pendingActions.ts`, extract the title from `action_data.description` or the first sentence of the resolution text. Fallback to "Resolution — [board abbreviation]" if nothing available.
+
+**Test:** Upload investment proposal → approve Create Vote → vote title should be descriptive (e.g., "Approval of Green Hydrogen Feasibility Study Budget"), not "Untitled Resolution."
+
+---
+
+### 2. Pending member names not resolved in vote detail
+Secretary vote detail shows "Pending member" with "?" avatar for members who haven't voted. Only members who already voted show their real names. The Secretary needs to see WHO hasn't voted.
+
+**Fix:** The Member Votes query must join `board_memberships` → `people` for the vote's board to get ALL members, not just those with `vote_records`. Show each member's full name and title, with "Not yet voted" for those without a record.
+
+**Test:** Open vote detail → all 6 SIC members should show by name. Sarah Chen shows "Approved", the other 5 show their real names with "Not yet voted."
+
+---
+
+### 3. Observer can't see supporting documents on votes
+Board member sees "1 Supporting Document" on the vote card. Observer sees the same vote but no supporting documents mention.
+
+**Fix:** Observer board room vote card should display the same supporting document count and download links as the board member view. Observers need read-only access to materials.
+
+**Test:** Login as d.park (observer) → SIC room → vote card → must show "1 Supporting Document."
+
+---
+
+### 4. Observer dashboard "Open Votes" counter shows 0
+Observer dashboard displays "OPEN VOTES: 0" even though the SIC board room correctly shows an open vote.
+
+**Fix:** Dashboard counter query for observers should include votes on boards where the user is an observer member, not just voting members.
+
+**Test:** Login as d.park → dashboard → "OPEN VOTES" should show 1.
+
+---
+
+### 5. Custom approval rules incomplete
+The "Custom" option exists with Min Approvals and Quorum fields. But governance requires more:
+
+**Missing features — build these:**
+
+**a) Recused members** — Multi-select dropdown of board members. When recused: excluded from voting (no vote buttons shown to them), excluded from total voter count and quorum calculation. Essential for conflict-of-interest governance.
+
+**b) Key approvers** — Multi-select of specific members whose individual "Approved" vote auto-approves the resolution regardless of total count. Example: "If the Chairman votes Approved, the resolution passes immediately." This is used for delegated authority and emergency decisions.
+
+**c) Deadline behavior** — Radio buttons:
+  - "Lapse" — vote expires with no result if deadline passes without quorum
+  - "Extend" — auto-extend by 7 days if quorum not reached at deadline
+  - "Notify" — alert Secretary 48 hours before deadline
+
+**d) Plain-English summary** — Display below the configuration. Example: "Requires at least 5 approvals from 9 eligible voters (James O'Brien recused). If Nadia Petrov approves, resolution passes immediately. Quorum: 8 must vote. Vote lapses if deadline passes without quorum."
+
+**Store as JSON** in the votes table approval_rule column. The vote result calculation logic must handle: recused exclusion, key approver auto-pass, quorum validation, deadline behavior.
+
+**Test:**
+1. Create Custom vote: min 3 approvals, quorum 4, O'Brien recused, Petrov as key approver
+2. O'Brien enters board room → should NOT see vote buttons
+3. Petrov votes Approved → vote auto-closes as Approved (key approver rule)
+4. Create another Custom vote without key approvers → 3 members vote, but only 3 of 4 quorum met → vote should NOT resolve
+
+---
+
+### 6. Extend deadline timezone display
+Extending deadline to 2026-05-15 displays as "15 May 2026, 04:00 am" instead of just "15 May 2026."
+
+**Fix:** When deadline is date-only (no time component), display date without time. Or store as start-of-day in local timezone.
+
+---
+
+### 7. Minutes content placeholder on new AI approvals
+When Secretary uploads a NEW document and approves "Create Minutes," the content sometimes shows "[Minutes content — please review and edit before finalizing]" instead of the actual document text. Pre-seeded minutes have real content, but freshly AI-approved minutes from new uploads may not.
+
+**Fix:** Verify the create_minutes handler in `pendingActions.ts` always reads the source document file content when `documentId` is present, regardless of what `action_data.content` contains. The file content should always take priority over any AI-generated placeholder.
+
+**Test:** Upload a new .txt file with board minutes → approve Create Minutes → open the new minutes → content must be the uploaded document text.
+
+---
+
+## NEEDS VERIFICATION (Replit said fixed, never re-tested)
+
+These were bugs from Round 1 that Replit claimed to fix. I need you to verify they actually work. If any fail, fix them.
+
+### 8. Mark Concluded button on meetings
+Was a dead button with no click handler. Replit said fixed in task #5.
+
+**Verify:** As Secretary, go to a meeting detail → click "Mark Concluded" → status should change to "concluded."
+
+---
+
+### 9. AI-approved meetings include agenda items + attendance
+AI Command to schedule a meeting → approve → meeting was created with 0 agenda items and 0 attendance. Replit said fixed in task #6.
+
+**Verify:** As Secretary, use AI Command: "Schedule a BoD meeting for June 1 at 2pm with ESG Review on the agenda" → approve → open meeting → must show agenda item AND 10 BoD members in attendance.
+
+---
+
+### 10. Duplicate vote returns 409 (not 500)
+Board member voting twice on the same resolution returned 500. Replit said fixed in task #7.
+
+**Verify:** As board member, vote on a resolution. Then run in console:
+```javascript
+fetch('/api/votes/VOTE_ID/cast', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('token') }, body: JSON.stringify({ decision: 'approved' }) }).then(r => console.log(r.status))
+```
+Must return 409, not 500.
+
+---
+
+### 11. AI-proposed meeting timezone
+"Schedule meeting at 10am" stored as 4:00 AM. Replit said fixed in task #7.
+
+**Verify:** AI Command: "Schedule a BoD meeting for June 10 at 3pm" → approve → meeting should show 3:00 PM, not a different time.
+
+---
+
+### 12. AI Search works for board members
+/api/ai/search was returning 500. Replit said fixed in task #3.
+
+**Verify:** Login as board member → type a search query like "solar expansion" in the AI search bar → must return results or "no results found" without crashing.
+
+---
+
+### 13. API role protection
+Board member calling /api/pending-actions returned 200 with full data. Replit said fixed in task #8.
+
+**Verify:** Login as board member. Console:
+```javascript
+fetch('/api/pending-actions', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }).then(r => console.log(r.status))
+```
+Must return 403.
+```javascript
+fetch('/api/tasks', { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }).then(r => console.log(r.status))
+```
+Must return 403.
+
+---
+
+## NEEDS TESTING ON YOUR END (I couldn't test)
+
+### 14. PDF certificate download
+The "Download Certificate" button appears on closed votes. I confirmed it renders with the SHA-256 hash. But my browser extension crashed when I clicked it — I never saw the actual PDF.
+
+**Verify:** Open the closed vote RES-SIC-2026-001 → click "Download Certificate" → a PDF should download containing: resolution number, title, full text, board, vote result, per-member breakdown, SHA-256 hash, "Certified by EasyBoard" stamp.
+
+---
+
+### 15. Delete Vote
+A red "Delete" button appeared on the vote detail page during my first test, then disappeared on subsequent visits (replaced by "Cancel Vote"). It's unclear if Delete was conditionally removed or if it's a display bug.
+
+**Build/verify:** Both should exist:
+- **Delete** — visible ONLY when zero votes have been cast. Permanently removes the vote.
+- **Cancel Vote** — visible when votes have been cast. Sets status to "cancelled", preserves audit trail.
+
+**Test:** Create a vote with zero votes → Delete button visible → click → vote removed. Create another → cast one vote → Delete hidden, Cancel visible → Cancel → status = "cancelled."
+
+---
+
+## PRIORITY ORDER
+
+1. Bug 1 — Untitled Resolution (high visibility)
+2. Bug 2 — Pending member names (Secretary can't see who hasn't voted)
+3. Bug 5 — Custom rules: recusal + key approvers (core governance)
+4. Bug 3 — Observer supporting docs
+5. Bug 7 — Minutes content on new AI approvals
+6. Bug 15 — Delete/Cancel vote logic
+7. Bugs 8-13 — Verify the 6 claimed fixes
+8. Bug 14 — Verify PDF certificate
+9. Bug 4 — Observer counter
+10. Bug 6 — Timezone display
+
+## FULL VERIFICATION TEST
+
+After all fixes, run this complete sequence:
+
+```
+PHASE A — AI Pipeline
+1. Secretary uploads investment proposal .txt
+2. AI classifies as committee_submission → PASS if 90%+ confidence
+3. AI proposes: Create Vote (SIC), Flag Confidential, Task (NRC), Task (FAC) → verify all 4
+4. Approve Create Vote → title is descriptive (NOT "Untitled Resolution")
+
+PHASE B — Vote Detail
+5. Secretary opens vote detail → all 6 SIC members show by NAME
+6. Secretary uploads supporting document → file appears
+7. Secretary extends deadline to May 30 → deadline updates (no 4am timezone)
+
+PHASE C — Cross-Role
+8. Board member (s.chen) → SIC room → sees vote + "1 Supporting Document"
+9. Board member votes "Approved with Comments" + comment
+10. Observer (d.park) → SIC room → sees vote + supporting docs + NO vote buttons
+11. Observer dashboard → "Open Votes: 1"
+
+PHASE D — Custom Rules
+12. Secretary creates Custom vote: min 3, quorum 4, O'Brien recused, Petrov key approver
+13. O'Brien → board room → NO vote buttons on this vote
+14. Petrov votes Approved → vote auto-closes (key approver)
+
+PHASE E — Close + Certificate
+15. Secretary creates a third vote → 2 members vote → Secretary clicks Close Vote → Approved
+16. Download Certificate → PDF with all fields
+
+PHASE F — Delete / Cancel
+17. Secretary creates vote, zero votes cast → Delete visible → click → removed
+18. Secretary creates vote → one vote cast → Delete hidden, Cancel visible → Cancel → status cancelled
+
+PHASE G — Re-verify Round 1 Fixes
+19. Mark Concluded on meeting → status changes
+20. AI Command "Schedule BoD meeting June 10 at 3pm with Budget Review" → approve → meeting shows 3:00 PM + agenda item + 10 members
+21. Board member duplicate vote → 409 response
+22. Board member AI Search "solar expansion" → results or empty, no crash
+23. Board member fetch('/api/pending-actions') → 403
+```
