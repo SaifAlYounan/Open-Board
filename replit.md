@@ -40,19 +40,20 @@ All passwords: `Meridian2024!`
 ### Secretary (/secretary)
 - Dashboard with AI command bar
 - Pending AI Actions (/secretary/pending) — approve/reject/edit AI-proposed entities
-- Votes (/secretary/votes) — create resolutions with approval rules
+- Votes (/secretary/votes) — create resolutions with approval rules + recusals; clickable cards navigate to detail
+- Vote Detail (/secretary/votes/:id) — full vote detail with per-member breakdown, extend deadline, close vote, upload supporting materials, download SHA-256 signed PDF certificate
 - Meetings (/secretary/meetings) — create and manage meetings
 - Minutes (/secretary/minutes) — list and edit board minutes
 - Tasks (/secretary/tasks) — create and track action items; each task card is clickable
 - Task Detail (/secretary/tasks/:id) — view and edit task details (title, status, assignee, due date)
-- Documents (/secretary/documents) — upload and AI-classify documents
+- Documents (/secretary/documents) — upload and AI-classify documents (committee_submission now recognized)
 - Members (/secretary/members) — view all people
 - Admin Panel (/secretary/admin) — manage users (edit/activate/deactivate/create) and board memberships
 - Settings (/secretary/settings) — AI configuration status
 
 ### Board Member (/board)
 - Dashboard with AI insights and board cards
-- Board Room (/board/room/:boardId) — vote casting, meetings view, minutes view
+- Board Room (/board/room/:boardId) — vote casting with supporting materials visible; meetings view; minutes view
 - Minutes Viewer (/board/minutes/:id) — read-only with comment sidebar
 - Minutes Signing (/board/minutes/:id/sign) — SHA-256 signed with Dancing Script font
 
@@ -68,7 +69,7 @@ All passwords: `Meridian2024!`
 
 ## AI Features
 - Model: `claude-opus-4-20250514` via `ANTHROPIC_API_KEY`
-- Document classification on upload → proposes pending actions
+- Document classification on upload → proposes pending actions (types: draft_minutes, resolution, financial_report, legal_opinion, evidence, meeting_agenda, committee_submission, general)
 - AI Command bar for natural language (create meetings, votes)
 - AI Search across minutes/votes/documents
 - AI Insights on board dashboard
@@ -89,8 +90,20 @@ All passwords: `Meridian2024!`
 - create_minutes actions auto-show meeting picker pre-populated with most recent meeting
 
 ## Database
-- 20-table PostgreSQL schema via Drizzle ORM
-- Tables: organizations, people, boards, boardMemberships, meetings, agendaItems, votes, voteEntries, minutes, minutesComments, minutesSignatures, documents, tasks, taskEvidence, pendingActions, accessControls, auditLog, notifications, systemSettings, minutesVersions
+- 21-table PostgreSQL schema via Drizzle ORM
+- Tables: organizations, people, boards, boardMemberships, meetings, agendaItems, votes, voteRecords, vote_documents, approvalRules, minutes, minutesSuggestions, minutesSignatures, documents, agendaDocuments, tasks, taskEvidence, pendingActions, accessControl, auditTrail, attendance
+- vote_documents: created via direct SQL (drizzle-kit push has pre-existing conflict with approvalRules junction table PK)
+
+## Vote System
+- PATCH /api/votes/:id supports: title, resolutionText, deadline (extend deadline), status (close vote - generates SHA-256 certificate hash on close)
+- GET /api/votes/:id returns: full voteRecords with people, approvalRule with summaryText, documents array
+- GET /api/votes lists now include documentCount field
+- POST /api/votes/:id/documents — multer upload, stored in ./uploads/, max 20MB
+- GET /api/votes/:id/documents — list documents
+- DELETE /api/votes/:id/documents/:docId — delete document + file
+- GET /api/votes/:id/documents/:docId/download — stream file download
+- GET /api/votes/:id/certificate — full certificate data (for PDF generation)
+- Certificate PDF: generated client-side (print window) on click of "Download Certificate" in vote detail
 
 ## Design System
 - Apple aesthetic: Primary Blue #0071e3, Success #34c759, Danger #ff3b30, Warning #ff9500

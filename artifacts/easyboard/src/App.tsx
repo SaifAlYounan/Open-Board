@@ -12,6 +12,7 @@ import Whitepaper from "@/pages/whitepaper";
 import SecretaryDashboard from "@/pages/secretary/index";
 import SecretaryPendingActions from "@/pages/secretary/pending";
 import SecretaryVotes from "@/pages/secretary/votes";
+import SecretaryVoteDetail from "@/pages/secretary/vote-detail";
 import SecretaryMeetings from "@/pages/secretary/meetings";
 import SecretaryMeetingDetail from "@/pages/secretary/meeting-detail";
 import SecretaryMinutesList from "@/pages/secretary/minutes";
@@ -89,6 +90,13 @@ function Router() {
         <ProtectedRoute roles={['admin']}>
           <SecretaryPendingActions />
         </ProtectedRoute>
+      </Route>
+      <Route path="/secretary/votes/:id">
+        {() => (
+          <ProtectedRoute roles={['admin']}>
+            <SecretaryVoteDetail />
+          </ProtectedRoute>
+        )}
       </Route>
       <Route path="/secretary/votes">
         <ProtectedRoute roles={['admin']}>
