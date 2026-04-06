@@ -3,10 +3,10 @@ import { ArrowLeft, Shield } from "lucide-react";
 
 export default function Whitepaper() {
   return (
-    <div className="min-h-screen bg-[#1d1d1f] text-white">
-      <header className="sticky top-0 z-50 bg-[#1d1d1f]/90 backdrop-blur-md border-b border-white/10 px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f]">
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-[#e5e5e7] px-6 py-4 flex items-center justify-between">
         <Link href="/">
-          <button className="flex items-center gap-2 text-[#86868b] hover:text-white transition-colors text-sm font-medium">
+          <button className="flex items-center gap-2 text-[#86868b] hover:text-[#1d1d1f] transition-colors text-sm font-medium">
             <ArrowLeft size={16} />
             Back to EasyBoard
           </button>
@@ -19,11 +19,11 @@ export default function Whitepaper() {
 
       <main className="max-w-3xl mx-auto px-6 py-16">
         <div className="mb-12 space-y-3">
-          <div className="inline-flex items-center gap-2 bg-[#0071e3]/15 text-[#0071e3] text-xs font-semibold px-3 py-1.5 rounded-full tracking-wide uppercase">
+          <div className="inline-flex items-center gap-2 bg-[#0071e3]/10 text-[#0071e3] text-xs font-semibold px-3 py-1.5 rounded-full tracking-wide uppercase">
             <Shield size={12} />
             Security White Paper
           </div>
-          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight">
+          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight text-[#1d1d1f]">
             EasyBoard Security Architecture
           </h1>
           <p className="text-[#86868b] text-lg leading-relaxed">
@@ -31,8 +31,8 @@ export default function Whitepaper() {
           </p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-12">
-          <h2 className="text-lg font-semibold mb-3 text-white">Executive Summary</h2>
+        <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 mb-12">
+          <h2 className="text-lg font-semibold mb-3 text-[#1d1d1f]">Executive Summary</h2>
           <p className="text-[#86868b] leading-relaxed">
             Board management platforms handle the most sensitive information in any organization: M&A valuations,
             executive compensation, legal privilege, strategic plans, and regulatory filings. The security architecture
@@ -45,7 +45,7 @@ export default function Whitepaper() {
           </p>
         </div>
 
-        <div className="space-y-12 text-[#e5e5e7]">
+        <div className="space-y-12">
           <Section
             number="1"
             title='"Open source exposes vulnerabilities to attackers"'
@@ -152,11 +152,11 @@ These controls are implemented identically regardless of whether the software is
             question="Please cite the specific regulation that requires a proprietary vendor rather than the implementation of specific security controls."
           />
 
-          <div className="mt-16 p-8 bg-[#0071e3]/10 border border-[#0071e3]/30 rounded-2xl text-center space-y-4">
-            <h2 className="text-2xl font-semibold text-white">Conclusion</h2>
+          <div className="mt-16 p-8 bg-[#0071e3]/8 border border-[#0071e3]/20 rounded-2xl text-center space-y-4">
+            <h2 className="text-2xl font-semibold text-[#1d1d1f]">Conclusion</h2>
             <p className="text-[#86868b] leading-relaxed max-w-xl mx-auto">
               The security debate around board management platforms ultimately reduces to a simple question:{" "}
-              <strong className="text-white">Do you want security you can verify, or security you must trust?</strong>
+              <strong className="text-[#1d1d1f]">Do you want security you can verify, or security you must trust?</strong>
             </p>
             <p className="text-[#86868b]">
               Proprietary platforms ask for trust. Open-source platforms offer proof.
@@ -187,16 +187,16 @@ function Section({ number, title, content, question }: {
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-4">
-        <div className="w-8 h-8 rounded-full bg-[#0071e3]/20 text-[#0071e3] text-sm font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+        <div className="w-8 h-8 rounded-full bg-[#0071e3]/15 text-[#0071e3] text-sm font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
           {number}
         </div>
-        <h2 className="text-xl font-semibold text-white leading-snug">{title}</h2>
+        <h2 className="text-xl font-semibold text-[#1d1d1f] leading-snug">{title}</h2>
       </div>
       <div className="ml-12 space-y-3">
         {content.split("\n\n").map((para, i) => (
           <p key={i} className="text-[#86868b] leading-relaxed">{para}</p>
         ))}
-        <div className="mt-4 pl-4 border-l-2 border-[#0071e3]/50">
+        <div className="mt-4 pl-4 border-l-2 border-[#0071e3]/40">
           <p className="text-sm text-[#0071e3] italic leading-relaxed">
             The question to ask: "{question}"
           </p>
