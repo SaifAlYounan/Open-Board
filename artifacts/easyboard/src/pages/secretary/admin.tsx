@@ -794,6 +794,8 @@ function SystemTab() {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [password, setPassword] = useState("");
+  const passwordCorrect = password === "1961";
 
   async function handleReset() {
     setLoading(true);
@@ -849,29 +851,41 @@ function SystemTab() {
             </div>
 
             {!confirming ? (
-              <button
-                onClick={() => setConfirming(true)}
-                className="mt-4 flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors"
-              >
-                <RotateCcw size={14} />
-                Reset All Data
-              </button>
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={() => { setConfirming(true); setPassword(""); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors"
+                >
+                  <RotateCcw size={14} />
+                  Reset All Data
+                </button>
+                <span className="text-xs text-[#86868b] italic">for demo only</span>
+              </div>
             ) : (
               <div className="mt-4 border border-[#ff3b3040] bg-[#fff5f5] rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2 text-[#ff3b30]">
                   <AlertTriangle size={16} />
-                  <span className="text-sm font-semibold">This cannot be undone. Are you sure?</span>
+                  <span className="text-sm font-semibold">This cannot be undone. Enter the admin password to confirm.</span>
                 </div>
+                <input
+                  type="password"
+                  placeholder="Admin password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && passwordCorrect && !loading && handleReset()}
+                  className="w-48 px-3 py-2 text-sm border border-[#e5e5e7] rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#ff3b30]/30"
+                  autoFocus
+                />
                 <div className="flex gap-2">
                   <button
                     onClick={handleReset}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors disabled:opacity-50"
+                    disabled={loading || !passwordCorrect}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {loading ? "Resetting..." : "Yes, Reset Everything"}
                   </button>
                   <button
-                    onClick={() => setConfirming(false)}
+                    onClick={() => { setConfirming(false); setPassword(""); }}
                     disabled={loading}
                     className="px-4 py-2 text-sm font-medium text-[#1d1d1f] bg-white border border-[#e5e5e7] rounded-xl hover:bg-[#f5f5f7] transition-colors"
                   >
