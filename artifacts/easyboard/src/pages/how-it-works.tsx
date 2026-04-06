@@ -103,9 +103,9 @@ export default function HowItWorks() {
             How EasyBoard Works
           </h1>
           <p className="text-[#86868b] text-lg leading-relaxed max-w-2xl">
-            EasyBoard is an AI-native board governance platform. Claude — Anthropic's AI model — acts as an intelligent
-            secretary that reads your documents, proposes structured governance actions, and executes them the moment
-            you approve. Here is exactly how every part of the system fits together.
+            EasyBoard is an AI-native board governance platform. An AI model — Claude by default, or a local model
+            of your choice — acts as an intelligent secretary that reads your documents, proposes structured governance
+            actions, and executes them the moment you approve. Here is exactly how every part of the system fits together.
           </p>
         </div>
 
@@ -115,7 +115,8 @@ export default function HowItWorks() {
             <SectionHeader icon={<Bot size={12} />} label="The AI System" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">The Central AI Pipeline</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Every document uploaded to EasyBoard is processed by Claude (claude-opus-4-6). The AI reads the full
+              Every document uploaded to EasyBoard is processed by an AI model — Claude (claude-opus-4-6) by default,
+              or a local model of your choice if you prefer to keep all processing on-premises. The AI reads the full
               text, classifies its intent, and proposes zero or more structured governance actions — never executing
               anything automatically. A human Secretary reviews every proposal before anything is created.
             </p>
@@ -124,7 +125,7 @@ export default function HowItWorks() {
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
             <FlowStep icon={<FileText size={15} />} label="Document uploaded by Secretary" sub="PDF, DOCX, XLSX, PPTX, TXT, image" />
             <FlowArrow />
-            <FlowStep icon={<Bot size={15} />} label="Claude reads and classifies the document" sub="Confidence score + action type proposed" accent />
+            <FlowStep icon={<Bot size={15} />} label="AI model reads and classifies the document" sub="Claude by default, or a local model of your choice · Confidence score + action type proposed" accent />
             <FlowArrow />
             <FlowStep icon={<GitBranch size={15} />} label="Pending Action queued for Secretary review" sub="create_meeting · create_vote · create_minutes · create_task · flag_confidential" />
             <FlowArrow />
@@ -413,7 +414,7 @@ export default function HowItWorks() {
               },
               {
                 title: "Self-Hosted & Open Source",
-                detail: "Your data never leaves your infrastructure. The API server and database run entirely under your control. The AI classification call is the only outbound network request — to Anthropic's API, using your own API key.",
+                detail: "Your data never leaves your infrastructure. The API server and database run entirely under your control. With Claude, the only outbound request is to Anthropic's API using your own key. Swap in a local model and there are zero outbound requests — the system runs fully air-gapped.",
               },
             ].map(({ title, detail }) => (
               <div key={title} className="border-b border-white/10 last:border-0 pb-5 last:pb-0">
@@ -442,7 +443,7 @@ export default function HowItWorks() {
               { layer: "Frontend", stack: "React 18 + Vite + TypeScript", detail: "Role-based single-page app. TanStack Query for server state. Wouter for routing. Tailwind CSS for styling." },
               { layer: "API Server", stack: "Node.js + Express + TypeScript", detail: "REST API compiled with esbuild. JWT middleware on every protected route. Multer for secure file uploads." },
               { layer: "Database", stack: "PostgreSQL + Drizzle ORM", detail: "Fully relational schema with foreign-key constraints, UUIDs for all primary keys, and timestamped audit rows." },
-              { layer: "AI Layer", stack: "Anthropic Claude API", detail: "Structured JSON output with confidence scores. Prompt engineered for governance document classification. No training on your data." },
+              { layer: "AI Layer", stack: "Pluggable AI model", detail: "Ships with Claude (claude-opus-4-6) via Anthropic's API. Swap in any OpenAI-compatible local model — Ollama, LM Studio, vLLM — to keep all processing on-premises. Structured JSON output with confidence scores. No training on your data." },
             ].map(({ layer, stack, detail }) => (
               <div key={layer} className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <div className="text-xs font-semibold text-[#0071e3] uppercase tracking-widest mb-1">{layer}</div>
@@ -464,12 +465,12 @@ export default function HowItWorks() {
           </div>
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
             {[
-              { n: "1", t: "Secretary uploads board pack PDF", d: "The 40-page board pack is uploaded. Claude reads every page and proposes: 1 meeting, 3 resolutions, and 7 action items — all in under 30 seconds." },
-              { n: "2", t: "Secretary reviews AI proposals", d: "The Pending Actions queue shows each proposed action with Claude's confidence score and a plain-English description. The Secretary corrects a date on one resolution and approves the rest." },
-              { n: "3", t: "Board members receive their vote", d: "Three circulation resolutions appear on each board member's dashboard. They review the resolution text and supporting materials, then cast their votes — from any device, any location." },
-              { n: "4", t: "Votes auto-close", d: "When the last eligible member votes, the system evaluates the result against the approval rule, closes the vote, generates a SHA-256 certificate, and marks it approved or rejected." },
-              { n: "5", t: "Meeting takes place", d: "Board members view the agenda in the Board Room. The Secretary records attendance. Minutes are drafted in the rich-text editor." },
-              { n: "6", t: "Minutes signed digitally", d: "The Secretary promotes the minutes to the signing stage. Each board member signs with one click. When all signatures are collected, the minutes are permanently locked and the cycle is complete." },
+              { n: "1", t: "Secretary uploads board pack PDF", d: "The 40-page board pack is uploaded. The AI reads every page and proposes: 1 meeting, the agenda structure, and 7 action items — all in under 30 seconds." },
+              { n: "2", t: "Secretary reviews AI proposals", d: "The Pending Actions queue shows each proposed action with a confidence score and a plain-English description. The Secretary corrects a date on one item and approves the rest." },
+              { n: "3", t: "Meeting takes place", d: "Board members open the Board Room and see the agenda, supporting documents, and attendance list. The Secretary marks attendance and the chair opens the session." },
+              { n: "4", t: "Secretary opens resolutions for vote", d: "Items requiring a formal decision are published as circulation resolutions. Each resolution appears on every eligible board member's dashboard with the supporting materials attached." },
+              { n: "5", t: "Board members cast their votes", d: "Members review the resolution text and vote — approved, rejected, or with comments — from any device, any location. The system tracks who has voted and who is outstanding." },
+              { n: "6", t: "Votes close and minutes are signed", d: "When the last eligible member votes, the result is evaluated, the vote closes, and a SHA-256 certificate is generated. The Secretary then drafts the minutes, advances them through review and signing, and each board member signs with one click. Minutes are permanently locked once all signatures are in." },
             ].map(({ n, t, d }) => <Step key={n} number={n} title={t} description={d} />)}
           </div>
         </section>
