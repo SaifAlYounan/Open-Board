@@ -204,7 +204,13 @@ export async function seed() {
   // Always run title migration regardless of seed state
   await migratePeopleTitles();
 
-  // Always check if demo data needs to be added
+  // Only seed demo data on a completely fresh install (no people).
+  // If people already exist, the DB was intentionally set up — do not re-add demo data.
+  if (hasData) {
+    logger.info("People already exist — skipping demo data seed");
+    return;
+  }
+
   const existingMeetings = await db.select().from(meetingsTable);
   if (existingMeetings.length > 0) {
     logger.info("Database already seeded with correct data — skipping");
