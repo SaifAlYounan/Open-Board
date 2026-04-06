@@ -6,7 +6,7 @@ import { getListPeopleQueryKey, getListBoardsQueryKey, getGetBoardQueryKey } fro
 import { getAvatarInitials } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { ShieldCheck, Users, Layout, Plus, Pencil, Check, X, UserX, UserCheck, Trash2, ChevronRight } from "lucide-react";
+import { ShieldCheck, Users, Layout, Plus, Pencil, Check, X, UserX, UserCheck, Trash2, ChevronRight, Settings2, RotateCcw, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const API_BASE = "";
@@ -567,11 +567,112 @@ function BoardMembersTab() {
   );
 }
 
+// ─── System Tab ───────────────────────────────────────────────────────────────
+
+function SystemTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleReset() {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/system/reset-data`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reset failed");
+      await queryClient.invalidateQueries();
+      toast({ title: "Data reset", description: "All transactional data has been cleared." });
+      setConfirming(false);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 bg-[#ff3b3015] text-[#ff3b30] rounded-xl flex items-center justify-center flex-shrink-0">
+            <RotateCcw size={18} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base font-semibold text-[#1d1d1f]">Reset All Data</h3>
+            <p className="text-sm text-[#86868b] mt-1 leading-relaxed">
+              Clears all meetings, votes, tasks, minutes, and documents from the system. Company structure, people, and board rooms will be preserved.
+            </p>
+
+            <div className="mt-4 bg-[#f5f5f7] rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-[#1d1d1f] uppercase tracking-wide">What gets cleared</p>
+              <div className="grid grid-cols-2 gap-1 text-sm text-[#3c3c43]">
+                {["Meetings & agendas", "Votes & vote records", "Tasks & evidence", "Minutes & signatures", "Documents", "Uploaded files"].map(item => (
+                  <div key={item} className="flex items-center gap-1.5">
+                    <X size={12} className="text-[#ff3b30] flex-shrink-0" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs font-semibold text-[#1d1d1f] uppercase tracking-wide mt-3">What is preserved</p>
+              <div className="grid grid-cols-2 gap-1 text-sm text-[#3c3c43]">
+                {["Organisation", "All 20 people", "All 5 board rooms", "Board memberships"].map(item => (
+                  <div key={item} className="flex items-center gap-1.5">
+                    <Check size={12} className="text-[#34c759] flex-shrink-0" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {!confirming ? (
+              <button
+                onClick={() => setConfirming(true)}
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors"
+              >
+                <RotateCcw size={14} />
+                Reset All Data
+              </button>
+            ) : (
+              <div className="mt-4 border border-[#ff3b3040] bg-[#fff5f5] rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-[#ff3b30]">
+                  <AlertTriangle size={16} />
+                  <span className="text-sm font-semibold">This cannot be undone. Are you sure?</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleReset}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors disabled:opacity-50"
+                  >
+                    {loading ? "Resetting..." : "Yes, Reset Everything"}
+                  </button>
+                  <button
+                    onClick={() => setConfirming(false)}
+                    disabled={loading}
+                    className="px-4 py-2 text-sm font-medium text-[#1d1d1f] bg-white border border-[#e5e5e7] rounded-xl hover:bg-[#f5f5f7] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Panel ─────────────────────────────────────────────────────────
 
 const TABS = [
   { id: "people", label: "People", icon: Users },
   { id: "boards", label: "Board Memberships", icon: Layout },
+  { id: "system", label: "System", icon: Settings2 },
 ];
 
 export default function SecretaryAdmin() {
@@ -613,6 +714,7 @@ export default function SecretaryAdmin() {
 
           {activeTab === "people" && <PeopleTab />}
           {activeTab === "boards" && <BoardMembersTab />}
+          {activeTab === "system" && <SystemTab />}
         </div>
       </main>
     </div>
