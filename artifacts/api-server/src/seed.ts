@@ -9,6 +9,7 @@ import {
   minutesSignaturesTable,
   minutesSuggestionsTable,
   minutesTable,
+  agendaDocumentsTable,
   agendaItemsTable,
   attendanceTable,
   pendingActionsTable,
@@ -17,10 +18,12 @@ import {
   meetingsTable,
   documentsTable,
   tasksTable,
+  taskEvidenceTable,
   approvalRulesTable,
   approvalRuleRequiredVotersTable,
   approvalRuleRecusalsTable,
   approvalRuleWeightsTable,
+  voteDocumentsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./lib/logger";
@@ -62,6 +65,7 @@ export async function clearAll() {
   await db.delete(minutesSignaturesTable);
   await db.delete(minutesSuggestionsTable);
   await db.delete(minutesTable);
+  await db.delete(agendaDocumentsTable);
   await db.delete(agendaItemsTable);
   await db.delete(attendanceTable);
   await db.delete(pendingActionsTable);
@@ -70,10 +74,12 @@ export async function clearAll() {
   await db.delete(approvalRuleRecusalsTable);
   await db.delete(approvalRuleRequiredVotersTable);
   await db.delete(approvalRulesTable);
+  await db.delete(voteDocumentsTable);
   await db.delete(votesTable);
+  await db.delete(taskEvidenceTable);
+  await db.delete(tasksTable);
   await db.delete(meetingsTable);
   await db.delete(documentsTable);
-  await db.delete(tasksTable);
   await db.delete(accessControlTable);
   await db.delete(boardMembershipsTable);
   await db.delete(boardsTable);

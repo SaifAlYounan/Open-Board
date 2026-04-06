@@ -6,6 +6,7 @@ import {
   minutesSignaturesTable,
   minutesSuggestionsTable,
   minutesTable,
+  agendaDocumentsTable,
   agendaItemsTable,
   attendanceTable,
   pendingActionsTable,
@@ -15,11 +16,11 @@ import {
   approvalRuleRequiredVotersTable,
   approvalRulesTable,
   votesTable,
+  voteDocumentsTable,
+  taskEvidenceTable,
+  tasksTable,
   meetingsTable,
   documentsTable,
-  tasksTable,
-  taskEvidenceTable,
-  voteDocumentsTable,
 } from "@workspace/db";
 
 const router = Router();
@@ -31,7 +32,6 @@ router.post("/admin/clear-demo", async (req, res): Promise<void> => {
     return;
   }
   try {
-    // Delete uploaded vote document files
     const uploadsDir = path.join(process.cwd(), "uploads");
     if (fs.existsSync(uploadsDir)) {
       for (const f of fs.readdirSync(uploadsDir)) {
@@ -39,10 +39,11 @@ router.post("/admin/clear-demo", async (req, res): Promise<void> => {
       }
     }
 
-    // Clear all demo data tables (preserve people, boards, board_memberships, organizations)
+    // Delete in FK-safe order (children before parents)
     await db.delete(minutesSignaturesTable);
     await db.delete(minutesSuggestionsTable);
     await db.delete(minutesTable);
+    await db.delete(agendaDocumentsTable);
     await db.delete(agendaItemsTable);
     await db.delete(attendanceTable);
     await db.delete(pendingActionsTable);
@@ -53,15 +54,15 @@ router.post("/admin/clear-demo", async (req, res): Promise<void> => {
     await db.delete(approvalRulesTable);
     await db.delete(voteDocumentsTable);
     await db.delete(votesTable);
-    await db.delete(meetingsTable);
-    await db.delete(documentsTable);
     await db.delete(taskEvidenceTable);
     await db.delete(tasksTable);
+    await db.delete(meetingsTable);
+    await db.delete(documentsTable);
 
     res.json({ ok: true, message: "Demo data cleared. People, boards, and board memberships preserved." });
   } catch (err: any) {
-    console.error("[admin/clear-demo]", err);
-    res.status(500).json({ error: err.message });
+    console.error("[admin/clear-demo]", err.message, err.cause?.message);
+    res.status(500).json({ error: err.cause?.message || err.message });
   }
 });
 
