@@ -37,8 +37,8 @@ const upload = multer({
 });
 
 async function extractTextFromPdf(filePath: string): Promise<string> {
+  // Primary: pdftotext (available in development / Linux environments with poppler)
   try {
-    // pdftotext (poppler-utils) — reliable, handles all standard text-based PDFs
     const { stdout, stderr } = await execFileAsync(
       "pdftotext",
       ["-layout", "-enc", "UTF-8", filePath, "-"],
@@ -47,13 +47,32 @@ async function extractTextFromPdf(filePath: string): Promise<string> {
     if (stderr) console.warn("[pdf] pdftotext stderr:", stderr.slice(0, 200));
     const extracted = stdout?.trim() ?? "";
     if (extracted.length > 0) {
-      console.log(`[pdf] pdftotext extracted ${extracted.length} chars from ${path.basename(filePath)}`);
+      console.log(`[pdf] pdftotext extracted ${extracted.length} chars`);
       return stdout;
     }
-    console.warn("[pdf] pdftotext returned empty — PDF may be image-only or encrypted");
   } catch (err) {
-    console.error("[pdf] pdftotext failed:", (err as Error).message);
+    const msg = (err as NodeJS.ErrnoException).code === "ENOENT"
+      ? "pdftotext not found in PATH — using pdf-parse fallback"
+      : `pdftotext failed: ${(err as Error).message}`;
+    console.warn("[pdf]", msg);
   }
+
+  // Fallback: pdf-parse v1 (pure JS, works in any Node.js environment)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfParse = (globalThis as any).require("pdf-parse") as (buf: Buffer, opts?: Record<string, unknown>) => Promise<{ text: string }>;
+    const buffer = fs.readFileSync(filePath);
+    const data = await pdfParse(buffer, { max: 0 });
+    const extracted = data.text?.trim() ?? "";
+    if (extracted.length > 0) {
+      console.log(`[pdf] pdf-parse extracted ${extracted.length} chars`);
+      return data.text;
+    }
+    console.warn("[pdf] pdf-parse returned empty — PDF may be image-only or encrypted");
+  } catch (err) {
+    console.error("[pdf] pdf-parse failed:", (err as Error).message);
+  }
+
   return "";
 }
 
