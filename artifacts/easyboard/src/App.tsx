@@ -8,6 +8,7 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
 import Whitepaper from "@/pages/whitepaper";
+import HowItWorks from "@/pages/how-it-works";
 
 import SecretaryDashboard from "@/pages/secretary/index";
 import SecretaryPendingActions from "@/pages/secretary/pending";
@@ -79,6 +80,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/login" component={Login} />
       <Route path="/whitepaper" component={Whitepaper} />
+      <Route path="/how-it-works" component={HowItWorks} />
 
       {/* Secretary routes */}
       <Route path="/secretary">

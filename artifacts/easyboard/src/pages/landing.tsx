@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Lock, Book, Bot, Shield, DollarSign, Zap, ArrowRight } from "lucide-react";
+import { Lock, Book, Bot, Shield, DollarSign, Zap, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Landing() {
@@ -57,6 +57,17 @@ export default function Landing() {
                 data-testid="button-source"
               >
                 Is this secure?
+              </Button>
+            </Link>
+            <Link href="/how-it-works" className="w-full sm:w-auto">
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full sm:w-auto text-lg h-14 px-8 rounded-full bg-transparent border-[#86868b] text-white hover:bg-white/10 flex items-center gap-2"
+                data-testid="button-how-it-works"
+              >
+                <Info size={18} />
+                How it works
               </Button>
             </Link>
           </div>
