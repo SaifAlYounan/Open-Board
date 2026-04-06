@@ -14,6 +14,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
+import { audit } from "../lib/auditLog";
 
 const COMMENT_COLORS = [
   "#ff3b30", "#ff9500", "#34c759", "#0071e3", "#5856d6", "#af52de",
@@ -104,6 +105,7 @@ router.post("/minutes", requireAuth, requireAdmin, async (req, res): Promise<voi
     const existing = existingList[0];
     const [updated] = await db.update(minutesTable).set({ content, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
     const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
+    audit(req, "minutes_saved", "minutes", existing.id, { meetingTitle: meeting?.title });
     res.json({ ...updated, meetingTitle: meeting?.title || null, meetingDate: meeting?.date || null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
     return;
   }
@@ -119,6 +121,7 @@ router.post("/minutes", requireAuth, requireAdmin, async (req, res): Promise<voi
     await grantDefaultAccess("minutes", minutes.id, meeting.boardId);
   }
 
+  audit(req, "minutes_saved", "minutes", minutes.id, { meetingTitle: meeting?.title });
   res.status(201).json({
     ...minutes,
     meetingTitle: meeting?.title || null,
@@ -247,6 +250,7 @@ router.patch("/minutes/:id/status", requireAuth, requireAdmin, async (req, res):
     return;
   }
 
+  audit(req, "minutes_status_changed", "minutes", id, { status });
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
@@ -273,6 +277,7 @@ router.post("/minutes/:id/sign", requireAuth, async (req, res): Promise<void> =>
       .returning();
 
     const { passwordHash: _, ...safePerson } = user;
+    audit(req, "minutes_signed", "minutes", id);
     res.json({ ...sig, person: safePerson });
   } catch (err: unknown) {
     const anyErr = err as { code?: string };

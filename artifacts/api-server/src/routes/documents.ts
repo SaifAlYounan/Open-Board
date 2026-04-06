@@ -13,6 +13,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
+import { audit } from "../lib/auditLog";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -107,6 +108,7 @@ router.post("/documents/upload", requireAuth, (req, res, next) => {
 
   // Respond immediately — don't wait for AI
   res.json({ document: doc, classifying: !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) });
+  audit(req, "document_uploaded", "document", doc.id, { filename: originalname, fileSize: size });
 
   // AI Classification runs in background (fire-and-forget)
   const hasAI = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
@@ -195,12 +197,15 @@ router.get("/documents/:id", requireAuth, async (req, res): Promise<void> => {
   const uploader = doc.uploadedBy
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, doc.uploadedBy))
     : [];
+  audit(req, "document_viewed", "document", id, { filename: doc.filename });
   res.json({ ...doc, uploaderName: uploader[0]?.name || null });
 });
 
 router.delete("/documents/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
   await db.delete(documentsTable).where(eq(documentsTable.id, id));
+  audit(req, "document_deleted", "document", id, { filename: doc?.filename });
   res.sendStatus(204);
 });
 

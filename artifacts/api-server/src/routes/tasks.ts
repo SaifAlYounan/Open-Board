@@ -14,6 +14,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, REVIEW_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
+import { audit } from "../lib/auditLog";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -118,6 +119,7 @@ router.post("/tasks", requireAuth, requireAdmin, async (req, res): Promise<void>
     : [];
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
 
+  audit(req, "task_created", "task", task.id, { title: task.title, taskNumber: task.taskNumber });
   res.status(201).json({
     ...task,
     assignee: assignee[0] ? safeAssignee : null,
@@ -189,12 +191,15 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, async (req, res): Promise<
     : [];
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
 
+  audit(req, "task_updated", "task", id, { status: task.status });
   res.json({ ...task, assignee: assignee[0] ? safeAssignee : null, sourceMeetingTitle: null });
 });
 
 router.delete("/tasks/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
   await db.delete(tasksTable).where(eq(tasksTable.id, id));
+  audit(req, "task_deleted", "task", id, { title: task?.title });
   res.sendStatus(204);
 });
 
@@ -233,6 +238,7 @@ router.post("/tasks/:id/evidence", requireAuth, upload.single("file"), async (re
 
   // Update task status
   await db.update(tasksTable).set({ status: "evidence_submitted" }).where(eq(tasksTable.id, taskId));
+  audit(req, "task_evidence_uploaded", "task", taskId, { filename: originalname, taskTitle: task.title });
 
   // AI Review (async)
   if (process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { SecretarySidebar } from "@/components/SecretarySidebar";
 import { useListPeople, useListBoards, useGetBoard } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -6,7 +6,7 @@ import { getListPeopleQueryKey, getListBoardsQueryKey, getGetBoardQueryKey } fro
 import { getAvatarInitials } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { ShieldCheck, Users, Layout, Plus, Pencil, Check, X, UserX, UserCheck, Trash2, ChevronRight, Settings2, RotateCcw, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Users, Layout, Plus, Pencil, Check, X, UserX, UserCheck, Trash2, ChevronRight, Settings2, RotateCcw, AlertTriangle, ClipboardList, Search, RefreshCw, LogIn, FileText, Vote, CalendarDays, ScrollText, CheckSquare, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const API_BASE = "";
@@ -567,6 +567,226 @@ function BoardMembersTab() {
   );
 }
 
+// ─── Audit Tab ────────────────────────────────────────────────────────────────
+
+const ACTION_CATEGORIES = [
+  { id: "", label: "All Actions", icon: ClipboardList },
+  { id: "login", label: "Sign-ins", icon: LogIn },
+  { id: "document", label: "Documents", icon: FileText },
+  { id: "vote", label: "Votes", icon: Vote },
+  { id: "meeting", label: "Meetings", icon: CalendarDays },
+  { id: "minutes", label: "Minutes", icon: ScrollText },
+  { id: "task", label: "Tasks", icon: CheckSquare },
+  { id: "data_reset", label: "System", icon: Database },
+];
+
+const ACTION_ICONS: Record<string, { icon: React.FC<{size?: number}>, color: string }> = {
+  login:                    { icon: LogIn,       color: "#34c759" },
+  document_uploaded:        { icon: FileText,    color: "#0071e3" },
+  document_viewed:          { icon: FileText,    color: "#86868b" },
+  document_deleted:         { icon: FileText,    color: "#ff3b30" },
+  vote_created:             { icon: Vote,        color: "#0071e3" },
+  vote_cast:                { icon: Vote,        color: "#34c759" },
+  vote_extended:            { icon: Vote,        color: "#ff9500" },
+  vote_cancelled:           { icon: Vote,        color: "#ff9500" },
+  vote_deleted:             { icon: Vote,        color: "#ff3b30" },
+  vote_material_uploaded:   { icon: Vote,        color: "#5856d6" },
+  vote_material_downloaded: { icon: Vote,        color: "#86868b" },
+  meeting_created:          { icon: CalendarDays, color: "#0071e3" },
+  meeting_updated:          { icon: CalendarDays, color: "#ff9500" },
+  meeting_deleted:          { icon: CalendarDays, color: "#ff3b30" },
+  minutes_saved:            { icon: ScrollText,  color: "#0071e3" },
+  minutes_status_changed:   { icon: ScrollText,  color: "#ff9500" },
+  minutes_signed:           { icon: ScrollText,  color: "#34c759" },
+  task_created:             { icon: CheckSquare, color: "#0071e3" },
+  task_updated:             { icon: CheckSquare, color: "#ff9500" },
+  task_deleted:             { icon: CheckSquare, color: "#ff3b30" },
+  task_evidence_uploaded:   { icon: CheckSquare, color: "#5856d6" },
+  data_reset:               { icon: Database,    color: "#ff3b30" },
+};
+
+function formatTs(ts: string) {
+  const d = new Date(ts);
+  return d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+function extractDetail(row: any): string {
+  const d = row.details;
+  if (!d) return "";
+  if (d.filename) return d.filename;
+  if (d.title) return d.title;
+  if (d.meetingTitle) return d.meetingTitle;
+  if (d.taskTitle) return d.taskTitle;
+  if (d.voteTitle) return d.voteTitle;
+  if (d.boardName) return d.boardName;
+  if (d.decision) return `Decision: ${d.decision.replace(/_/g, " ")}`;
+  if (d.status) return `Status → ${d.status}`;
+  if (d.email) return d.email;
+  return "";
+}
+
+function AuditTab() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [people, setPeople] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [personFilter, setPersonFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setLoading(true);
+    const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    Promise.all([
+      fetch(`${API_BASE}/api/audit?limit=500`, { headers }).then(r => r.json()),
+      fetch(`${API_BASE}/api/audit/people`, { headers }).then(r => r.json()),
+    ]).then(([logData, peopleData]) => {
+      setLogs(Array.isArray(logData) ? logData : []);
+      setPeople(Array.isArray(peopleData) ? peopleData : []);
+    }).finally(() => setLoading(false));
+  }, [refreshKey]);
+
+  const filtered = logs.filter(row => {
+    if (personFilter && row.personId !== personFilter) return false;
+    if (categoryFilter) {
+      if (categoryFilter === "document" && !row.action.startsWith("document")) return false;
+      else if (categoryFilter === "vote" && !row.action.startsWith("vote")) return false;
+      else if (categoryFilter === "meeting" && !row.action.startsWith("meeting")) return false;
+      else if (categoryFilter === "minutes" && !row.action.startsWith("minutes")) return false;
+      else if (categoryFilter === "task" && !row.action.startsWith("task")) return false;
+      else if (!["document","vote","meeting","minutes","task"].includes(categoryFilter) && categoryFilter && row.action !== categoryFilter) return false;
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      const label = (row.actionLabel || row.action).toLowerCase();
+      const personName = (row.person?.name || "").toLowerCase();
+      const detail = extractDetail(row).toLowerCase();
+      const ip = (row.ipAddress || "").toLowerCase();
+      if (!label.includes(q) && !personName.includes(q) && !detail.includes(q) && !ip.includes(q)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="bg-white border border-[#e5e5e7] rounded-2xl p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Search */}
+          <div className="relative flex-1 min-w-48">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#86868b]" />
+            <input
+              type="text"
+              placeholder="Search logs..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-[#e5e5e7] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20 focus:border-[#0071e3]"
+            />
+          </div>
+          {/* Person filter */}
+          <select
+            value={personFilter}
+            onChange={e => setPersonFilter(e.target.value)}
+            className="text-sm border border-[#e5e5e7] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20 focus:border-[#0071e3] bg-white"
+          >
+            <option value="">All users</option>
+            {people.map((p: any) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {/* Category filter */}
+          <select
+            value={categoryFilter}
+            onChange={e => setCategoryFilter(e.target.value)}
+            className="text-sm border border-[#e5e5e7] rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20 focus:border-[#0071e3] bg-white"
+          >
+            {ACTION_CATEGORIES.map(c => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+          {/* Refresh */}
+          <button
+            onClick={() => setRefreshKey(k => k + 1)}
+            className="p-2 rounded-xl border border-[#e5e5e7] text-[#86868b] hover:bg-[#f5f5f7] transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </button>
+          <span className="text-xs text-[#86868b] ml-auto">{filtered.length} {filtered.length === 1 ? "entry" : "entries"}</span>
+        </div>
+      </div>
+
+      {/* Log table */}
+      <div className="bg-white border border-[#e5e5e7] rounded-2xl overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-sm text-[#86868b]">Loading audit log...</div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 text-[#86868b]">
+            <ClipboardList size={28} className="mb-2 opacity-30" />
+            <p className="text-sm">No log entries found</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#e5e5e7] bg-[#f5f5f7]">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide w-44">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide">Action</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide">Detail</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide w-32">IP Address</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f5f5f7]">
+                {filtered.map(row => {
+                  const actionMeta = ACTION_ICONS[row.action] || { icon: ClipboardList, color: "#86868b" };
+                  const Icon = actionMeta.icon;
+                  const detail = extractDetail(row);
+                  const person = row.person;
+                  const initials = person ? getAvatarInitials(person.name) : "?";
+                  const roleInfo = ROLE_LABELS[person?.role] || { label: person?.role || "Unknown", color: "#86868b" };
+                  return (
+                    <tr key={row.id} className="hover:bg-[#f9f9fb] transition-colors">
+                      <td className="px-4 py-3 text-xs text-[#86868b] whitespace-nowrap font-mono">{formatTs(row.createdAt)}</td>
+                      <td className="px-4 py-3">
+                        {person ? (
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
+                              style={{ backgroundColor: person.avatarColor || "#0071e3" }}
+                            >
+                              {initials}
+                            </div>
+                            <div>
+                              <div className="text-xs font-medium text-[#1d1d1f] leading-tight">{person.name}</div>
+                              <div className="text-[10px]" style={{ color: roleInfo.color }}>{roleInfo.label}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-[#86868b]">System</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <Icon size={12} style={{ color: actionMeta.color }} />
+                          <span className="text-xs font-medium text-[#1d1d1f]">{row.actionLabel || row.action}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[#3c3c43] max-w-[200px] truncate" title={detail}>{detail}</td>
+                      <td className="px-4 py-3 text-xs text-[#86868b] font-mono">{row.ipAddress || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── System Tab ───────────────────────────────────────────────────────────────
 
 function SystemTab() {
@@ -672,6 +892,7 @@ function SystemTab() {
 const TABS = [
   { id: "people", label: "People", icon: Users },
   { id: "boards", label: "Board Memberships", icon: Layout },
+  { id: "audit", label: "Audit Log", icon: ClipboardList },
   { id: "system", label: "System", icon: Settings2 },
 ];
 
@@ -714,6 +935,7 @@ export default function SecretaryAdmin() {
 
           {activeTab === "people" && <PeopleTab />}
           {activeTab === "boards" && <BoardMembersTab />}
+          {activeTab === "audit" && <AuditTab />}
           {activeTab === "system" && <SystemTab />}
         </div>
       </main>
