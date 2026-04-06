@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { db, peopleTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { signToken, requireAuth } from "../lib/auth";
+import { audit } from "../lib/auditLog";
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   const token = signToken({ userId: person.id, email: person.email, role: person.role });
   const { passwordHash: _, ...safeUser } = person;
   res.json({ token, user: { ...safeUser, avatarColor: person.avatarColor } });
+  audit(req, "login", "person", person.id, { email: person.email, role: person.role });
 });
 
 router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {

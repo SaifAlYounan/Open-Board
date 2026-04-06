@@ -12,6 +12,7 @@ import {
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
+import { audit } from "../lib/auditLog";
 
 const router = Router();
 
@@ -149,6 +150,7 @@ router.post("/meetings", requireAuth, requireAdmin, async (req, res): Promise<vo
     boardAbbreviation: board?.abbreviation || null,
     agendaItemCount: agendaItems?.length || 0,
   });
+  audit(req, "meeting_created", "meeting", meeting.id, { title: meeting.title, boardName: board?.name });
 });
 
 router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
@@ -183,12 +185,15 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, async (req, res): Promi
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
     : [null];
 
+  audit(req, "meeting_updated", "meeting", id, { title: meeting.title });
   res.json({ ...meeting, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: 0 });
 });
 
 router.delete("/meetings/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, id));
   await db.delete(meetingsTable).where(eq(meetingsTable.id, id));
+  audit(req, "meeting_deleted", "meeting", id, { title: meeting?.title });
   res.sendStatus(204);
 });
 

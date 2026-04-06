@@ -19,6 +19,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
+import { audit } from "../lib/auditLog";
 
 const router = Router();
 
@@ -177,6 +178,7 @@ router.post("/votes", requireAuth, requireAdmin, async (req, res): Promise<void>
     ? await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, boardId))
     : [];
 
+  audit(req, "vote_created", "vote", vote.id, { title: vote.title, resolutionNumber: vote.resolutionNumber, boardName: board?.name });
   res.status(201).json({
     ...vote,
     boardName: board?.name || null,
@@ -360,6 +362,7 @@ router.delete("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise
     and(eq(accessControlTable.entityType, "vote"), eq(accessControlTable.entityId, id))
   );
 
+  audit(req, "vote_deleted", "vote", id, { title: vote.title });
   await db.delete(votesTable).where(eq(votesTable.id, id));
   res.sendStatus(204);
 });
@@ -431,6 +434,7 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
 
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, user.id));
     const { passwordHash: _, ...safePerson } = person;
+    audit(req, "vote_cast", "vote", id, { decision, voteTitle: vote.title });
     res.json({ ...record, person: safePerson });
   } catch (err: unknown) {
     const anyErr = err as { code?: string; message?: string; cause?: { code?: string } };
@@ -505,6 +509,7 @@ router.post("/votes/:id/documents", requireAuth, (req, res, next) => {
     })
     .returning();
 
+  audit(req, "vote_material_uploaded", "vote", id, { filename: originalname, title, voteTitle: vote.title });
   res.status(201).json({ ...doc, uploaderName: user.name || null });
 });
 
@@ -534,6 +539,7 @@ router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res)
     return;
   }
 
+  audit(req, "vote_material_downloaded", "vote", req.params.id as string, { filename: doc.filename, docId });
   res.setHeader("Content-Disposition", `attachment; filename="${doc.filename}"`);
   res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
   fs.createReadStream(doc.filePath).pipe(res);

@@ -25,6 +25,7 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { audit } from "../lib/auditLog";
 
 const router = Router();
 
@@ -64,6 +65,7 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
     await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "task"));
     await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "document"));
 
+    audit(req, "data_reset", undefined, undefined, { clearedBy: req.user?.email });
     res.json({
       ok: true,
       message: "All transactional data cleared. Company, people, and board rooms are preserved.",

@@ -12,6 +12,7 @@ import pendingActionsRouter from "./pendingActions";
 import aiRouter from "./ai";
 import dashboardRouter from "./dashboard";
 import systemRouter from "./system";
+import auditLogRouter from "./auditLog";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(pendingActionsRouter);
 router.use(aiRouter);
 router.use(dashboardRouter);
 router.use(systemRouter);
+router.use(auditLogRouter);
 
 export default router;
