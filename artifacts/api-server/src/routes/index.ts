@@ -13,6 +13,7 @@ import aiRouter from "./ai";
 import dashboardRouter from "./dashboard";
 import systemRouter from "./system";
 import auditLogRouter from "./auditLog";
+import workflowsRouter from "./workflows";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(aiRouter);
 router.use(dashboardRouter);
 router.use(systemRouter);
 router.use(auditLogRouter);
+router.use(workflowsRouter);
 
 export default router;

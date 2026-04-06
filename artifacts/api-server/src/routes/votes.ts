@@ -20,6 +20,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 
 const router = Router();
 
@@ -342,6 +343,10 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
     return;
   }
 
+  if (status && ["approved", "rejected"].includes(status)) {
+    setImmediate(() => triggerWorkflowNextStage(id, status).catch(() => {}));
+  }
+
   const [board] = vote.boardId
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, vote.boardId))
     : [null];
@@ -490,6 +495,7 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
           .update(votesTable)
           .set({ status: newStatus as any, closedAt: new Date(), certificateHash: hash })
           .where(eq(votesTable.id, id));
+        setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch(() => {}));
       }
     }
 

@@ -71,7 +71,7 @@ Return this exact structure:
   "extracted_data": { },
   "proposed_actions": [
     {
-      "action_type": "create_minutes" | "create_vote" | "create_meeting" | "create_task" | "close_task" | "attach_to_meeting" | "flag_confidential",
+      "action_type": "create_minutes" | "create_vote" | "create_meeting" | "create_task" | "close_task" | "attach_to_meeting" | "flag_confidential" | "create_workflow",
       "description": "human-readable description of what this action will do",
       "details": { }
     }
@@ -112,9 +112,27 @@ Propose: attach_to_meeting if relevant. Always propose flag_confidential.
 ## 7. COMMITTEE SUBMISSION
 How to recognize: Submitted by or referencing a specific committee (e.g., "Audit Committee", "Risk & Compliance Committee", "Technical & Projects Committee", "Nominations & Remuneration Committee"). Typically labelled "Committee Report", "Submission to the Board", "For Board Endorsement", or authored with a committee letterhead. May request board sign-off, noting or ratification.
 Extract: committee_name, submission_date, subject, key_recommendations[], items_for_board_decision[], items_for_noting[]
-Propose: attach_to_meeting (so the board can consider it at the next meeting). If the submission explicitly requests formal approval, also propose create_vote.
+Propose: If the submission describes a sequential approval chain (e.g., "committee A must endorse, then the board approves"), propose create_workflow. Otherwise attach_to_meeting, and if it requests formal approval also propose create_vote.
 
-## 8. GENERAL
+## 8. MULTI-STAGE APPROVAL WORKFLOW
+How to recognize: Any document that explicitly describes a sequential endorsement or approval chain involving two or more distinct bodies. Language like "requires Finance & Audit Committee endorsement before board approval", "subject to committee sign-off", "following NRC recommendation, the Board shall resolve", or any process where one group's approval gates the next.
+Extract: all stages in order, each with: the committee or board name, the required threshold, and what is being approved.
+Propose: create_workflow with this structure in details:
+{
+  "title": "short name for the overall workflow (e.g., 'Executive Remuneration Package Approval')",
+  "description": "one-sentence description of what is being approved",
+  "stages": [
+    {
+      "title": "Stage name (e.g., 'NRC Endorsement')",
+      "board": "exact committee abbreviation or name (e.g., 'NRC', 'FAC', 'BoD')",
+      "approval_type": "majority" | "unanimous" | "two_thirds" | "three_quarters",
+      "description": "what this stage must approve"
+    }
+  ]
+}
+IMPORTANT: stages must be in execution order. Last stage is always the Board of Directors unless stated otherwise.
+
+## 9. GENERAL
 Catch-all. Extract: summary, key_topics[], entities_mentioned[]. Propose no actions beyond storing.`;
 
 const COMMAND_PROMPT = `
@@ -128,7 +146,7 @@ Return:
   "interpretation": "what you understood the Secretary wants",
   "proposed_actions": [
     {
-      "action_type": "create_meeting" | "create_vote" | "create_task" | "create_minutes" | "attach_to_meeting",
+      "action_type": "create_meeting" | "create_vote" | "create_task" | "create_minutes" | "attach_to_meeting" | "create_workflow",
       "description": "human-readable description",
       "details": { }
     }

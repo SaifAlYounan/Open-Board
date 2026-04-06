@@ -19,3 +19,4 @@ export * from "./tasks";
 export * from "./taskEvidence";
 export * from "./pendingActions";
 export * from "./auditTrail";
+export * from "./approvalWorkflows";
