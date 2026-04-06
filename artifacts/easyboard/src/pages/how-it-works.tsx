@@ -3,7 +3,7 @@ import { ArrowLeft, Bot, Users, FileText, Vote, CheckSquare, Shield, Zap, Databa
 
 function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <div className="inline-flex items-center gap-2 bg-[#0071e3]/15 text-[#0071e3] text-xs font-semibold px-3 py-1.5 rounded-full tracking-wide uppercase mb-4">
+    <div className="inline-flex items-center gap-2 bg-[#0071e3]/10 text-[#0071e3] text-xs font-semibold px-3 py-1.5 rounded-full tracking-wide uppercase mb-4">
       {icon}
       {label}
     </div>
@@ -13,11 +13,11 @@ function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }
 function Step({ number, title, description }: { number: string; title: string; description: string }) {
   return (
     <div className="flex gap-4">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#0071e3]/20 text-[#0071e3] flex items-center justify-center text-sm font-bold">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#0071e3]/15 text-[#0071e3] flex items-center justify-center text-sm font-bold">
         {number}
       </div>
       <div>
-        <h4 className="text-white font-medium mb-1">{title}</h4>
+        <h4 className="text-[#1d1d1f] font-medium mb-1">{title}</h4>
         <p className="text-[#86868b] text-sm leading-relaxed">{description}</p>
       </div>
     </div>
@@ -32,13 +32,13 @@ function RoleCard({ icon, title, color, description, capabilities }: {
   capabilities: string[];
 }) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 hover:bg-white/8 transition-colors">
+    <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 hover:border-[#d1d1d6] transition-colors">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: color + "25", color }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: color + "20", color }}>
           {icon}
         </div>
         <div>
-          <h3 className="text-white font-semibold">{title}</h3>
+          <h3 className="text-[#1d1d1f] font-semibold">{title}</h3>
         </div>
       </div>
       <p className="text-[#86868b] text-sm mb-4 leading-relaxed">{description}</p>
@@ -57,8 +57,8 @@ function RoleCard({ icon, title, color, description, capabilities }: {
 function FlowArrow() {
   return (
     <div className="flex justify-center py-2">
-      <div className="w-px h-6 bg-white/20 relative">
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2 h-2 border-r-2 border-b-2 border-white/20 rotate-45 translate-y-1" />
+      <div className="w-px h-6 bg-[#d1d1d6] relative">
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2 h-2 border-r-2 border-b-2 border-[#d1d1d6] rotate-45 translate-y-1" />
       </div>
     </div>
   );
@@ -66,12 +66,12 @@ function FlowArrow() {
 
 function FlowStep({ icon, label, sub, accent }: { icon: React.ReactNode; label: string; sub?: string; accent?: boolean }) {
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-xl border ${accent ? "border-[#0071e3]/40 bg-[#0071e3]/10" : "border-white/10 bg-white/5"}`}>
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${accent ? "bg-[#0071e3]/20 text-[#0071e3]" : "bg-white/10 text-[#86868b]"}`}>
+    <div className={`flex items-center gap-3 p-3 rounded-xl border ${accent ? "border-[#0071e3]/40 bg-[#0071e3]/8" : "border-[#e5e5e7] bg-[#f5f5f7]"}`}>
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${accent ? "bg-[#0071e3]/15 text-[#0071e3]" : "bg-[#e5e5e7] text-[#86868b]"}`}>
         {icon}
       </div>
       <div>
-        <p className={`text-sm font-medium ${accent ? "text-[#0071e3]" : "text-white"}`}>{label}</p>
+        <p className={`text-sm font-medium ${accent ? "text-[#0071e3]" : "text-[#1d1d1f]"}`}>{label}</p>
         {sub && <p className="text-xs text-[#86868b]">{sub}</p>}
       </div>
     </div>
@@ -80,10 +80,10 @@ function FlowStep({ icon, label, sub, accent }: { icon: React.ReactNode; label: 
 
 export default function HowItWorks() {
   return (
-    <div className="min-h-screen bg-[#1d1d1f] text-white">
-      <header className="sticky top-0 z-50 bg-[#1d1d1f]/90 backdrop-blur-md border-b border-white/10 px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f]">
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-[#e5e5e7] px-6 py-4 flex items-center justify-between">
         <Link href="/">
-          <button className="flex items-center gap-2 text-[#86868b] hover:text-white transition-colors text-sm font-medium">
+          <button className="flex items-center gap-2 text-[#86868b] hover:text-[#1d1d1f] transition-colors text-sm font-medium">
             <ArrowLeft size={16} />
             Back to EasyBoard
           </button>
@@ -99,7 +99,7 @@ export default function HowItWorks() {
         {/* Hero */}
         <div className="space-y-4">
           <SectionHeader icon={<Bot size={12} />} label="Platform Overview" />
-          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight">
+          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight text-[#1d1d1f]">
             How EasyBoard Works
           </h1>
           <p className="text-[#86868b] text-lg leading-relaxed max-w-2xl">
@@ -113,7 +113,7 @@ export default function HowItWorks() {
         <section className="space-y-8">
           <div>
             <SectionHeader icon={<Bot size={12} />} label="The AI System" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">The Central AI Pipeline</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">The Central AI Pipeline</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               Every document uploaded to EasyBoard is processed by an AI model — Claude (claude-opus-4-6) by default,
               or a local model of your choice if you prefer to keep all processing on-premises. The AI reads the full
@@ -122,7 +122,7 @@ export default function HowItWorks() {
             </p>
           </div>
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
+          <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-3">
             <FlowStep icon={<FileText size={15} />} label="Document uploaded by Secretary" sub="PDF, DOCX, XLSX, PPTX, TXT, image" />
             <FlowArrow />
             <FlowStep icon={<Bot size={15} />} label="AI model reads and classifies the document" sub="Claude by default, or a local model of your choice · Confidence score + action type proposed" accent />
@@ -137,8 +137,8 @@ export default function HowItWorks() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-              <h4 className="text-white font-semibold mb-2 flex items-center gap-2"><Bot size={15} className="text-[#0071e3]" /> What Claude detects</h4>
+            <div className="bg-white border border-[#e5e5e7] rounded-xl p-5">
+              <h4 className="text-[#1d1d1f] font-semibold mb-2 flex items-center gap-2"><Bot size={15} className="text-[#0071e3]" /> What the AI detects</h4>
               <ul className="space-y-2 text-sm text-[#86868b]">
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Board meetings: date, location, agenda items</li>
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Resolutions: resolution text, voting type, deadline</li>
@@ -148,8 +148,8 @@ export default function HowItWorks() {
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Confidential passages requiring restricted access</li>
               </ul>
             </div>
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-              <h4 className="text-white font-semibold mb-2 flex items-center gap-2"><Shield size={15} className="text-[#34c759]" /> What Claude cannot do</h4>
+            <div className="bg-white border border-[#e5e5e7] rounded-xl p-5">
+              <h4 className="text-[#1d1d1f] font-semibold mb-2 flex items-center gap-2"><Shield size={15} className="text-[#34c759]" /> What the AI cannot do</h4>
               <ul className="space-y-2 text-sm text-[#86868b]">
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#34c759] mt-0.5 flex-shrink-0" />Execute any action without Secretary approval</li>
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#34c759] mt-0.5 flex-shrink-0" />Send communications to board members</li>
@@ -165,7 +165,7 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<Users size={12} />} label="Role-Based Access" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">Four Roles, Four Interfaces</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">Four Roles, Four Interfaces</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               Every user in EasyBoard has exactly one role. Role assignment is managed by the Secretary. Each role
               grants a completely separate interface and a precisely scoped set of permissions.
@@ -234,7 +234,7 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<Vote size={12} />} label="Resolutions" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">How Voting Works</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">How Voting Works</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               Resolutions can be created manually by the Secretary or proposed automatically by the AI after document
               classification. Two vote types are supported: Circulation (members vote asynchronously by deadline) and
@@ -242,8 +242,8 @@ export default function HowItWorks() {
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
-              <h4 className="text-white font-semibold">Approval Rules</h4>
+            <div className="bg-white border border-[#e5e5e7] rounded-xl p-5 space-y-4">
+              <h4 className="text-[#1d1d1f] font-semibold">Approval Rules</h4>
               <div className="space-y-2 text-sm">
                 {[
                   ["Simple Majority", "More than 50% of eligible voters must approve"],
@@ -259,13 +259,13 @@ export default function HowItWorks() {
                 ))}
               </div>
             </div>
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
-              <h4 className="text-white font-semibold">Advanced Constraints</h4>
+            <div className="bg-white border border-[#e5e5e7] rounded-xl p-5 space-y-4">
+              <h4 className="text-[#1d1d1f] font-semibold">Advanced Constraints</h4>
               <div className="space-y-3 text-sm text-[#86868b]">
-                <p><span className="text-white font-medium">Recused Members — </span>Members with a conflict of interest are excluded from the eligible voter pool and cannot vote on that resolution.</p>
-                <p><span className="text-white font-medium">Key Approvers — </span>Specific members whose personal approval is required for the resolution to pass, regardless of whether the majority threshold is met.</p>
-                <p><span className="text-white font-medium">Auto-close — </span>Once every eligible member has voted, the system automatically evaluates the result, closes the vote, and generates a SHA-256 certificate hash.</p>
-                <p><span className="text-white font-medium">Deadline behaviour — </span>Configurable per vote: lapse (no result), extend 7 days, or notify Secretary.</p>
+                <p><span className="text-[#1d1d1f] font-medium">Recused Members — </span>Members with a conflict of interest are excluded from the eligible voter pool and cannot vote on that resolution.</p>
+                <p><span className="text-[#1d1d1f] font-medium">Key Approvers — </span>Specific members whose personal approval is required for the resolution to pass, regardless of whether the majority threshold is met.</p>
+                <p><span className="text-[#1d1d1f] font-medium">Auto-close — </span>Once every eligible member has voted, the system automatically evaluates the result, closes the vote, and generates a SHA-256 certificate hash.</p>
+                <p><span className="text-[#1d1d1f] font-medium">Deadline behaviour — </span>Configurable per vote: lapse (no result), extend 7 days, or notify Secretary.</p>
               </div>
             </div>
           </div>
@@ -275,17 +275,17 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<GitBranch size={12} />} label="Multi-Stage Workflows" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">Parallel Endorsements & Sequential Approvals</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">Parallel Endorsements & Sequential Approvals</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Some governance decisions require more than one body to weigh in before the board resolves. When Claude
+              Some governance decisions require more than one body to weigh in before the board resolves. When the AI
               detects this pattern in a document — language like "subject to FAC and NRC endorsement" or "following
               committee sign-off" — it proposes a multi-stage approval workflow rather than a single vote.
             </p>
           </div>
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-6">
+          <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-6">
             <div>
-              <h4 className="text-white font-semibold mb-3">How parallel stages work</h4>
+              <h4 className="text-[#1d1d1f] font-semibold mb-3">How parallel stages work</h4>
               <p className="text-[#86868b] text-sm leading-relaxed mb-5">
                 Stages are organised into groups. Every stage in the same group runs simultaneously — committees do not
                 wait on each other. The next group only opens once every stage in the current group is approved.
@@ -296,10 +296,10 @@ export default function HowItWorks() {
                 <div className="flex flex-col gap-2">
                   <div className="text-xs text-[#86868b] font-medium mb-1">Group 0 — opens immediately</div>
                   <div className="flex gap-2">
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#0071e3]/40 bg-[#0071e3]/10 text-sm text-[#0071e3] font-medium">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#0071e3]/40 bg-[#0071e3]/8 text-sm text-[#0071e3] font-medium">
                       <Vote size={13} /> FAC Endorsement
                     </div>
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#0071e3]/40 bg-[#0071e3]/10 text-sm text-[#0071e3] font-medium">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#0071e3]/40 bg-[#0071e3]/8 text-sm text-[#0071e3] font-medium">
                       <Vote size={13} /> NRC Endorsement
                     </div>
                   </div>
@@ -310,7 +310,7 @@ export default function HowItWorks() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <div className="text-xs text-[#86868b] font-medium mb-1">Group 1 — opens when all endorsements are in</div>
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/20 bg-white/5 text-sm text-white font-medium">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#e5e5e7] bg-[#f5f5f7] text-sm text-[#1d1d1f] font-medium">
                     <Vote size={13} className="text-[#86868b]" /> Board of Directors Approval
                   </div>
                   <div className="text-xs text-[#86868b]">Triggered automatically once FAC and NRC both approve</div>
@@ -318,9 +318,9 @@ export default function HowItWorks() {
               </div>
             </div>
 
-            <div className="border-t border-white/10 pt-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+            <div className="border-t border-[#e5e5e7] pt-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
               <div>
-                <h4 className="text-white font-semibold mb-2">Tracked inside Votes</h4>
+                <h4 className="text-[#1d1d1f] font-semibold mb-2">Tracked inside Votes</h4>
                 <p className="text-[#86868b] leading-relaxed">
                   There is no separate workflows screen. Every vote that belongs to a workflow is tagged with a blue
                   "Workflow" badge in the votes list. Opening the vote reveals a compact stage map at the top — showing
@@ -328,7 +328,7 @@ export default function HowItWorks() {
                 </p>
               </div>
               <div>
-                <h4 className="text-white font-semibold mb-2">Zero manual wiring</h4>
+                <h4 className="text-[#1d1d1f] font-semibold mb-2">Zero manual wiring</h4>
                 <p className="text-[#86868b] leading-relaxed">
                   Once the Secretary approves the AI-proposed workflow, everything runs automatically. When the last
                   endorsement comes in, the board vote is created, access is granted to board members, and it appears
@@ -344,9 +344,9 @@ export default function HowItWorks() {
               { label: "Parallel endorsements", example: "FAC + NRC → Board", desc: "Two or more committees endorse simultaneously. Board vote opens when the last endorsement lands." },
               { label: "Board only", example: "Board alone", desc: "No prior endorsement required. A single vote is created as a standalone resolution, not a workflow." },
             ].map(({ label, example, desc }) => (
-              <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <div key={label} className="bg-white border border-[#e5e5e7] rounded-xl p-4">
                 <div className="text-[#0071e3] font-semibold mb-1">{label}</div>
-                <div className="text-white text-xs font-mono mb-2 opacity-60">{example}</div>
+                <div className="text-[#1d1d1f] text-xs font-mono mb-2 opacity-50">{example}</div>
                 <p className="text-[#86868b] leading-relaxed">{desc}</p>
               </div>
             ))}
@@ -357,7 +357,7 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<FileText size={12} />} label="Minutes" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">The Minutes Lifecycle</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">The Minutes Lifecycle</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               Minutes travel through four stages. The Secretary controls progression through each stage. Board members
               sign digitally at the signing stage, and a cryptographic record is kept permanently.
@@ -370,8 +370,8 @@ export default function HowItWorks() {
               { stage: "Signing", color: "#0071e3", desc: "Board members are notified to digitally sign. Each signature is SHA-256 timestamped." },
               { stage: "Signed", color: "#34c759", desc: "All required signatures collected. Minutes are locked and immutable." },
             ].map(({ stage, color, desc }) => (
-              <div key={stage} className="bg-white/5 border border-white/10 rounded-xl p-4">
-                <div className="text-xs font-semibold px-2 py-1 rounded-full inline-block mb-3" style={{ backgroundColor: color + "25", color }}>
+              <div key={stage} className="bg-white border border-[#e5e5e7] rounded-xl p-4">
+                <div className="text-xs font-semibold px-2 py-1 rounded-full inline-block mb-3" style={{ backgroundColor: color + "20", color }}>
                   {stage}
                 </div>
                 <p className="text-xs text-[#86868b] leading-relaxed">{desc}</p>
@@ -384,13 +384,13 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<Shield size={12} />} label="Security & Integrity" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">Security Architecture</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">Security Architecture</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               EasyBoard is built on standard, auditable cryptographic primitives. No proprietary security claims.
               Everything here is verifiable in the source code.
             </p>
           </div>
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
+          <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-5">
             {[
               {
                 title: "JWT Authentication",
@@ -417,8 +417,8 @@ export default function HowItWorks() {
                 detail: "Your data never leaves your infrastructure. The API server and database run entirely under your control. With Claude, the only outbound request is to Anthropic's API using your own key. Swap in a local model and there are zero outbound requests — the system runs fully air-gapped.",
               },
             ].map(({ title, detail }) => (
-              <div key={title} className="border-b border-white/10 last:border-0 pb-5 last:pb-0">
-                <h4 className="text-white font-semibold mb-1.5 flex items-center gap-2">
+              <div key={title} className="border-b border-[#e5e5e7] last:border-0 pb-5 last:pb-0">
+                <h4 className="text-[#1d1d1f] font-semibold mb-1.5 flex items-center gap-2">
                   <Shield size={14} className="text-[#34c759]" />
                   {title}
                 </h4>
@@ -432,7 +432,7 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<Database size={12} />} label="Technical Architecture" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">What the System Is Built On</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">What the System Is Built On</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               Every dependency is a widely-used open-source project with a strong security track record.
               No proprietary components, no vendor lock-in.
@@ -445,9 +445,9 @@ export default function HowItWorks() {
               { layer: "Database", stack: "PostgreSQL + Drizzle ORM", detail: "Fully relational schema with foreign-key constraints, UUIDs for all primary keys, and timestamped audit rows." },
               { layer: "AI Layer", stack: "Pluggable AI model", detail: "Ships with Claude (claude-opus-4-6) via Anthropic's API. Swap in any OpenAI-compatible local model — Ollama, LM Studio, vLLM — to keep all processing on-premises. Structured JSON output with confidence scores. No training on your data." },
             ].map(({ layer, stack, detail }) => (
-              <div key={layer} className="bg-white/5 border border-white/10 rounded-xl p-5">
+              <div key={layer} className="bg-white border border-[#e5e5e7] rounded-xl p-5">
                 <div className="text-xs font-semibold text-[#0071e3] uppercase tracking-widest mb-1">{layer}</div>
-                <div className="text-white font-medium mb-2">{stack}</div>
+                <div className="text-[#1d1d1f] font-medium mb-2">{stack}</div>
                 <p className="text-[#86868b] text-sm leading-relaxed">{detail}</p>
               </div>
             ))}
@@ -458,12 +458,12 @@ export default function HowItWorks() {
         <section className="space-y-6">
           <div>
             <SectionHeader icon={<Clock size={12} />} label="In Practice" />
-            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">A Typical Governance Cycle</h2>
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">A Typical Governance Cycle</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
               Here is what the EasyBoard workflow looks like from document receipt to signed minutes.
             </p>
           </div>
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
+          <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-5">
             {[
               { n: "1", t: "Secretary uploads board pack PDF", d: "The 40-page board pack is uploaded. The AI reads every page and proposes: 1 meeting, the agenda structure, and 7 action items — all in under 30 seconds." },
               { n: "2", t: "Secretary reviews AI proposals", d: "The Pending Actions queue shows each proposed action with a confidence score and a plain-English description. The Secretary corrects a date on one item and approves the rest." },
