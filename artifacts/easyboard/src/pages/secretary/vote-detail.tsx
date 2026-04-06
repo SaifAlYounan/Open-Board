@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { VoteProgressBar } from '@/components/VoteProgressBar';
 import {
-  ArrowLeft, Clock, CheckCircle, XCircle, MinusCircle, Download, Upload, Trash2, FileText, Users, Shield, Calendar, Paperclip, X
+  ArrowLeft, Clock, CheckCircle, XCircle, MinusCircle, Download, Upload, Trash2, FileText, Users, Shield, Calendar, Paperclip, X, Ban
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
@@ -22,10 +22,11 @@ function formatDateTime(d: string | null | undefined) {
 
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, { color: string; label: string; icon: React.ReactNode }> = {
-    open:     { color: '#0071e3', label: 'Open',     icon: <Clock size={12} /> },
-    approved: { color: '#34c759', label: 'Approved', icon: <CheckCircle size={12} /> },
-    rejected: { color: '#ff3b30', label: 'Rejected', icon: <XCircle size={12} /> },
-    lapsed:   { color: '#86868b', label: 'Lapsed',   icon: <MinusCircle size={12} /> },
+    open:      { color: '#0071e3', label: 'Open',      icon: <Clock size={12} /> },
+    approved:  { color: '#34c759', label: 'Approved',  icon: <CheckCircle size={12} /> },
+    rejected:  { color: '#ff3b30', label: 'Rejected',  icon: <XCircle size={12} /> },
+    lapsed:    { color: '#86868b', label: 'Lapsed',    icon: <MinusCircle size={12} /> },
+    cancelled: { color: '#ff9500', label: 'Cancelled', icon: <Ban size={12} /> },
   };
   const { color, label, icon } = cfg[status] || cfg.lapsed;
   return (
@@ -117,6 +118,7 @@ export default function SecretaryVoteDetail() {
   const [newDeadline, setNewDeadline] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showCancel, setShowCancel] = useState(false);
 
   const { data: vote, isLoading } = useGetVote(id);
   const updateVote = useUpdateVote();
@@ -162,15 +164,40 @@ export default function SecretaryVoteDetail() {
     );
   };
 
-  const handleDelete = () => {
-    fetch(`/api/votes/${id}`, {
+  const handleDelete = async () => {
+    const resp = await fetch(`/api/votes/${id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
-    }).then(() => {
-      toast({ title: 'Vote deleted' });
-      queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
-      setLocation('/secretary/votes');
     });
+    if (resp.status === 409) {
+      toast({ title: 'Cannot delete', description: 'This vote has cast votes. Use Cancel Vote instead.', variant: 'destructive' });
+      setShowDelete(false);
+      return;
+    }
+    if (!resp.ok) {
+      toast({ title: 'Delete failed', variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Vote deleted' });
+    queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
+    setLocation('/secretary/votes');
+  };
+
+  const handleCancel = () => {
+    updateVote.mutate(
+      { id, data: { status: 'cancelled' as any } },
+      {
+        onSuccess: () => {
+          toast({ title: 'Vote cancelled', description: 'The vote has been cancelled. All records are preserved.' });
+          queryClient.invalidateQueries({ queryKey: getGetVoteQueryKey(id) });
+          queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
+          setShowCancel(false);
+        },
+        onError: (err: any) => {
+          toast({ title: 'Failed', description: err.data?.error || 'Please try again.', variant: 'destructive' });
+        },
+      }
+    );
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,7 +389,8 @@ export default function SecretaryVoteDetail() {
 
   const voteRecordsById = new Map((voteData.voteRecords || []).map((r: any) => [r.personId, r]));
   const isOpen = voteData.status === 'open';
-  const isClosed = !isOpen;
+  const isClosed = ['approved', 'rejected', 'lapsed'].includes(voteData.status);
+  const hasVotes = (voteData.votescast ?? 0) > 0;
 
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
@@ -420,13 +448,24 @@ export default function SecretaryVoteDetail() {
                 <Download size={14} /> Download Certificate
               </button>
             )}
-            <button
-              onClick={() => setShowDelete(!showDelete)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-[#e5e5e7] text-[#ff3b30] rounded-xl text-xs font-medium hover:bg-[#fff5f5] transition-colors ml-auto"
-              data-testid="btn-delete-vote"
-            >
-              <Trash2 size={14} /> Delete
-            </button>
+            {isOpen && !hasVotes && (
+              <button
+                onClick={() => { setShowDelete(!showDelete); setShowCancel(false); }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-[#e5e5e7] text-[#ff3b30] rounded-xl text-xs font-medium hover:bg-[#fff5f5] transition-colors ml-auto"
+                data-testid="btn-delete-vote"
+              >
+                <Trash2 size={14} /> Delete
+              </button>
+            )}
+            {isOpen && hasVotes && (
+              <button
+                onClick={() => { setShowCancel(!showCancel); setShowDelete(false); }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-[#ff9500] text-[#ff9500] rounded-xl text-xs font-medium hover:bg-[#fff8f0] transition-colors ml-auto"
+                data-testid="btn-cancel-vote"
+              >
+                <Ban size={14} /> Cancel Vote
+              </button>
+            )}
           </div>
 
           {/* Extend Deadline Panel */}
@@ -503,14 +542,40 @@ export default function SecretaryVoteDetail() {
           {/* Delete Confirm Panel */}
           {showDelete && (
             <div className="bg-white rounded-2xl border border-[#ff3b30]/30 p-5">
-              <h3 className="font-semibold text-[#ff3b30] mb-2">Delete Vote</h3>
-              <p className="text-sm text-[#86868b] mb-4">This will permanently delete this resolution and all vote records. This cannot be undone.</p>
+              <h3 className="font-semibold text-[#ff3b30] mb-2">Delete Resolution</h3>
+              <p className="text-sm text-[#86868b] mb-4">
+                No votes have been cast yet. This will permanently remove the resolution, its documents, and all related data. This cannot be undone.
+              </p>
               <div className="flex gap-3">
                 <button onClick={handleDelete} className="px-4 py-2 bg-[#ff3b30] text-white rounded-xl text-sm font-medium hover:opacity-90">
                   Delete Permanently
                 </button>
                 <button onClick={() => setShowDelete(false)} className="px-4 py-2 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl text-sm font-medium">
-                  Cancel
+                  Keep
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Cancel Vote Confirm Panel */}
+          {showCancel && (
+            <div className="bg-white rounded-2xl border border-[#ff9500]/30 p-5">
+              <h3 className="font-semibold text-[#ff9500] mb-2 flex items-center gap-2">
+                <Ban size={16} /> Cancel Vote
+              </h3>
+              <p className="text-sm text-[#86868b] mb-4">
+                This will cancel the vote and preserve the full audit trail — all cast votes are retained for the record. The resolution will be marked as Cancelled and no further voting will be accepted.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleCancel}
+                  disabled={updateVote.isPending}
+                  className="px-4 py-2 bg-[#ff9500] text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  {updateVote.isPending ? 'Cancelling...' : 'Confirm Cancel'}
+                </button>
+                <button onClick={() => setShowCancel(false)} className="px-4 py-2 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl text-sm font-medium">
+                  Keep Open
                 </button>
               </div>
             </div>

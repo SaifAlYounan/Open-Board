@@ -96,7 +96,7 @@ export default function SecretaryVotes() {
   };
 
   const STATUS_COLORS: Record<string, string> = {
-    open: '#0071e3', approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b'
+    open: '#0071e3', approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b', cancelled: '#ff9500'
   };
 
   return (
