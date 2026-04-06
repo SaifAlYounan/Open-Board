@@ -90,10 +90,10 @@ export default function BoardRoom() {
   };
 
   const STATUS_LABEL: Record<string, string> = {
-    open: 'Open', approved: 'Approved', rejected: 'Rejected', lapsed: 'Lapsed'
+    open: 'Open', approved: 'Approved', rejected: 'Rejected', lapsed: 'Lapsed', cancelled: 'Cancelled'
   };
   const STATUS_COLOR: Record<string, string> = {
-    open: '#0071e3', approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b'
+    open: '#0071e3', approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b', cancelled: '#ff9500'
   };
   const MINUTES_STATUS_COLOR: Record<string, { label: string; color: string }> = {
     draft: { label: 'Draft', color: '#86868b' },

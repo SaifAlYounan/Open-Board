@@ -327,6 +327,39 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
 
 router.delete("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  if (!vote) {
+    res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+  if (records.length > 0) {
+    res.status(409).json({ error: "Cannot delete a vote that has received votes. Use Cancel Vote instead." });
+    return;
+  }
+
+  // Delete vote_documents (files + DB rows)
+  const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
+  for (const doc of docs) {
+    if (doc.filePath && fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
+  }
+  await db.delete(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
+
+  // Delete approval rule and its children
+  const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
+  if (rule) {
+    await db.delete(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, rule.id));
+    await db.delete(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id));
+    await db.delete(approvalRulesTable).where(eq(approvalRulesTable.id, rule.id));
+  }
+
+  // Delete access control entries
+  await db.delete(accessControlTable).where(
+    and(eq(accessControlTable.entityType, "vote"), eq(accessControlTable.entityId, id))
+  );
+
   await db.delete(votesTable).where(eq(votesTable.id, id));
   res.sendStatus(204);
 });
