@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">✦ EasyBoard</h1>
+  <h1 align="center">✦ EasyBoard (beta)</h1>
   <p align="center"><strong>The open-source, AI-native board management platform.</strong></p>
   <p align="center">Upload a document. The AI does the rest. You just approve.</p>
 </p>
