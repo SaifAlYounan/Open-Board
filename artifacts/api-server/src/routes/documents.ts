@@ -2,6 +2,8 @@ import { Router } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import {
   db,
   documentsTable,
@@ -14,6 +16,9 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+
+const execFileAsync = promisify(execFile);
+const PDFTOTEXT_BIN = "/nix/store/s41bqqrym7dlk8m3nk74fx26kgrx0kv8-replit-runtime-path/bin/pdftotext";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -32,6 +37,29 @@ const upload = multer({
   },
 });
 
+async function extractTextFromPdf(filePath: string): Promise<string> {
+  // Primary: pdftotext (poppler-utils) — most reliable, handles all PDF variants
+  try {
+    const { stdout } = await execFileAsync(PDFTOTEXT_BIN, ["-layout", "-enc", "UTF-8", filePath, "-"]);
+    if (stdout && stdout.trim().length > 20) return stdout;
+  } catch (err) {
+    console.warn("[pdf] pdftotext failed, trying pdf-parse:", (err as Error).message);
+  }
+
+  // Fallback: pdf-parse via CJS require (avoids ESM/bundler issues)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (globalThis as any).require("pdf-parse");
+    const buffer = fs.readFileSync(filePath);
+    const data = await pdfParse(buffer);
+    if (data.text && data.text.trim().length > 20) return data.text;
+  } catch (err) {
+    console.warn("[pdf] pdf-parse failed:", (err as Error).message);
+  }
+
+  return "";
+}
+
 async function extractText(filePath: string, mimeType: string, originalName: string): Promise<string> {
   const ext = path.extname(originalName).toLowerCase();
   try {
@@ -39,18 +67,17 @@ async function extractText(filePath: string, mimeType: string, originalName: str
       return fs.readFileSync(filePath, "utf-8");
     }
     if (ext === ".pdf" || mimeType === "application/pdf") {
-      const pdfParse = (await import("pdf-parse")).default;
-      const buffer = fs.readFileSync(filePath);
-      const data = await pdfParse(buffer);
-      return data.text;
+      const text = await extractTextFromPdf(filePath);
+      if (text) return text;
+      return "Could not extract text from this PDF. The file may be scanned/image-only or encrypted.";
     }
     if (ext === ".docx") {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ path: filePath });
-      return result.value;
+      if (result.value) return result.value;
     }
-  } catch {
-    // fallback
+  } catch (err) {
+    console.error("[extractText] unexpected error:", (err as Error).message);
   }
   return "Could not extract text from document.";
 }
