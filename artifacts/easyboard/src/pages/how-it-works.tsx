@@ -143,6 +143,7 @@ export default function HowItWorks() {
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Resolutions: resolution text, voting type, deadline</li>
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Meeting minutes: content, associated meeting, signatories</li>
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Action items: assignee, task description, due date</li>
+                <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Multi-stage approval chains: parallel endorsements + final board vote</li>
                 <li className="flex gap-2"><ChevronRight size={14} className="text-[#0071e3] mt-0.5 flex-shrink-0" />Confidential passages requiring restricted access</li>
               </ul>
             </div>
@@ -266,6 +267,88 @@ export default function HowItWorks() {
                 <p><span className="text-white font-medium">Deadline behaviour — </span>Configurable per vote: lapse (no result), extend 7 days, or notify Secretary.</p>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Approval Workflows */}
+        <section className="space-y-6">
+          <div>
+            <SectionHeader icon={<GitBranch size={12} />} label="Multi-Stage Workflows" />
+            <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3">Parallel Endorsements & Sequential Approvals</h2>
+            <p className="text-[#86868b] leading-relaxed max-w-2xl">
+              Some governance decisions require more than one body to weigh in before the board resolves. When Claude
+              detects this pattern in a document — language like "subject to FAC and NRC endorsement" or "following
+              committee sign-off" — it proposes a multi-stage approval workflow rather than a single vote.
+            </p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-6">
+            <div>
+              <h4 className="text-white font-semibold mb-3">How parallel stages work</h4>
+              <p className="text-[#86868b] text-sm leading-relaxed mb-5">
+                Stages are organised into groups. Every stage in the same group runs simultaneously — committees do not
+                wait on each other. The next group only opens once every stage in the current group is approved.
+                If any stage is rejected, all remaining stages are immediately cancelled.
+              </p>
+              {/* Visual example */}
+              <div className="flex items-start gap-3 flex-wrap">
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs text-[#86868b] font-medium mb-1">Group 0 — opens immediately</div>
+                  <div className="flex gap-2">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#0071e3]/40 bg-[#0071e3]/10 text-sm text-[#0071e3] font-medium">
+                      <Vote size={13} /> FAC Endorsement
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#0071e3]/40 bg-[#0071e3]/10 text-sm text-[#0071e3] font-medium">
+                      <Vote size={13} /> NRC Endorsement
+                    </div>
+                  </div>
+                  <div className="text-xs text-[#86868b]">Both votes open at the same time</div>
+                </div>
+                <div className="flex items-center self-center mt-4">
+                  <ChevronRight size={18} className="text-[#86868b]" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs text-[#86868b] font-medium mb-1">Group 1 — opens when all endorsements are in</div>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/20 bg-white/5 text-sm text-white font-medium">
+                    <Vote size={13} className="text-[#86868b]" /> Board of Directors Approval
+                  </div>
+                  <div className="text-xs text-[#86868b]">Triggered automatically once FAC and NRC both approve</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-white/10 pt-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+              <div>
+                <h4 className="text-white font-semibold mb-2">Tracked inside Votes</h4>
+                <p className="text-[#86868b] leading-relaxed">
+                  There is no separate workflows screen. Every vote that belongs to a workflow is tagged with a blue
+                  "Workflow" badge in the votes list. Opening the vote reveals a compact stage map at the top — showing
+                  all groups, where each committee stands, and a direct link to jump between sibling votes.
+                </p>
+              </div>
+              <div>
+                <h4 className="text-white font-semibold mb-2">Zero manual wiring</h4>
+                <p className="text-[#86868b] leading-relaxed">
+                  Once the Secretary approves the AI-proposed workflow, everything runs automatically. When the last
+                  endorsement comes in, the board vote is created, access is granted to board members, and it appears
+                  on their dashboard — with no Secretary intervention required.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            {[
+              { label: "Single endorsement", example: "FAC → Board", desc: "One committee must endorse before the board votes. Sequential, one stage per group." },
+              { label: "Parallel endorsements", example: "FAC + NRC → Board", desc: "Two or more committees endorse simultaneously. Board vote opens when the last endorsement lands." },
+              { label: "Board only", example: "Board alone", desc: "No prior endorsement required. A single vote is created as a standalone resolution, not a workflow." },
+            ].map(({ label, example, desc }) => (
+              <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="text-[#0071e3] font-semibold mb-1">{label}</div>
+                <div className="text-white text-xs font-mono mb-2 opacity-60">{example}</div>
+                <p className="text-[#86868b] leading-relaxed">{desc}</p>
+              </div>
+            ))}
           </div>
         </section>
 
