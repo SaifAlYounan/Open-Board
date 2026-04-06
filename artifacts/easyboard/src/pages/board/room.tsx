@@ -10,7 +10,7 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, FileText, Vote, MapPin, CheckCircle, Clock, ChevronRight } from 'lucide-react';
+import { Calendar, FileText, Vote, MapPin, CheckCircle, Clock, ChevronRight, Paperclip, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type Tab = 'votes' | 'meetings' | 'minutes';
@@ -39,6 +39,24 @@ export default function BoardRoom() {
 
   const [votingState, setVotingState] = useState<Record<string, { decision: string; comment: string; showComment: boolean }>>({});
   const [submittedVotes, setSubmittedVotes] = useState<Record<string, { decision: string; votedAt: string; comment?: string }>>({});
+  const [docsExpanded, setDocsExpanded] = useState<Record<string, boolean>>({});
+  const [docsMap, setDocsMap] = useState<Record<string, any[]>>({});
+
+  const toggleDocs = async (voteId: string) => {
+    if (!docsExpanded[voteId] && !docsMap[voteId]) {
+      try {
+        const token = localStorage.getItem('token');
+        const resp = await fetch(`/api/votes/${voteId}/documents`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await resp.json();
+        setDocsMap((prev) => ({ ...prev, [voteId]: data }));
+      } catch {
+        setDocsMap((prev) => ({ ...prev, [voteId]: [] }));
+      }
+    }
+    setDocsExpanded((prev) => ({ ...prev, [voteId]: !prev[voteId] }));
+  };
 
   const b = board as any;
 
@@ -145,6 +163,37 @@ export default function BoardRoom() {
                           approvalsCount={vote.approvalsCount || 0}
                           status={vote.status}
                         />
+
+                        {/* Supporting Materials */}
+                        {(vote.documentCount || 0) > 0 && (
+                          <div className="mt-3">
+                            <button
+                              onClick={() => toggleDocs(vote.id)}
+                              className="flex items-center gap-1.5 text-xs text-[#0071e3] hover:text-[#0077ed] transition-colors"
+                              data-testid={`btn-view-docs-${vote.id}`}
+                            >
+                              <Paperclip size={12} />
+                              {vote.documentCount} Supporting Document{vote.documentCount > 1 ? 's' : ''}
+                              <ChevronDown size={12} className={cn('transition-transform', docsExpanded[vote.id] && 'rotate-180')} />
+                            </button>
+                            {docsExpanded[vote.id] && (
+                              <div className="mt-2 space-y-1.5">
+                                {(docsMap[vote.id] || []).map((doc: any) => (
+                                  <div key={doc.id} className="flex items-center gap-2 p-2.5 bg-[#f5f5f7] rounded-lg">
+                                    <FileText size={13} className="text-[#0071e3] flex-shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-medium text-[#1d1d1f] truncate">{doc.title}</p>
+                                      <p className="text-xs text-[#86868b]">{doc.filename}{doc.fileSize ? ` · ${(doc.fileSize / 1024).toFixed(0)} KB` : ''}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                                {docsMap[vote.id]?.length === 0 && (
+                                  <p className="text-xs text-[#86868b] p-2">No documents loaded.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {hasVoted ? (
                           <div className="mt-4 p-3 bg-[#f0fdf4] rounded-xl space-y-1" data-testid={`vote-confirmed-${vote.id}`}>

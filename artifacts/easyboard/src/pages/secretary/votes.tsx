@@ -5,6 +5,7 @@ import {
   useListVotes,
   useCreateVote,
   useListBoards,
+  useGetBoardMembers,
   getListVotesQueryKey,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,6 +18,7 @@ const RULE_PRESETS = [
   { key: 'majority', label: 'Simple Majority', description: '>50% must approve' },
   { key: 'two_thirds', label: 'Two-Thirds', description: '≥66.7% must approve' },
   { key: 'three_quarters', label: 'Three-Quarters', description: '≥75% must approve' },
+  { key: 'custom', label: 'Custom', description: 'Set specific approval count' },
 ];
 
 export default function SecretaryVotes() {
@@ -38,7 +40,19 @@ export default function SecretaryVotes() {
     customMinApprovals: '',
     customQuorum: '',
     deadlineBehavior: 'lapse',
+    recusedIds: [] as string[],
   });
+
+  const { data: boardMembers } = useGetBoardMembers(form.boardId, { query: { enabled: !!form.boardId } });
+
+  const toggleRecusal = (personId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      recusedIds: prev.recusedIds.includes(personId)
+        ? prev.recusedIds.filter((id) => id !== personId)
+        : [...prev.recusedIds, personId],
+    }));
+  };
 
   const handleCreate = () => {
     if (!form.boardId || !form.title || !form.resolutionText) {
@@ -65,6 +79,7 @@ export default function SecretaryVotes() {
           minApprovals: form.customMinApprovals ? parseInt(form.customMinApprovals) : undefined,
           quorum: form.customQuorum ? parseInt(form.customQuorum) : undefined,
           deadlineBehavior: form.deadlineBehavior,
+          recusedIds: form.recusedIds.length > 0 ? form.recusedIds : undefined,
         }
       }
     }, {
@@ -72,7 +87,7 @@ export default function SecretaryVotes() {
         toast({ title: 'Vote created' });
         queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
         setShowCreate(false);
-        setForm({ boardId: '', title: '', resolutionText: '', type: 'circulation', deadline: '', ruleType: 'majority', customMinApprovals: '', customQuorum: '', deadlineBehavior: 'lapse' });
+        setForm({ boardId: '', title: '', resolutionText: '', type: 'circulation', deadline: '', ruleType: 'majority', customMinApprovals: '', customQuorum: '', deadlineBehavior: 'lapse', recusedIds: [] });
       },
       onError: (err: any) => {
         toast({ title: 'Create failed', description: err.data?.error || 'Please try again.', variant: 'destructive' });
@@ -185,6 +200,38 @@ export default function SecretaryVotes() {
                     </div>
                   </div>
                 )}
+
+                {/* Recusals */}
+                {form.boardId && (boardMembers as any[] || []).length > 0 && (
+                  <div className="mt-3 p-4 bg-[#f5f5f7] rounded-xl">
+                    <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Recused Members</label>
+                    <p className="text-xs text-[#86868b] mb-2">Members who must abstain from this vote due to conflict of interest.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(boardMembers as any[] || [])
+                        .filter((m: any) => m.roleInBoard !== 'observer' && m.roleInBoard !== 'secretary')
+                        .map((m: any) => {
+                          const pid = m.personId;
+                          const name = m.person?.name || pid;
+                          const isRecused = form.recusedIds.includes(pid);
+                          return (
+                            <button
+                              key={pid}
+                              type="button"
+                              onClick={() => toggleRecusal(pid)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
+                                isRecused
+                                  ? 'border-[#ff3b30] bg-[#fff5f5] text-[#ff3b30]'
+                                  : 'border-[#e5e5e7] bg-white text-[#1d1d1f] hover:border-[#ff3b30]/50'
+                              }`}
+                              data-testid={`btn-recuse-${pid}`}
+                            >
+                              {isRecused ? '✕ ' : ''}{name}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {form.boardId && (
@@ -213,7 +260,12 @@ export default function SecretaryVotes() {
 
           <div className="space-y-3">
             {(votes as any[] || []).map((vote: any) => (
-              <div key={vote.id} className="bg-white rounded-2xl border border-[#e5e5e7] p-5" data-testid={`vote-card-${vote.id}`}>
+              <div
+                key={vote.id}
+                className="bg-white rounded-2xl border border-[#e5e5e7] p-5 cursor-pointer hover:border-[#0071e3]/30 hover:shadow-sm transition-all"
+                onClick={() => setLocation(`/secretary/votes/${vote.id}`)}
+                data-testid={`vote-card-${vote.id}`}
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -223,6 +275,9 @@ export default function SecretaryVotes() {
                         color: STATUS_COLORS[vote.status]
                       }}>{vote.status}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-[#f5f5f7] text-[#86868b] font-medium capitalize">{vote.type}</span>
+                      {vote.documentCount > 0 && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-[#f5f5f7] text-[#86868b]">{vote.documentCount} doc{vote.documentCount > 1 ? 's' : ''}</span>
+                      )}
                     </div>
                     <div className="font-medium text-[#1d1d1f]">{vote.title}</div>
                     {vote.boardName && <div className="text-xs text-[#86868b] mt-0.5">{vote.boardName}</div>}

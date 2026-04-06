@@ -66,7 +66,7 @@ A document has been uploaded. Analyze it and return ONLY valid JSON — no pream
 
 Return this exact structure:
 {
-  "document_type": "draft_minutes" | "resolution" | "financial_report" | "legal_opinion" | "evidence" | "meeting_agenda" | "general",
+  "document_type": "draft_minutes" | "resolution" | "financial_report" | "legal_opinion" | "evidence" | "meeting_agenda" | "committee_submission" | "general",
   "confidence": 0.0-1.0,
   "extracted_data": { },
   "proposed_actions": [
@@ -109,7 +109,12 @@ How to recognize: From a law firm, contains legal analysis.
 Extract: summary, key_conclusions[], regulatory_deadlines[]
 Propose: attach_to_meeting if relevant. Always propose flag_confidential.
 
-## 7. GENERAL
+## 7. COMMITTEE SUBMISSION
+How to recognize: Submitted by or referencing a specific committee (e.g., "Audit Committee", "Risk & Compliance Committee", "Technical & Projects Committee", "Nominations & Remuneration Committee"). Typically labelled "Committee Report", "Submission to the Board", "For Board Endorsement", or authored with a committee letterhead. May request board sign-off, noting or ratification.
+Extract: committee_name, submission_date, subject, key_recommendations[], items_for_board_decision[], items_for_noting[]
+Propose: attach_to_meeting (so the board can consider it at the next meeting). If the submission explicitly requests formal approval, also propose create_vote.
+
+## 8. GENERAL
 Catch-all. Extract: summary, key_topics[], entities_mentioned[]. Propose no actions beyond storing.`;
 
 const COMMAND_PROMPT = `

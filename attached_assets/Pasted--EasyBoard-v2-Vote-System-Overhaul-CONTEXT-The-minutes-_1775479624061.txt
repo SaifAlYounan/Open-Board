@@ -1,0 +1,246 @@
+# EasyBoard v2 — Vote System Overhaul
+
+## CONTEXT
+
+The minutes governance workflow (upload → classify → approve → review → comment → sign → finalize) is now fully working across all 4 roles. The VOTE system is the next priority. I tested every vote-related feature from the Secretary and Board Member views. Here's what's missing.
+
+**DO NOT** touch the minutes workflow, the AI classification prompts, the comment system, or the signing flow. They all work. Focus only on votes.
+
+---
+
+## FIX 1: Vote Detail Page for Secretary
+
+**What's broken:** The vote card on `/secretary/votes` shows a `>` chevron suggesting it's clickable, but clicking does nothing — no click handler, no `cursor:pointer`, no `<a>` tag. Navigating directly to `/secretary/votes/{id}` returns 404.
+
+**Build this:** A full vote detail page at `/secretary/votes/{id}` containing:
+
+**Header section:**
+- Resolution number (e.g., RES-BoD-2026-001)
+- Status badge (open / approved / rejected / lapsed)
+- Title
+- Board name
+- Type (Circulation / Meeting)
+- Approval rule applied (e.g., "Simple Majority — >50% must approve")
+- Deadline with days remaining
+- Created date
+
+**Resolution text section:**
+- Full resolution text in a styled block
+
+**Supporting documents section:** (see Fix 3)
+- List of attached documents with download links
+- "Attach Document" button (file upload)
+
+**Voting progress section:**
+- Progress bar (X/Y voted)
+- Per-member breakdown table:
+  | Member | Role | Decision | Comment | Timestamp |
+  Each row shows the board member's name, their board role, their vote decision (Approved / Not Approved / Approved with Comments / Not Approved with Comments / Pending), any comment text they submitted, and when they voted. Members who haven't voted show "Pending" in grey.
+
+**Action buttons:**
+- "Extend Deadline" (see Fix 2)
+- "Close Vote" — manually closes the vote regardless of deadline, calculates result based on votes cast
+- "Download Certificate" (see Fix 4) — only visible when vote is closed/approved
+
+**Wiring:** Make the vote card on `/secretary/votes` clickable by wrapping it in a `<Link to={/secretary/votes/${vote.id}}>`. Add `cursor: pointer` to the card style.
+
+**How to test:** As Secretary, go to `/secretary/votes` → click a vote card → detail page loads with all sections above. Verify the per-member breakdown shows who voted and who is pending.
+
+---
+
+## FIX 2: Extend Deadline on Open Votes
+
+**What's broken:** There is no way to extend the deadline on an open vote. The deadline is set at creation and cannot be changed.
+
+**Build this:** On the vote detail page (Fix 1), add an "Extend Deadline" button that:
+1. Opens a date picker pre-filled with the current deadline
+2. Secretary selects a new date (must be after current deadline)
+3. Calls PATCH `/api/votes/{id}` with `{ deadline: newDate }`
+4. Shows success toast: "Deadline extended to {date}"
+5. Updates the deadline display on the page
+
+Also add this to the API: the PATCH `/api/votes/{id}` endpoint should accept a `deadline` field and update it. Add validation: new deadline must be in the future and after the current deadline.
+
+**How to test:** Create a vote with deadline April 30. Open vote detail → click "Extend Deadline" → pick May 15 → save. Verify deadline shows May 15 on the card and detail page.
+
+---
+
+## FIX 3: Supporting Materials Upload on Votes
+
+**What's broken:** There is no way to attach supporting documents to a vote. The Create Vote form has no file upload. Board members voting in the board room see only the resolution title and text — no underlying documents.
+
+**Build this in two places:**
+
+**A. On vote creation (Create Vote form):**
+- Add a "📎 Attach Supporting Documents" section below the deadline field
+- Drag-and-drop zone + "Browse Files" button accepting PDF, DOCX, TXT (max 10MB each)
+- Multiple files allowed
+- Files stored in the existing document storage, linked via a new `vote_documents` join table (vote_id, document_id)
+
+**B. On vote detail page (Secretary view):**
+- "Supporting Documents" section showing attached files with download links
+- "Attach Document" button to add more files after creation
+
+**C. On board room vote view (Board Member view):**
+- Below the resolution title/text, show "📎 Supporting Documents" section
+- List attached documents with download links
+- Board members can download but not upload
+
+**Database:** Create `vote_documents` table:
+```sql
+CREATE TABLE vote_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vote_id UUID REFERENCES votes(id) ON DELETE CASCADE,
+  document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**How to test:** 
+1. Secretary creates a vote and attaches a PDF during creation → PDF appears in the vote detail
+2. Secretary opens existing vote detail → attaches another document → both show
+3. Board member enters board room → votes tab → sees the attached documents with download links below the resolution text
+
+---
+
+## FIX 4: PDF Stamped Certificate on Approved/Closed Votes
+
+**What's broken:** When a vote is closed/approved, there is no way to generate or download a formal certificate of the resolution.
+
+**Build this:** When a vote status is "approved" or "closed" (i.e., voting is complete and the result is determined):
+
+**Auto-generate a PDF certificate** containing:
+- Header: "CERTIFIED RESOLUTION" + EasyBoard logo
+- Resolution number: RES-BoD-2026-001
+- Board: Board of Directors
+- Title: "Approval of H2 2026 Renewable Energy Strategy"
+- Full resolution text
+- Approval rule: "Simple Majority (>50%)"
+- Result: "APPROVED — 7 of 10 voted, 7 approved (70%)"
+- Per-member vote breakdown table (name, decision, timestamp)
+- SHA-256 hash of the certificate content (computed from: resolution_text + vote_results_json + timestamp)
+- Footer: "Certified by EasyBoard v2 | Generated: {ISO timestamp} | Hash: {sha256}"
+- Watermark: "CERTIFIED COPY" diagonally across the page
+
+**Where it appears:**
+- On the Secretary vote detail page: "📄 Download Resolution Certificate" button
+- On the Board Member board room view (for closed votes): "Certificate" button (this button already exists in the UI on closed votes from seed data — wire it up to generate and download the PDF)
+
+**Use the existing PDF skill** in `/mnt/skills/public/pdf/SKILL.md` for generation, or use a server-side library like `pdfkit` or `puppeteer` to generate on the backend via `GET /api/votes/{id}/certificate` which returns the PDF.
+
+**How to test:** 
+1. Create a vote → have enough members vote to reach approval threshold → close the vote
+2. On Secretary vote detail: click "Download Resolution Certificate" → PDF downloads with all fields above
+3. Verify SHA-256 hash is present in the PDF footer
+
+---
+
+## FIX 5: Custom Approval Rule Builder
+
+**What's broken:** The Create Vote form only has 4 preset approval rules (Unanimous, Simple Majority, Two-Thirds, Three-Quarters). There is no way to define custom rules for scenarios like: "requires 6 specific members to vote" or "James O'Brien is recused" or "quorum of 8 required before any result counts."
+
+**Build this:** Add a 5th option "Custom" below the 4 presets. When selected, expand a configuration panel:
+
+**Custom rule fields:**
+- **Minimum approvals** (number input): "Minimum votes needed to approve" — e.g., 5
+- **Quorum** (number input or percentage toggle): "Minimum members who must vote for the result to be valid" — e.g., 8 or 80%
+- **Recused members** (multi-select dropdown of board members): "Members excluded from voting and quorum count" — e.g., James O'Brien. When recused, the total voter count decreases (if O'Brien is recused on a 10-member board, total becomes 9).
+- **Deadline behavior** (radio buttons):
+  - "Lapse" — vote expires with no result if deadline passes
+  - "Extend" — auto-extend by 7 days if quorum not reached
+  - "Notify" — send notification to Secretary when deadline is 48 hours away
+
+**Plain-English summary** displayed below the configuration:
+e.g., "Requires at least 5 approvals from 9 eligible voters (James O'Brien recused). Quorum: 8 must vote. If deadline passes without quorum, the vote lapses."
+
+**Database:** The votes table likely has an `approval_rule` column. Extend it to store JSON for custom rules:
+```json
+{
+  "type": "custom",
+  "min_approvals": 5,
+  "quorum": 8,
+  "recused": ["person-uuid-1"],
+  "deadline_behavior": "lapse"
+}
+```
+
+The vote result calculation logic needs to handle custom rules: check quorum before determining result, exclude recused members from count, apply min_approvals threshold.
+
+**How to test:**
+1. Secretary creates a vote → selects "Custom" → sets min approvals: 5, quorum: 8, recuses James O'Brien
+2. Summary shows: "Requires at least 5 approvals from 9 eligible voters..."
+3. In the board room, James O'Brien should NOT see vote buttons on this resolution
+4. If only 6 members vote (below quorum of 8), the vote should not resolve even if all 6 approved
+
+---
+
+## FIX 6: AI Brain Recognizes Committee Submissions
+
+**What's broken:** When the Secretary uploads an investment proposal (not board minutes), the AI classifies it as "resolution" at 82% confidence. It doesn't have a proper "committee_submission" document type. It proposes reasonable actions but doesn't suggest routing to the correct committee or creating a structured approval workflow.
+
+**Build this:** Add a new document classification type `committee_submission` to the AI CLASSIFY prompt. When the AI detects a document that is a proposal, investment memo, policy paper, technical assessment, or any document seeking committee/board approval:
+
+**AI should propose:**
+1. **Route to committee** — based on document content:
+   - Financial/budget/audit content → Finance & Audit Committee (FAC)
+   - Investment/strategy/M&A content → Strategy & Investment Committee (SIC)
+   - HR/compensation/board composition → Nomination & Remuneration Committee (NRC)
+   - Technical/engineering/operations → Technical & Projects Committee (TPC)
+   - Cross-cutting or high-value (>threshold) → Board of Directors (BoD)
+
+2. **Create a vote** — propose a resolution for the relevant committee to approve/reject the submission, with the document attached as supporting material
+
+3. **Flag conflicts of interest** — if the document mentions any person who is also a board/committee member, or mentions related parties, flag it and suggest recusal
+
+4. **Create tasks** — if the document mentions required reviews (legal, financial, technical), propose tasks for the relevant management members
+
+**Update the CLASSIFY prompt** in the AI brain to include `committee_submission` as a valid classification alongside `draft_minutes`, `resolution`, `report`, `policy`, and `correspondence`. Add instructions for the AI to analyze the document's "Required Approvals" or "Recommendation" section to determine which committee(s) should review it.
+
+**How to test:** Upload the following text as a .txt file:
+```
+INVESTMENT PROPOSAL — Green Hydrogen Production Facility
+Submitted to: Strategy & Investment Committee
+Total CAPEX: USD 12.5 million
+Related Party: Li Wei's brother-in-law holds 8% in the electrolyzer supplier
+Required Approvals: SIC for feasibility, Board for full CAPEX, FAC for financing, NRC for related party
+```
+
+The AI should:
+- Classify as `committee_submission` (not `resolution`)
+- Propose routing to SIC (primary), with FAC and NRC cross-referrals
+- Propose creating a vote for SIC approval of the feasibility study
+- Flag the related party disclosure and suggest Li Wei recusal
+- Propose a task for Priya Sharma (GC) to review the conflict of interest
+
+---
+
+## PRIORITY ORDER
+
+1. **Fix 1** (Vote detail page) — everything else depends on this
+2. **Fix 3** (Supporting materials) — board members need documents to vote
+3. **Fix 2** (Extend deadline) — basic governance action
+4. **Fix 5** (Custom rules) — needed for recusals and quorum
+5. **Fix 4** (PDF certificate) — formal output of the vote process
+6. **Fix 6** (AI committee submissions) — enhances the AI pipeline
+
+## TEST AFTER ALL FIXES
+
+```
+1. Secretary creates vote for BoD with Simple Majority, attaches a PDF, deadline April 30
+2. Secretary opens vote detail → sees resolution text, attached PDF, per-member breakdown (all Pending)
+3. Board member (n.petrov) enters BoD room → sees vote + attached PDF download → votes "Approved"
+4. Board member (k.weber) votes "Approved with Comments" + comment text
+5. Secretary checks vote detail → sees 2/10 voted, Petrov Approved, Weber Approved with Comments + comment text
+6. Secretary extends deadline to May 15 → deadline updates
+7. Enough members vote to reach majority → vote auto-closes as "Approved"
+8. Secretary downloads PDF certificate → verify all fields present
+9. Board member downloads same certificate → same content
+
+10. Secretary creates Custom vote: min 5 approvals, quorum 8, O'Brien recused
+11. O'Brien enters board room → should NOT see vote buttons on this resolution
+12. 6 members vote (all approve) → vote should NOT resolve (quorum 8 not met)
+13. 2 more members vote → quorum reached, 8 voted, 8 approved → vote resolves as Approved
+
+14. Secretary uploads investment proposal .txt → AI classifies as committee_submission
+15. AI proposes: route to SIC, create vote, flag related party, create task for GC
+```

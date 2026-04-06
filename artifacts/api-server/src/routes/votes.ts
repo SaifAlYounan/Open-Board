@@ -1,5 +1,8 @@
 import { Router } from "express";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
+import multer from "multer";
 import {
   db,
   votesTable,
@@ -11,12 +14,27 @@ import {
   approvalRulesTable,
   approvalRuleRequiredVotersTable,
   approvalRuleRecusalsTable,
+  voteDocumentsTable,
 } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 
 const router = Router();
+
+const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const upload = multer({
+  dest: UPLOADS_DIR,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowed = [".pdf", ".docx", ".txt", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg"];
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error("File type not supported"));
+  },
+});
 
 function buildApprovalSummary(rule: {
   type: string;
@@ -28,24 +46,23 @@ function buildApprovalSummary(rule: {
   const behaviors: Record<string, string> = {
     lapse: "lapses if unresolved by deadline",
     extend: "auto-extends 7 days",
-    notify: "notifies Secretary when deadline passes",
+    notify: "notifies secretary when deadline passes",
   };
-  const behavior = behaviors[rule.deadlineBehavior] || rule.deadlineBehavior;
 
-  switch (rule.type) {
-    case "unanimous":
-      return `This resolution passes when ALL eligible voters approve. ${behavior}.`;
-    case "majority":
-      return `This resolution passes when more than 50% of eligible voters approve. ${behavior}.`;
-    case "two_thirds":
-      return `This resolution passes when at least two-thirds (66.7%) of eligible voters approve. ${behavior}.`;
-    case "three_quarters":
-      return `This resolution passes when at least three-quarters (75%) of eligible voters approve. ${behavior}.`;
-    case "custom":
-      return `This resolution passes when at least ${rule.minApprovals || "?"} voters approve${rule.quorum ? `, with quorum of ${rule.quorum}` : ""}. ${behavior}.`;
-    default:
-      return `Approval by ${rule.type}. ${behavior}.`;
-  }
+  const ruleDesc: Record<string, string> = {
+    unanimous: "Unanimous — all members must approve",
+    majority: "Simple majority — more than 50% must approve",
+    two_thirds: "Two-thirds majority — at least 66.7% must approve",
+    three_quarters: "Three-quarters majority — at least 75% must approve",
+    custom: rule.minApprovals
+      ? `Custom — at least ${rule.minApprovals} approval(s) required`
+      : "Custom rule",
+  };
+
+  const desc = ruleDesc[rule.type] || rule.type;
+  const quorumNote = rule.quorum ? `, quorum: ${rule.quorum}` : "";
+  const behaviorNote = behaviors[rule.deadlineBehavior] || rule.deadlineBehavior;
+  return `${desc}${quorumNote}. Vote ${behaviorNote}.`;
 }
 
 router.get("/votes", requireAuth, async (req, res): Promise<void> => {
@@ -87,6 +104,8 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
 
       const myRecord = records.find((r) => r.personId === user.id);
 
+      const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, v.id));
+
       return {
         ...v,
         boardName: board?.name || null,
@@ -95,6 +114,7 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
         votescast: records.length,
         approvalsCount: approvals,
         hasVoted: !!myRecord,
+        documentCount: docs.length,
       };
     })
   );
@@ -122,7 +142,6 @@ router.post("/votes", requireAuth, requireAdmin, async (req, res): Promise<void>
     })
     .returning();
 
-  // Create approval rule
   if (approvalRule) {
     const [rule] = await db
       .insert(approvalRulesTable)
@@ -148,7 +167,6 @@ router.post("/votes", requireAuth, requireAdmin, async (req, res): Promise<void>
     }
   }
 
-  // Grant access
   await grantDefaultAccess("vote", vote.id, boardId);
 
   const [board] = boardId
@@ -167,6 +185,7 @@ router.post("/votes", requireAuth, requireAdmin, async (req, res): Promise<void>
     votescast: 0,
     approvalsCount: 0,
     hasVoted: false,
+    documentCount: 0,
   });
 });
 
@@ -219,6 +238,21 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
       }
     : null;
 
+  const docs = await db
+    .select()
+    .from(voteDocumentsTable)
+    .where(eq(voteDocumentsTable.voteId, id));
+
+  const docsWithUploader = await Promise.all(
+    docs.map(async (d) => {
+      const [uploader] = d.uploadedBy
+        ? await db.select().from(peopleTable).where(eq(peopleTable.id, d.uploadedBy))
+        : [null];
+      const { passwordHash: _, ...safeUploader } = uploader || ({ passwordHash: "" } as any);
+      return { ...d, uploaderName: uploader?.name || null };
+    })
+  );
+
   res.json({
     ...vote,
     boardName: board?.name || null,
@@ -239,6 +273,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
     voteRecords: voteRecordsWithPeople,
     approvalRule: ruleWithSummary,
     certificateHash: vote.certificateHash,
+    documents: docsWithUploader,
   });
 });
 
@@ -253,6 +288,13 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
     updates.status = status;
     if (["approved", "rejected", "lapsed"].includes(status)) {
       updates.closedAt = new Date();
+      const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+      const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
+      const hash = crypto
+        .createHash("sha256")
+        .update(JSON.stringify({ id, status, approvals, total: records.length, closedAt: new Date().toISOString() }))
+        .digest("hex");
+      updates.certificateHash = hash;
     }
   }
 
@@ -266,7 +308,21 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, vote.boardId))
     : [null];
 
-  res.json({ ...vote, boardName: board?.name, boardAbbreviation: board?.abbreviation, totalVoters: 0, votescast: 0, approvalsCount: 0, hasVoted: false });
+  const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+  const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
+  const members = vote.boardId
+    ? await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId))
+    : [];
+
+  res.json({
+    ...vote,
+    boardName: board?.name,
+    boardAbbreviation: board?.abbreviation,
+    totalVoters: members.length,
+    votescast: records.length,
+    approvalsCount: approvals,
+    hasVoted: false,
+  });
 });
 
 router.delete("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
@@ -303,7 +359,6 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
-    // Verify user is a voting member of this board (non-observer, non-secretary)
     if (vote.boardId) {
       const membership = await db
         .select()
@@ -321,7 +376,6 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
       .values({ voteId: id, personId: user.id, decision, comment })
       .returning();
 
-    // Auto-resolve vote if all eligible voters have cast
     if (vote.boardId) {
       const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
       const votingMembers = allMembers.filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary");
@@ -331,7 +385,14 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
         const approvals = allRecords.filter((r) => r.decision.startsWith("approved")).length;
         const threshold = Math.ceil(votingMembers.length / 2);
         const newStatus = approvals >= threshold ? "approved" : "rejected";
-        await db.update(votesTable).set({ status: newStatus as any, closedAt: new Date() }).where(eq(votesTable.id, id));
+        const hash = crypto
+          .createHash("sha256")
+          .update(JSON.stringify({ id, status: newStatus, approvals, total: allRecords.length, closedAt: new Date().toISOString() }))
+          .digest("hex");
+        await db
+          .update(votesTable)
+          .set({ status: newStatus as any, closedAt: new Date(), certificateHash: hash })
+          .where(eq(votesTable.id, id));
       }
     }
 
@@ -348,6 +409,101 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
     console.error("[votes] cast error:", anyErr.message);
     res.status(500).json({ error: "Failed to record vote" });
   }
+});
+
+router.get("/votes/:id/documents", requireAuth, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  if (!vote) {
+    res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
+  const docsWithUploader = await Promise.all(
+    docs.map(async (d) => {
+      const [uploader] = d.uploadedBy
+        ? await db.select().from(peopleTable).where(eq(peopleTable.id, d.uploadedBy))
+        : [null];
+      return { ...d, uploaderName: uploader?.name || null };
+    })
+  );
+
+  res.json(docsWithUploader);
+});
+
+router.post("/votes/:id/documents", requireAuth, (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) {
+      res.status(400).json({ error: err.message || "Upload failed" });
+      return;
+    }
+    next();
+  });
+}, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  if (!vote) {
+    res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ error: "No file uploaded" });
+    return;
+  }
+
+  const { originalname, path: filePath, size, mimetype } = req.file;
+  const title = (req.body.title as string) || originalname;
+
+  const [doc] = await db
+    .insert(voteDocumentsTable)
+    .values({
+      voteId: id,
+      title,
+      filename: originalname,
+      filePath,
+      fileSize: size,
+      mimeType: mimetype,
+      uploadedBy: user.id,
+    })
+    .returning();
+
+  res.status(201).json({ ...doc, uploaderName: user.name || null });
+});
+
+router.delete("/votes/:id/documents/:docId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const docId = Array.isArray(req.params.docId) ? req.params.docId[0] : req.params.docId;
+
+  const [doc] = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
+  if (!doc) {
+    res.status(404).json({ error: "Document not found" });
+    return;
+  }
+
+  if (doc.filePath && fs.existsSync(doc.filePath)) {
+    fs.unlinkSync(doc.filePath);
+  }
+
+  await db.delete(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
+  res.sendStatus(204);
+});
+
+router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res): Promise<void> => {
+  const docId = Array.isArray(req.params.docId) ? req.params.docId[0] : req.params.docId;
+
+  const [doc] = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
+  if (!doc || !doc.filePath || !fs.existsSync(doc.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  res.setHeader("Content-Disposition", `attachment; filename="${doc.filename}"`);
+  res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
+  fs.createReadStream(doc.filePath).pipe(res);
 });
 
 router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void> => {
@@ -371,14 +527,31 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     })
   );
 
+  const [approvalRule] = await db
+    .select()
+    .from(approvalRulesTable)
+    .where(eq(approvalRulesTable.voteId, id));
+
   res.json({
     voteId: vote.id,
     resolutionNumber: vote.resolutionNumber,
     title: vote.title,
+    resolutionText: vote.resolutionText,
     status: vote.status,
     boardName: board?.name || "Unknown Board",
     closedAt: vote.closedAt,
+    deadline: vote.deadline,
     hash: vote.certificateHash,
+    approvalRule: approvalRule ? {
+      ...approvalRule,
+      summaryText: buildApprovalSummary({
+        type: approvalRule.type,
+        minApprovals: approvalRule.minApprovals,
+        quorum: approvalRule.quorum,
+        weighted: approvalRule.weighted || false,
+        deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
+      }),
+    } : null,
     voteRecords: recordsWithPeople,
   });
 });
