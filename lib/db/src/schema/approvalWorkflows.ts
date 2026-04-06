@@ -20,6 +20,7 @@ export const workflowStagesTable = pgTable("workflow_stages", {
   id: uuid("id").primaryKey().defaultRandom(),
   workflowId: uuid("workflow_id").notNull().references(() => approvalWorkflowsTable.id, { onDelete: "cascade" }),
   stageIndex: integer("stage_index").notNull(),
+  stageGroup: integer("stage_group").notNull().default(0),
   title: text("title").notNull(),
   description: text("description"),
   boardId: uuid("board_id").references(() => boardsTable.id),

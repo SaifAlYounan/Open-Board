@@ -347,10 +347,30 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
 
     case "create_workflow": {
       const d = actionData as any;
-      const stages: Array<{ title: string; board: string; approval_type?: string; description?: string }> =
-        d.stages || [];
+      const rawStages: Array<{
+        title: string;
+        board?: string;
+        board_name?: string;
+        approval_type?: string;
+        description?: string;
+        stage_group?: number;
+      }> = d.stages || [];
 
-      if (!stages.length) return { error: "No stages defined" };
+      if (!rawStages.length) return { error: "No stages defined" };
+
+      // If the AI didn't assign stage_group, default: all but last are group 0 (parallel endorsements),
+      // the last is group 1 (final approval). If only one stage, it's group 0 alone.
+      const hasGroups = rawStages.some((s) => s.stage_group !== undefined && s.stage_group !== null);
+      const stages = rawStages.map((s, i) => ({
+        ...s,
+        stage_group: hasGroups
+          ? (s.stage_group ?? 0)
+          : rawStages.length === 1
+          ? 0
+          : i < rawStages.length - 1
+          ? 0
+          : 1,
+      }));
 
       // Resolve final board (last stage) for the workflow parent record
       const finalStage = stages[stages.length - 1];
@@ -365,23 +385,26 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
         })
         .returning();
 
+      const minGroup = Math.min(...stages.map((s) => s.stage_group));
       let firstVote: typeof votesTable.$inferSelect | null = null;
+      const allVotesNow = await db.select().from(votesTable);
+      let seqBase = allVotesNow.length;
 
       for (let i = 0; i < stages.length; i++) {
         const stage = stages[i];
         const stageBoardId = await resolveBoardId((stage as any).board || (stage as any).board_name);
+        const isInitialGroup = stage.stage_group === minGroup;
 
         let voteId: string | null = null;
 
-        if (i === 0) {
+        if (isInitialGroup) {
+          seqBase += 1;
           const abbrev = stageBoardId
             ? (await db.select().from(boardsTable).where(eq(boardsTable.id, stageBoardId)))[0]?.abbreviation || "GEN"
             : "GEN";
 
           const year = new Date().getFullYear();
-          const allVotes = await db.select().from(votesTable);
-          const seq = (allVotes.length + 1).toString().padStart(3, "0");
-          const resNum = `RES-${abbrev}-${year}-${seq}`;
+          const resNum = `RES-${abbrev}-${year}-${seqBase.toString().padStart(3, "0")}`;
 
           const [vote] = await db
             .insert(votesTable)
@@ -400,18 +423,19 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
           }
 
           voteId = vote.id;
-          firstVote = vote;
+          if (!firstVote) firstVote = vote;
         }
 
         await db.insert(workflowStagesTable).values({
           workflowId: workflow.id,
           stageIndex: i,
+          stageGroup: stage.stage_group,
           title: stage.title,
           description: stage.description,
           boardId: stageBoardId,
           approvalType: (stage.approval_type as any) || "majority",
           voteId,
-          status: i === 0 ? "active" : "pending",
+          status: isInitialGroup ? "active" : "pending",
         });
       }
 
