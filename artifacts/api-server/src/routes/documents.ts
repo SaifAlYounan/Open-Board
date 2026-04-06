@@ -18,7 +18,6 @@ import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 
 const execFileAsync = promisify(execFile);
-const PDFTOTEXT_BIN = "/nix/store/s41bqqrym7dlk8m3nk74fx26kgrx0kv8-replit-runtime-path/bin/pdftotext";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -38,25 +37,23 @@ const upload = multer({
 });
 
 async function extractTextFromPdf(filePath: string): Promise<string> {
-  // Primary: pdftotext (poppler-utils) — most reliable, handles all PDF variants
   try {
-    const { stdout } = await execFileAsync(PDFTOTEXT_BIN, ["-layout", "-enc", "UTF-8", filePath, "-"]);
-    if (stdout && stdout.trim().length > 20) return stdout;
+    // pdftotext (poppler-utils) — reliable, handles all standard text-based PDFs
+    const { stdout, stderr } = await execFileAsync(
+      "pdftotext",
+      ["-layout", "-enc", "UTF-8", filePath, "-"],
+      { maxBuffer: 50 * 1024 * 1024 }
+    );
+    if (stderr) console.warn("[pdf] pdftotext stderr:", stderr.slice(0, 200));
+    const extracted = stdout?.trim() ?? "";
+    if (extracted.length > 0) {
+      console.log(`[pdf] pdftotext extracted ${extracted.length} chars from ${path.basename(filePath)}`);
+      return stdout;
+    }
+    console.warn("[pdf] pdftotext returned empty — PDF may be image-only or encrypted");
   } catch (err) {
-    console.warn("[pdf] pdftotext failed, trying pdf-parse:", (err as Error).message);
+    console.error("[pdf] pdftotext failed:", (err as Error).message);
   }
-
-  // Fallback: pdf-parse via CJS require (avoids ESM/bundler issues)
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (globalThis as any).require("pdf-parse");
-    const buffer = fs.readFileSync(filePath);
-    const data = await pdfParse(buffer);
-    if (data.text && data.text.trim().length > 20) return data.text;
-  } catch (err) {
-    console.warn("[pdf] pdf-parse failed:", (err as Error).message);
-  }
-
   return "";
 }
 
