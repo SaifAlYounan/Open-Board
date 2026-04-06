@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, Bot, Users, FileText, Vote, CheckSquare, Shield, Zap, Database, Key, GitBranch, Clock, ChevronRight } from "lucide-react";
 
@@ -79,6 +80,14 @@ function FlowStep({ icon, label, sub, accent }: { icon: React.ReactNode; label: 
 }
 
 export default function HowItWorks() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 320);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f]">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-[#e5e5e7] px-6 py-4 flex items-center justify-between">
@@ -487,6 +496,28 @@ export default function HowItWorks() {
         </div>
 
       </main>
+
+      {/* Floating CTA */}
+      <div
+        className={`fixed right-6 top-1/2 -translate-y-1/2 z-40 transition-all duration-500 ${
+          visible ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 translate-x-8 pointer-events-none"
+        }`}
+      >
+        <div className="bg-white border border-[#e5e5e7] rounded-2xl shadow-lg shadow-black/8 p-5 w-52 space-y-3">
+          <p className="text-[#1d1d1f] font-semibold text-sm leading-snug">
+            Read enough?
+          </p>
+          <p className="text-[#86868b] text-xs leading-relaxed">
+            The demo is live. Every feature on this page is running right now.
+          </p>
+          <Link href="/login">
+            <button className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0071e3] hover:bg-[#0077ed] text-white text-xs font-semibold rounded-xl transition-colors">
+              Try it now
+              <ChevronRight size={13} />
+            </button>
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
