@@ -417,32 +417,4 @@ router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, async (req
   res.json(updated);
 });
 
-// TEMPORARY: admin endpoint to clear production transactional data. Remove after use.
-router.post("/admin/clear-transactional", requireAuth, requireAdmin, async (_req, res): Promise<void> => {
-  try {
-    const { sql: drizzleSql } = await import("drizzle-orm");
-    await db.execute(drizzleSql`
-      TRUNCATE TABLE
-        audit_trail, task_evidence, agenda_documents,
-        minutes_signatures, minutes_suggestions, minutes,
-        agenda_items, attendance, pending_actions,
-        vote_records, approval_rule_weights, approval_rule_recusals,
-        approval_rule_required_voters, approval_rules,
-        votes, meetings, documents, tasks, access_control
-      CASCADE
-    `);
-    const [counts] = (await db.execute(drizzleSql`
-      SELECT
-        (SELECT COUNT(*) FROM votes) AS votes,
-        (SELECT COUNT(*) FROM meetings) AS meetings,
-        (SELECT COUNT(*) FROM pending_actions) AS pending_actions,
-        (SELECT COUNT(*) FROM people) AS people_kept,
-        (SELECT COUNT(*) FROM boards) AS boards_kept
-    `)).rows;
-    res.json({ ok: true, counts });
-  } catch (err: unknown) {
-    res.status(500).json({ ok: false, error: (err as Error).message });
-  }
-});
-
 export default router;
