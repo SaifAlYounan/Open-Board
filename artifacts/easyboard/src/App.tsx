@@ -24,6 +24,8 @@ import SecretaryDocuments from "@/pages/secretary/documents";
 import SecretaryMembers from "@/pages/secretary/members";
 import SecretarySettings from "@/pages/secretary/settings";
 import SecretaryAdmin from "@/pages/secretary/admin";
+import SecretaryWorkflows from "@/pages/secretary/workflows";
+import WorkflowDetail from "@/pages/secretary/workflow-detail";
 
 import BoardMemberDashboard from "@/pages/board/index";
 import BoardRoom from "@/pages/board/room";
@@ -91,6 +93,18 @@ function Router() {
       <Route path="/secretary/pending">
         <ProtectedRoute roles={['admin']}>
           <SecretaryPendingActions />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/secretary/workflows/:id">
+        {() => (
+          <ProtectedRoute roles={['admin']}>
+            <WorkflowDetail />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/secretary/workflows">
+        <ProtectedRoute roles={['admin']}>
+          <SecretaryWorkflows />
         </ProtectedRoute>
       </Route>
       <Route path="/secretary/votes/:id">

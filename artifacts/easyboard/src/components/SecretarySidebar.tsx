@@ -4,12 +4,13 @@ import { useAuth, getAvatarInitials } from '@/lib/auth';
 import { useListPendingActions } from '@workspace/api-client-react';
 import {
   LayoutDashboard, Inbox, FileText, Vote, Calendar, CheckSquare,
-  File, Users, Settings, LogOut, ShieldCheck
+  File, Users, Settings, LogOut, ShieldCheck, GitBranch
 } from 'lucide-react';
 
 const navItems = [
   { href: '/secretary', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { href: '/secretary/pending', icon: Inbox, label: 'Pending AI Actions' },
+  { href: '/secretary/workflows', icon: GitBranch, label: 'Workflows' },
   { href: '/secretary/minutes', icon: FileText, label: 'Minutes' },
   { href: '/secretary/votes', icon: Vote, label: 'Votes' },
   { href: '/secretary/meetings', icon: Calendar, label: 'Meetings' },

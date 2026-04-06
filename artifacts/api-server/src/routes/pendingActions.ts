@@ -11,6 +11,8 @@ import {
   boardsTable,
   boardMembershipsTable,
   attendanceTable,
+  approvalWorkflowsTable,
+  workflowStagesTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
@@ -341,6 +343,79 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       }
 
       return newTask;
+    }
+
+    case "create_workflow": {
+      const d = actionData as any;
+      const stages: Array<{ title: string; board: string; approval_type?: string; description?: string }> =
+        d.stages || [];
+
+      if (!stages.length) return { error: "No stages defined" };
+
+      // Resolve final board (last stage) for the workflow parent record
+      const finalStage = stages[stages.length - 1];
+      const finalBoardId = await resolveBoardId(finalStage.board || finalStage.board_name);
+
+      const [workflow] = await db
+        .insert(approvalWorkflowsTable)
+        .values({
+          title: d.title || "Approval Workflow",
+          description: d.description,
+          boardId: finalBoardId,
+        })
+        .returning();
+
+      let firstVote: typeof votesTable.$inferSelect | null = null;
+
+      for (let i = 0; i < stages.length; i++) {
+        const stage = stages[i];
+        const stageBoardId = await resolveBoardId((stage as any).board || (stage as any).board_name);
+
+        let voteId: string | null = null;
+
+        if (i === 0) {
+          const abbrev = stageBoardId
+            ? (await db.select().from(boardsTable).where(eq(boardsTable.id, stageBoardId)))[0]?.abbreviation || "GEN"
+            : "GEN";
+
+          const year = new Date().getFullYear();
+          const allVotes = await db.select().from(votesTable);
+          const seq = (allVotes.length + 1).toString().padStart(3, "0");
+          const resNum = `RES-${abbrev}-${year}-${seq}`;
+
+          const [vote] = await db
+            .insert(votesTable)
+            .values({
+              boardId: stageBoardId,
+              resolutionNumber: resNum,
+              title: `${stage.title} — ${workflow.title}`,
+              resolutionText: stage.description || d.description || "To be determined",
+              type: "circulation",
+              deadline: null,
+            })
+            .returning();
+
+          if (stageBoardId) {
+            await grantDefaultAccess("vote", vote.id, stageBoardId);
+          }
+
+          voteId = vote.id;
+          firstVote = vote;
+        }
+
+        await db.insert(workflowStagesTable).values({
+          workflowId: workflow.id,
+          stageIndex: i,
+          title: stage.title,
+          description: stage.description,
+          boardId: stageBoardId,
+          approvalType: (stage.approval_type as any) || "majority",
+          voteId,
+          status: i === 0 ? "active" : "pending",
+        });
+      }
+
+      return { workflow, firstVote };
     }
 
     case "close_task": {
