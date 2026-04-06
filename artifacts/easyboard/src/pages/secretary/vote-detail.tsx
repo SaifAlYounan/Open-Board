@@ -6,7 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { VoteProgressBar } from '@/components/VoteProgressBar';
 import {
-  ArrowLeft, Clock, CheckCircle, XCircle, MinusCircle, Download, Upload, Trash2, FileText, Users, Shield, Calendar, Paperclip, X, Ban
+  ArrowLeft, Clock, CheckCircle, XCircle, MinusCircle, Download, Upload, Trash2, FileText, Users, Shield, Calendar, Paperclip, X, Ban,
+  GitBranch, ChevronRight, CheckCircle2
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
@@ -437,6 +438,85 @@ export default function SecretaryVoteDetail() {
             </div>
             <StatusBadge status={voteData.status} />
           </div>
+
+          {/* Workflow context panel */}
+          {voteData.workflowContext && (() => {
+            const wc = voteData.workflowContext as any;
+            const stages: any[] = wc.stages || [];
+            const groups: Record<number, any[]> = {};
+            for (const s of stages) {
+              if (!groups[s.stageGroup]) groups[s.stageGroup] = [];
+              groups[s.stageGroup].push(s);
+            }
+            const groupKeys = Object.keys(groups).map(Number).sort((a, b) => a - b);
+            const stageStatusColor: Record<string, string> = {
+              approved: '#34c759', active: '#0071e3', pending: '#86868b',
+              rejected: '#ff3b30', cancelled: '#86868b',
+            };
+            const stageStatusIcon: Record<string, React.ReactNode> = {
+              approved: <CheckCircle2 size={12} />,
+              active: <Clock size={12} />,
+              pending: <Clock size={12} />,
+              rejected: <XCircle size={12} />,
+              cancelled: <MinusCircle size={12} />,
+            };
+            return (
+              <div className="bg-white rounded-2xl border border-[#e5e5e7] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <GitBranch size={14} className="text-[#0071e3]" />
+                  <span className="text-xs font-semibold text-[#0071e3]">Part of Approval Workflow</span>
+                  <span className="text-xs text-[#86868b] truncate">{wc.workflowTitle}</span>
+                </div>
+                <div className="flex items-start gap-2 flex-wrap">
+                  {groupKeys.map((gKey, gi) => (
+                    <div key={gKey} className="flex items-start gap-2">
+                      <div className="flex flex-col gap-1.5">
+                        {groups[gKey].length > 1 && (
+                          <div className="text-xs text-[#86868b] mb-0.5">
+                            {gKey === wc.thisStageGroup ? 'Running in parallel' : gi === 0 ? 'Parallel endorsements' : ''}
+                          </div>
+                        )}
+                        <div className="flex gap-1.5 flex-wrap">
+                          {groups[gKey].map((s: any) => {
+                            const isThis = s.isCurrentVote;
+                            const col = stageStatusColor[s.status] || '#86868b';
+                            return (
+                              <div
+                                key={s.id}
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium"
+                                style={{
+                                  borderColor: isThis ? '#0071e3' : col + '40',
+                                  backgroundColor: isThis ? '#0071e3' : col + '12',
+                                  color: isThis ? '#fff' : col,
+                                }}
+                              >
+                                <span style={{ color: isThis ? '#fff' : col }}>
+                                  {stageStatusIcon[s.status]}
+                                </span>
+                                {s.boardAbbreviation || s.boardName || s.title}
+                                {isThis && <span className="opacity-70 text-[10px]">· This vote</span>}
+                                {!isThis && s.voteId && s.status === 'active' && (
+                                  <button
+                                    className="ml-1 text-[10px] underline opacity-80 hover:opacity-100"
+                                    onClick={(e) => { e.stopPropagation(); setLocation(`/secretary/votes/${s.voteId}`); }}
+                                  >
+                                    View
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {gi < groupKeys.length - 1 && (
+                        <ChevronRight size={14} className="text-[#86868b] mt-2 flex-shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Action bar */}
           <div className="flex items-center gap-2 flex-wrap">

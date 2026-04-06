@@ -15,6 +15,8 @@ import {
   approvalRuleRequiredVotersTable,
   approvalRuleRecusalsTable,
   voteDocumentsTable,
+  workflowStagesTable,
+  approvalWorkflowsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
@@ -106,6 +108,11 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
     votes = votes.filter((v) => accessibleIds.has(v.id));
   }
 
+  const allStages = await db.select().from(workflowStagesTable);
+  const allWorkflows = await db.select().from(approvalWorkflowsTable);
+  const stageByVoteId = new Map(allStages.filter((s) => s.voteId).map((s) => [s.voteId!, s]));
+  const workflowById = new Map(allWorkflows.map((w) => [w.id, w]));
+
   const result = await Promise.all(
     votes.map(async (v) => {
       const [board] = v.boardId
@@ -123,6 +130,19 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
 
       const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, v.id));
 
+      const stage = stageByVoteId.get(v.id);
+      const workflow = stage ? workflowById.get(stage.workflowId) : null;
+      const workflowStage = stage && workflow
+        ? {
+            workflowId: workflow.id,
+            workflowTitle: workflow.title,
+            stageGroup: stage.stageGroup,
+            stageIndex: stage.stageIndex,
+            stageTitle: stage.title,
+            stageStatus: stage.status,
+          }
+        : null;
+
       return {
         ...v,
         boardName: board?.name || null,
@@ -132,6 +152,7 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
         approvalsCount: approvals,
         hasVoted: !!myRecord,
         documentCount: docs.length,
+        workflowStage,
       };
     })
   );
@@ -288,6 +309,71 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
     })
   );
 
+  const thisStage = await db
+    .select()
+    .from(workflowStagesTable)
+    .where(eq(workflowStagesTable.voteId, id))
+    .then((rows) => rows[0] || null);
+
+  let workflowContext: Record<string, unknown> | null = null;
+  if (thisStage) {
+    const [wf] = await db
+      .select()
+      .from(approvalWorkflowsTable)
+      .where(eq(approvalWorkflowsTable.id, thisStage.workflowId));
+
+    const allWfStages = await db
+      .select()
+      .from(workflowStagesTable)
+      .where(eq(workflowStagesTable.workflowId, thisStage.workflowId));
+
+    const stagesWithBoard = await Promise.all(
+      allWfStages.map(async (s) => {
+        const [b] = s.boardId
+          ? await db.select().from(boardsTable).where(eq(boardsTable.id, s.boardId))
+          : [null];
+        const voteStats = s.voteId
+          ? await (async () => {
+              const recs = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, s.voteId!));
+              const mems = s.boardId
+                ? await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, s.boardId!))
+                : [];
+              return {
+                votesCast: recs.length,
+                approvalsCount: recs.filter((r) => r.decision.startsWith("approved")).length,
+                totalVoters: mems.length,
+              };
+            })()
+          : null;
+        return {
+          id: s.id,
+          stageIndex: s.stageIndex,
+          stageGroup: s.stageGroup,
+          title: s.title,
+          description: s.description,
+          status: s.status,
+          boardId: s.boardId,
+          boardName: b?.name || null,
+          boardAbbreviation: b?.abbreviation || null,
+          approvalType: s.approvalType,
+          completedAt: s.completedAt,
+          voteId: s.voteId,
+          isCurrentVote: s.voteId === id,
+          voteStats,
+        };
+      })
+    );
+
+    workflowContext = {
+      workflowId: wf?.id || thisStage.workflowId,
+      workflowTitle: wf?.title || "Approval Workflow",
+      workflowStatus: wf?.status || "active",
+      stages: stagesWithBoard,
+      thisStageGroup: thisStage.stageGroup,
+      thisStageIndex: thisStage.stageIndex,
+    };
+  }
+
   res.json({
     ...vote,
     boardName: board?.name || null,
@@ -310,6 +396,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
     approvalRule: ruleWithSummary,
     certificateHash: vote.certificateHash,
     documents: docsWithUploader,
+    workflowContext,
   });
 });
 

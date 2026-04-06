@@ -115,8 +115,12 @@ Extract: committee_name, submission_date, subject, key_recommendations[], items_
 Propose: If the submission describes a sequential approval chain (e.g., "committee A must endorse, then the board approves"), propose create_workflow. Otherwise attach_to_meeting, and if it requests formal approval also propose create_vote.
 
 ## 8. MULTI-STAGE APPROVAL WORKFLOW
-How to recognize: Any document that explicitly describes a sequential endorsement or approval chain involving two or more distinct bodies. Language like "requires Finance & Audit Committee endorsement before board approval", "subject to committee sign-off", "following NRC recommendation, the Board shall resolve", or any process where one group's approval gates the next.
-Extract: all stages in order, each with: the committee or board name, the required threshold, and what is being approved.
+How to recognize: Any document that describes an endorsement or approval process involving two or more distinct bodies — including when multiple committees must endorse concurrently before the board decides.
+Extract: all stages, with each stage having a stage_group (integer). Stages in the same stage_group run IN PARALLEL simultaneously. The next stage_group only opens once ALL stages in the previous group are approved.
+Common patterns:
+  - "FAC AND NRC must both endorse before the Board approves" → FAC (group 0) + NRC (group 0) → BoD (group 1)
+  - "FAC must endorse, then the Board approves" → FAC (group 0) → BoD (group 1)
+  - "Board approval only" → BoD (group 0)
 Propose: create_workflow with this structure in details:
 {
   "title": "short name for the overall workflow (e.g., 'Executive Remuneration Package Approval')",
@@ -125,12 +129,13 @@ Propose: create_workflow with this structure in details:
     {
       "title": "Stage name (e.g., 'NRC Endorsement')",
       "board": "exact committee abbreviation or name (e.g., 'NRC', 'FAC', 'BoD')",
+      "stage_group": 0,
       "approval_type": "majority" | "unanimous" | "two_thirds" | "three_quarters",
       "description": "what this stage must approve"
     }
   ]
 }
-IMPORTANT: stages must be in execution order. Last stage is always the Board of Directors unless stated otherwise.
+IMPORTANT: Final stage (board approval) always has the highest stage_group number. All endorsements that can happen concurrently share the same stage_group.
 
 ## 9. GENERAL
 Catch-all. Extract: summary, key_topics[], entities_mentioned[]. Propose no actions beyond storing.`;

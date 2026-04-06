@@ -11,7 +11,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { VoteProgressBar } from '@/components/VoteProgressBar';
-import { Plus, ChevronRight } from 'lucide-react';
+import { Plus, ChevronRight, GitBranch } from 'lucide-react';
 
 const RULE_PRESETS = [
   { key: 'unanimous', label: 'Unanimous', description: 'All members must approve' },
@@ -329,6 +329,12 @@ export default function SecretaryVotes() {
                       <span className="text-xs px-2 py-0.5 rounded-full bg-[#f5f5f7] text-[#86868b] font-medium capitalize">{vote.type}</span>
                       {vote.documentCount > 0 && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-[#f5f5f7] text-[#86868b]">{vote.documentCount} doc{vote.documentCount > 1 ? 's' : ''}</span>
+                      )}
+                      {vote.workflowStage && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-medium flex items-center gap-1">
+                          <GitBranch size={10} />
+                          Workflow
+                        </span>
                       )}
                     </div>
                     <div className="font-medium text-[#1d1d1f]">{vote.title}</div>
