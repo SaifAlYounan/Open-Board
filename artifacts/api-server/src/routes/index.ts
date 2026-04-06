@@ -11,6 +11,7 @@ import tasksRouter from "./tasks";
 import pendingActionsRouter from "./pendingActions";
 import aiRouter from "./ai";
 import dashboardRouter from "./dashboard";
+import adminWipeRouter from "./adminWipe";
 
 const router: IRouter = Router();
 
