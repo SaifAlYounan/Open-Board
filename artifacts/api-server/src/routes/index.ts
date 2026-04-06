@@ -11,6 +11,7 @@ import tasksRouter from "./tasks";
 import pendingActionsRouter from "./pendingActions";
 import aiRouter from "./ai";
 import dashboardRouter from "./dashboard";
+import systemRouter from "./system";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(tasksRouter);
 router.use(pendingActionsRouter);
 router.use(aiRouter);
 router.use(dashboardRouter);
+router.use(systemRouter);
 
 export default router;
