@@ -142,8 +142,13 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
         )
       );
     const minutesIds = new Set(accessible.filter((a) => a.entityType === "minutes").map((a) => a.entityId));
+    const voteIds = new Set(accessible.filter((a) => a.entityType === "vote").map((a) => a.entityId));
+
     const reviewMinutes = await db.select().from(minutesTable).where(eq(minutesTable.status, "review"));
     minutesInReviewCount = reviewMinutes.filter((m) => minutesIds.has(m.id)).length;
+
+    const allOpenVotes = await db.select().from(votesTable).where(eq(votesTable.status, "open"));
+    openVotesCount = allOpenVotes.filter((v) => voteIds.has(v.id)).length;
   }
 
   res.json({

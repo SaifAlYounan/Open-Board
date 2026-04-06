@@ -191,7 +191,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     }
 
     case "create_vote": {
-      const { boardId, resolution_number, resolution_text, title, type, deadline, board_name } = actionData as any;
+      const { boardId, resolution_number, resolution_text, title, type, deadline, board_name, description } = actionData as any;
 
       // Auto-find board by name if needed
       let resolvedBoardId = boardId;
@@ -210,12 +210,20 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
 
       const resNum = resolution_number || `RES-${abbrev}-${year}-${seq}`;
 
+      // Extract a meaningful title from the first sentence of description or resolution_text
+      const extractTitle = (text: string | undefined): string | undefined => {
+        if (!text) return undefined;
+        const sentence = text.split(/[.!?\n]/)[0]?.trim();
+        return sentence && sentence.length > 5 ? sentence.slice(0, 120) : undefined;
+      };
+      const resolvedTitle = title || extractTitle(description) || extractTitle(resolution_text) || `Resolution — ${abbrev}`;
+
       const [vote] = await db
         .insert(votesTable)
         .values({
           boardId: resolvedBoardId,
           resolutionNumber: resNum,
-          title: title || "Untitled Resolution",
+          title: resolvedTitle,
           resolutionText: resolution_text || (actionData as any).details?.resolution_text || "To be determined",
           type: type || "circulation",
           deadline: deadline ? new Date(deadline) : null,
@@ -254,20 +262,25 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       if (documentId) {
         const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, documentId));
         if (doc?.filePath && fs.existsSync(doc.filePath)) {
-          try {
-            const raw = fs.readFileSync(doc.filePath, "utf-8");
-            // Wrap plain text in HTML paragraphs; leave HTML as-is
-            if (!raw.trim().startsWith("<")) {
-              minutesContent = raw
-                .split("\n\n")
-                .filter((p: string) => p.trim())
-                .map((p: string) => `<p>${p.trim().replace(/\n/g, " ")}</p>`)
-                .join("\n");
-            } else {
-              minutesContent = raw;
+          // Only read files we can meaningfully render as text — skip binary formats (PDF, DOCX, etc.)
+          const textMimeTypes = ["text/plain", "text/html", "text/markdown", "text/csv"];
+          const isText = textMimeTypes.some((m) => (doc.mimeType || "").startsWith(m));
+          if (isText) {
+            try {
+              const raw = fs.readFileSync(doc.filePath, "utf-8");
+              // Wrap plain text in HTML paragraphs; leave HTML as-is
+              if (!raw.trim().startsWith("<")) {
+                minutesContent = raw
+                  .split("\n\n")
+                  .filter((p: string) => p.trim())
+                  .map((p: string) => `<p>${p.trim().replace(/\n/g, " ")}</p>`)
+                  .join("\n");
+              } else {
+                minutesContent = raw;
+              }
+            } catch {
+              // Fall through to d.content fallback
             }
-          } catch {
-            // Fall through to d.content fallback
           }
         }
       }

@@ -12,6 +12,12 @@ import { useAuth } from '@/lib/auth';
 
 function formatDate(d: string | null | undefined) {
   if (!d) return '—';
+  // For date-only strings (YYYY-MM-DD), parse as local date to avoid UTC midnight timezone shifts
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.exec(d);
+  if (dateOnly) {
+    const [yr, mo, dy] = d.split('-').map(Number);
+    return new Date(yr, mo - 1, dy).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
   return new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -36,7 +42,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function MemberRow({ record, member, isRecused }: { record?: any; member?: any; isRecused?: boolean }) {
+function MemberRow({ record, member, isRecused, isRequired }: { record?: any; member?: any; isRecused?: boolean; isRequired?: boolean }) {
   const name = record?.person?.name || member?.personName || member?.name || 'Unknown';
   const title = record?.person?.title || member?.personTitle || member?.title || '';
 
@@ -65,7 +71,12 @@ function MemberRow({ record, member, isRecused }: { record?: any; member?: any; 
           <p className="text-sm font-medium text-[#1d1d1f]">{name}</p>
           {title && <p className="text-xs text-[#86868b]">{title}</p>}
         </div>
-        <span className="text-xs text-[#86868b]">Pending</span>
+        <div className="flex items-center gap-1.5">
+          {isRequired && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-medium">Key Approver</span>
+          )}
+          <span className="text-xs text-[#86868b]">Pending</span>
+        </div>
       </div>
     );
   }
@@ -90,6 +101,9 @@ function MemberRow({ record, member, isRecused }: { record?: any; member?: any; 
           {title && <p className="text-xs text-[#86868b]">{title}</p>}
         </div>
         <div className="text-right">
+          {isRequired && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-medium block mb-0.5">Key Approver</span>
+          )}
           <p className="text-xs font-medium" style={{ color }}>{decisionLabel}</p>
           <p className="text-xs text-[#86868b]">{formatDateTime(record.votedAt)}</p>
         </div>
@@ -388,6 +402,11 @@ export default function SecretaryVoteDetail() {
   }
 
   const voteRecordsById = new Map((voteData.voteRecords || []).map((r: any) => [r.personId, r]));
+  const recusedIds = new Set<string>(voteData.approvalRule?.recusedIds || []);
+  const requiredVoterIds = new Set<string>(voteData.approvalRule?.requiredVoterIds || []);
+  const votingBoardMembers = (voteData.boardMembers || []).filter(
+    (m: any) => m.roleInBoard !== 'observer' && m.roleInBoard !== 'secretary'
+  );
   const isOpen = voteData.status === 'open';
   const isClosed = ['approved', 'rejected', 'lapsed'].includes(voteData.status);
   const hasVotes = (voteData.votescast ?? 0) > 0;
@@ -619,26 +638,31 @@ export default function SecretaryVoteDetail() {
                   <Users size={16} className="text-[#86868b]" />
                   <h2 className="font-semibold text-[#1d1d1f] text-sm">Member Votes</h2>
                 </div>
-                {(voteData.voteRecords || []).length === 0 && voteData.totalVoters === 0 ? (
+                {votingBoardMembers.length === 0 ? (
                   <p className="text-xs text-[#86868b]">No voting members assigned to this board.</p>
                 ) : (
                   <div>
+                    {/* Recused members */}
+                    {votingBoardMembers
+                      .filter((m: any) => recusedIds.has(m.personId))
+                      .map((m: any) => (
+                        <MemberRow key={m.personId} member={m.person} isRecused />
+                      ))
+                    }
                     {/* Cast votes */}
-                    {(voteData.voteRecords || []).map((r: any) => (
-                      <MemberRow key={r.id} record={r} />
-                    ))}
-                    {/* Pending (haven't voted yet) — show placeholder rows */}
-                    {voteData.status === 'open' && Array.from({ length: Math.max(0, voteData.totalVoters - voteData.votescast) }).map((_, i) => (
-                      <div key={`pending-${i}`} className="flex items-center gap-3 py-2.5 border-b border-[#f5f5f7] last:border-0">
-                        <div className="w-8 h-8 rounded-full bg-[#f5f5f7] flex items-center justify-center">
-                          <span className="text-xs text-[#86868b]">?</span>
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm text-[#86868b]">Pending member</p>
-                        </div>
-                        <span className="text-xs text-[#86868b]">Not yet voted</span>
-                      </div>
-                    ))}
+                    {votingBoardMembers
+                      .filter((m: any) => !recusedIds.has(m.personId) && voteRecordsById.has(m.personId))
+                      .map((m: any) => (
+                        <MemberRow key={m.personId} record={voteRecordsById.get(m.personId)} isRequired={requiredVoterIds.has(m.personId)} />
+                      ))
+                    }
+                    {/* Pending (haven't voted yet) — show with real names */}
+                    {votingBoardMembers
+                      .filter((m: any) => !recusedIds.has(m.personId) && !voteRecordsById.has(m.personId))
+                      .map((m: any) => (
+                        <MemberRow key={m.personId} member={m.person} isRequired={requiredVoterIds.has(m.personId)} />
+                      ))
+                    }
                   </div>
                 )}
               </div>
