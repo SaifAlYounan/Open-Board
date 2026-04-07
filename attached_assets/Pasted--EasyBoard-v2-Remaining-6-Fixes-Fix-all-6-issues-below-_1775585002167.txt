@@ -1,0 +1,150 @@
+# EasyBoard v2 — Remaining 6 Fixes
+
+Fix all 6 issues below. Each one includes the exact file path and what to change.
+
+---
+
+## FIX 1 — close_task closes wrong task (CRITICAL)
+
+**File:** `artifacts/api-server/src/routes/pendingActions.ts`
+
+**Current code (broken):**
+```typescript
+const [t] = await db.select().from(tasksTable);
+```
+This selects ALL tasks and takes the first one. It ignores `task_number` entirely.
+
+**Fix — replace with:**
+```typescript
+const [t] = await db.select().from(tasksTable)
+  .where(eq(tasksTable.taskNumber, task_number))
+  .limit(1);
+```
+
+Make sure `eq` is imported from `drizzle-orm`. If `task_number` is not provided but `taskId` is, use `taskId` directly (which is the existing first check — keep that).
+
+---
+
+## FIX 2 — CORS wildcard
+
+**File:** `artifacts/api-server/src/app.ts`
+
+**Current code:**
+```typescript
+cors: { origin: "*", methods: ["GET", "POST"] }
+```
+
+**Fix — replace with:**
+```typescript
+cors: {
+  origin: process.env.ALLOWED_ORIGIN || true,
+  methods: ["GET", "POST", "PATCH", "DELETE"],
+  credentials: true
+}
+```
+
+`true` allows the request origin (same as wildcard but with credentials support). For production, set `ALLOWED_ORIGIN` env var to the actual domain. Also add PATCH and DELETE to allowed methods since the app uses them.
+
+---
+
+## FIX 3 — Rate limiting on AI endpoints
+
+**Install:** Add `express-rate-limit` to dependencies:
+```bash
+pnpm add express-rate-limit --filter @workspace/api-server
+```
+
+**File:** `artifacts/api-server/src/routes/ai.ts`
+
+Add at the top:
+```typescript
+import rateLimit from 'express-rate-limit';
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 10,              // 10 AI calls per minute per IP
+  message: { error: 'Too many AI requests. Try again in a moment.' }
+});
+```
+
+Apply to all AI routes:
+```typescript
+router.post('/classify', requireAuth, requireAdmin, aiLimiter, async (req, res) => { ... });
+router.post('/command', requireAuth, requireAdmin, aiLimiter, async (req, res) => { ... });
+router.post('/search', requireAuth, aiLimiter, async (req, res) => { ... });
+```
+
+Also add a stricter limiter on the auth endpoint:
+```typescript
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 10,                    // 10 login attempts per 15 min
+  message: { error: 'Too many login attempts.' }
+});
+```
+Apply to the login route.
+
+---
+
+## FIX 4 — Seed password from environment
+
+**File:** `artifacts/api-server/src/seed.ts`
+
+**Current code:**
+```typescript
+const PASSWORD = "Meridian2024!";
+```
+
+**Fix — replace with:**
+```typescript
+const PASSWORD = process.env.SEED_PASSWORD || "Meridian2024!";
+```
+
+This keeps the default for demo/development but allows production deployments to override via environment variable.
+
+---
+
+## FIX 5 — File type consistency
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+Find the multer fileFilter or allowed extensions for vote document uploads. Change to match the documents route — only allow PDF, DOCX, TXT:
+
+```typescript
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.txt'];
+const ALLOWED_MIMES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain'
+];
+```
+
+Remove `.xlsx`, `.pptx`, `.png`, `.jpg`, `.jpeg` from the votes upload filter. Board governance documents should be PDF, DOCX, or TXT only.
+
+---
+
+## FIX 6 — Add "cancelled" to votes status enum
+
+**File:** `lib/db/src/schema/votes.ts`
+
+**Current code:**
+```typescript
+status: text("status", { enum: ["open", "approved", "rejected", "lapsed"] }).default("open")
+```
+
+**Fix — replace with:**
+```typescript
+status: text("status", { enum: ["open", "approved", "rejected", "lapsed", "cancelled"] }).default("open")
+```
+
+This aligns the schema with the application code that already uses "cancelled" as a valid status.
+
+---
+
+## TEST AFTER ALL FIXES
+
+1. Upload a document as Secretary → verify AI classifies it → approve a close_task action → verify the CORRECT task is closed (not the first one in the table)
+2. Check browser Network tab → verify CORS headers are not `*`
+3. Make 11 rapid AI search requests → verify the 11th returns a rate limit error
+4. Check that votes upload rejects .xlsx files
+5. Cancel a vote → verify status updates without error

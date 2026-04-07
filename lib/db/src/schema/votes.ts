@@ -11,7 +11,7 @@ export const votesTable = pgTable("votes", {
   resolutionText: text("resolution_text").notNull(),
   type: text("type", { enum: ["meeting", "circulation"] }).notNull(),
   deadline: timestamp("deadline", { withTimezone: true }),
-  status: text("status", { enum: ["open", "approved", "rejected", "lapsed"] }).default("open"),
+  status: text("status", { enum: ["open", "approved", "rejected", "lapsed", "cancelled"] }).default("open"),
   certificateHash: text("certificate_hash"),
   closedAt: timestamp("closed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
