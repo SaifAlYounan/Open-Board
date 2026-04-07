@@ -17,6 +17,8 @@ import {
   approvalRulesTable,
   voteDocumentsTable,
   votesTable,
+  workflowStagesTable,
+  approvalWorkflowsTable,
   taskEvidenceTable,
   tasksTable,
   meetingsTable,
@@ -52,6 +54,8 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
     await db.delete(approvalRuleRequiredVotersTable);
     await db.delete(approvalRulesTable);
     await db.delete(voteDocumentsTable);
+    await db.delete(workflowStagesTable);
+    await db.delete(approvalWorkflowsTable);
     await db.delete(votesTable);
     await db.delete(taskEvidenceTable);
     await db.delete(tasksTable);
