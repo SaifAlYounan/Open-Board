@@ -4,7 +4,10 @@ import { db, peopleTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "easyboard-secret-key-change-in-prod";
+const JWT_SECRET = process.env.SESSION_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("SESSION_SECRET environment variable is required — set it before starting the server.");
+}
 
 export interface AuthPayload {
   userId: string;

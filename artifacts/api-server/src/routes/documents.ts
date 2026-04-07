@@ -16,6 +16,7 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { logger } from "../lib/logger";
 
 const execFileAsync = promisify(execFile);
 
@@ -188,8 +189,8 @@ router.post("/documents/upload", requireAuth, (req, res, next) => {
               );
           }
         }
-      } catch {
-        // AI failed silently — document already stored
+      } catch (err: any) {
+        logger.warn({ err: err?.message }, "[ai] background classification failed — document already stored");
       }
     });
   }

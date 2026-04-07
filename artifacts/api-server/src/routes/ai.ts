@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import {
   db,
   pendingActionsTable,
@@ -22,6 +23,14 @@ import {
 
 const router = Router();
 
+const aiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many AI requests — please wait a moment before trying again." },
+});
+
 const hasAI = () => !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
 
 router.get("/ai/status", requireAuth, async (_req, res): Promise<void> => {
@@ -32,7 +41,7 @@ router.get("/ai/status", requireAuth, async (_req, res): Promise<void> => {
   });
 });
 
-router.post("/ai/command", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/ai/command", requireAuth, requireAdmin, aiRateLimit, async (req, res): Promise<void> => {
   const { command } = req.body;
   if (!command) {
     res.status(400).json({ error: "command required" });
@@ -91,7 +100,7 @@ router.post("/ai/command", requireAuth, requireAdmin, async (req, res): Promise<
   });
 });
 
-router.post("/ai/search", requireAuth, async (req, res): Promise<void> => {
+router.post("/ai/search", requireAuth, aiRateLimit, async (req, res): Promise<void> => {
   const user = req.user!;
   const { query } = req.body;
   if (!query) {
