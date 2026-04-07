@@ -15,6 +15,7 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, REVIEW_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { logger } from "../lib/logger";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -275,8 +276,8 @@ ${evidenceText}`;
           await db.update(tasksTable).set({ status: "pending_review" }).where(eq(tasksTable.id, taskId));
         }
       }
-    } catch {
-      // Evidence stored, AI review skipped
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, "[ai] evidence review failed — evidence already stored");
     }
   }
 
