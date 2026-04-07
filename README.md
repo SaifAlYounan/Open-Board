@@ -27,6 +27,8 @@ Upload draft minutes → the AI extracts action items, flags confidential passag
 
 Every proposed action goes through the Secretary's approval queue. Nothing executes without human approval. This is [human-in-the-loop governance](https://human-loop-guide.replit.app) by design.
 
+> **⚠️ This is a beta.** It works. It has rough edges. Features are missing. Bugs exist. It's released early because governance tools should be built by the people who actually do governance — not by software companies guessing what boards need. If you work in board administration, corporate secretarial, legal, or compliance, this project needs your input more than it needs more code. [Open an issue](https://github.com/SaifAlYounan/EasyBoard/issues), break things, tell us what's wrong.
+
 ---
 
 ## Quick Start
@@ -315,7 +317,7 @@ MIT License. Use it, fork it, deploy it, sell support for it. Attribution apprec
 
 ## Author
 
-**Alexios van der Slikke-Kirillov** — Group Senior Counsel & Board Secretary
+**Alexios van der Slikke-Kirillov**
 
 ---
 
