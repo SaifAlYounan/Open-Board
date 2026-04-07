@@ -28,7 +28,7 @@ import {
 import { eq } from "drizzle-orm";
 import { logger } from "./lib/logger";
 
-const PASSWORD = "Meridian2024!";
+const PASSWORD = process.env.SEED_PASSWORD || "Meridian2024!";
 
 const PEOPLE = [
   { email: "a.alrashid@meridian-energy.com",  name: "Ahmed Al-Rashid",    role: "admin"      as const, title: "Board Secretary",            avatarColor: "#5856d6" },

@@ -34,7 +34,7 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    const allowed = [".pdf", ".docx", ".txt", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg"];
+    const allowed = [".pdf", ".docx", ".txt"];
     if (allowed.includes(ext)) cb(null, true);
     else cb(new Error("File type not supported"));
   },

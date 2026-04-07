@@ -446,7 +446,9 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       const { task_number, taskId, reasoning } = actionData as any;
       let resolvedTaskId = taskId;
       if (!resolvedTaskId && task_number) {
-        const [t] = await db.select().from(tasksTable);
+        const [t] = await db.select().from(tasksTable)
+          .where(eq(tasksTable.taskNumber, task_number))
+          .limit(1);
         resolvedTaskId = t?.id;
       }
       if (resolvedTaskId) {
