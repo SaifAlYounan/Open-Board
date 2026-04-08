@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import { useParams, useLocation } from 'wouter';
 import { TopNav } from '@/components/TopNav';
 import { useAuth } from '@/lib/auth';
@@ -154,7 +155,7 @@ export default function MinutesViewer() {
                       <div className="relative flex items-start gap-1">
                         <div
                           className="flex-1 min-w-0"
-                          dangerouslySetInnerHTML={{ __html: block.html }}
+                          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(block.html) }}
                         />
                         {block.type === 'paragraph' && block.text.length > 5 && (
                           <button

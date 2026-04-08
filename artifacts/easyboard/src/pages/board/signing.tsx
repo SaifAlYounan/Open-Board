@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import DOMPurify from 'dompurify';
 import { useParams, useLocation } from 'wouter';
 import { TopNav } from '@/components/TopNav';
 import { useAuth } from '@/lib/auth';
@@ -68,7 +69,7 @@ export default function MinutesSigning() {
         <div className="bg-white rounded-2xl border border-[#e5e5e7] p-8 max-h-96 overflow-y-auto">
           <div
             className="prose prose-sm max-w-none text-[#1d1d1f]"
-            dangerouslySetInnerHTML={{ __html: m?.content || '' }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(m?.content || '') }}
           />
         </div>
 

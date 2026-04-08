@@ -143,6 +143,11 @@ router.get("/tasks/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  if (user.role === "management" && task.assigneeId !== user.id) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
   const assignee = task.assigneeId
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, task.assigneeId))
     : [];

@@ -38,6 +38,13 @@ const upload = multer({
 });
 
 async function extractTextFromPdf(filePath: string): Promise<string> {
+  // Validate the file path is within the uploads directory (L3)
+  const resolvedPath = path.resolve(filePath);
+  const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
+  if (!resolvedPath.startsWith(resolvedUploadsDir + path.sep) && resolvedPath !== resolvedUploadsDir) {
+    throw new Error("Invalid file path: outside uploads directory");
+  }
+
   // Primary: pdftotext (available in development / Linux environments with poppler)
   try {
     const { stdout, stderr } = await execFileAsync(
@@ -161,7 +168,7 @@ router.post("/documents/upload", requireAuth, (req, res, next) => {
       try {
         const text = await extractText(filePath, mimetype, originalname);
         const truncated = truncateText(text);
-        const dbContext = await getDatabaseContext();
+        const dbContext = await getDatabaseContext(user.id, user.role);
         const userContent = `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`;
 
         const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, userContent);
@@ -233,11 +240,32 @@ router.get("/documents", requireAuth, async (req, res): Promise<void> => {
 
 router.get("/documents/:id", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
   const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
   if (!doc) {
     res.status(404).json({ error: "Document not found" });
     return;
   }
+
+  if (user.role !== "admin") {
+    const [access] = await db
+      .select()
+      .from(accessControlTable)
+      .where(
+        and(
+          eq(accessControlTable.entityType, "document"),
+          eq(accessControlTable.entityId, id),
+          eq(accessControlTable.personId, user.id),
+          eq(accessControlTable.hasAccess, true)
+        )
+      );
+    if (!access) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+  }
+
   const uploader = doc.uploadedBy
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, doc.uploadedBy))
     : [];
@@ -273,7 +301,8 @@ router.post("/documents/:id/reclassify", requireAuth, requireAdmin, async (req, 
 
   const text = await extractText(doc.filePath, doc.mimeType || "text/plain", doc.filename);
   const truncated = truncateText(text);
-  const dbContext = await getDatabaseContext();
+  const reclassifyUser = req.user!;
+  const dbContext = await getDatabaseContext(reclassifyUser.id, reclassifyUser.role);
   const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`);
 
   if (result.success && result.data) {

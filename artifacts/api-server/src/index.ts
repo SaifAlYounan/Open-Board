@@ -3,6 +3,9 @@ import { Server as SocketIOServer } from "socket.io";
 import app, { originValidator } from "./app";
 import { logger } from "./lib/logger";
 import { seed } from "./seed";
+import { verifyToken } from "./lib/auth";
+import { db, boardMembershipsTable, accessControlTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
 const rawPort = process.env["PORT"];
 
@@ -23,23 +26,103 @@ export const io = new SocketIOServer(server, {
   cors: { origin: originValidator, methods: ["GET", "POST"], credentials: true },
 });
 
-io.on("connection", (socket) => {
-  logger.info({ socketId: socket.id }, "Socket connected");
+// Authenticate every Socket.IO connection via HttpOnly cookie
+io.use((socket, next) => {
+  try {
+    const cookieHeader = socket.handshake.headers.cookie || "";
+    const cookies = Object.fromEntries(
+      cookieHeader.split(";").map((c) => {
+        const [key, ...val] = c.trim().split("=");
+        return [key.trim(), val.join("=")];
+      })
+    );
+    const token = cookies["token"];
+    if (!token) {
+      return next(new Error("Authentication required"));
+    }
+    const user = verifyToken(token);
+    if (!user) {
+      return next(new Error("Invalid token"));
+    }
+    socket.data.user = user;
+    next();
+  } catch {
+    next(new Error("Authentication failed"));
+  }
+});
 
-  socket.on("join:board", (boardId: string) => {
+io.on("connection", (socket) => {
+  const user = socket.data.user as { userId: string; email: string; role: string };
+  logger.info({ socketId: socket.id, userId: user?.userId }, "Socket connected");
+
+  // Track join events per connection for rate limiting (L2)
+  let joinCount = 0;
+  const JOIN_LIMIT = 10;
+  const joinWindow = setTimeout(() => { joinCount = 0; }, 60_000);
+
+  function checkJoinRateLimit(): boolean {
+    joinCount++;
+    if (joinCount > JOIN_LIMIT) {
+      logger.warn({ socketId: socket.id, userId: user?.userId }, "Socket join rate limit exceeded — disconnecting");
+      socket.disconnect(true);
+      return false;
+    }
+    return true;
+  }
+
+  socket.on("join:board", async (boardId: string) => {
+    if (!checkJoinRateLimit()) return;
+    if (user.role !== "admin") {
+      const [membership] = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, boardId), eq(boardMembershipsTable.personId, user.userId)));
+      if (!membership) return;
+    }
     socket.join(`board:${boardId}`);
   });
 
-  socket.on("join:vote", (voteId: string) => {
+  socket.on("join:vote", async (voteId: string) => {
+    if (!checkJoinRateLimit()) return;
+    if (user.role !== "admin") {
+      const [access] = await db
+        .select()
+        .from(accessControlTable)
+        .where(
+          and(
+            eq(accessControlTable.entityType, "vote"),
+            eq(accessControlTable.entityId, voteId),
+            eq(accessControlTable.personId, user.userId),
+            eq(accessControlTable.hasAccess, true)
+          )
+        );
+      if (!access) return;
+    }
     socket.join(`vote:${voteId}`);
   });
 
-  socket.on("join:minutes", (minutesId: string) => {
+  socket.on("join:minutes", async (minutesId: string) => {
+    if (!checkJoinRateLimit()) return;
+    if (user.role !== "admin") {
+      const [access] = await db
+        .select()
+        .from(accessControlTable)
+        .where(
+          and(
+            eq(accessControlTable.entityType, "minutes"),
+            eq(accessControlTable.entityId, minutesId),
+            eq(accessControlTable.personId, user.userId),
+            eq(accessControlTable.hasAccess, true)
+          )
+        );
+      if (!access) return;
+    }
     socket.join(`minutes:${minutesId}`);
   });
 
   socket.on("disconnect", () => {
-    logger.info({ socketId: socket.id }, "Socket disconnected");
+    clearTimeout(joinWindow);
+    logger.info({ socketId: socket.id, userId: user?.userId }, "Socket disconnected");
   });
 });
 

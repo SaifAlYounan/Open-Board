@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { db, boardsTable, meetingsTable, votesTable, tasksTable, peopleTable } from "@workspace/db";
-import { eq, ne } from "drizzle-orm";
+import { db, boardsTable, meetingsTable, votesTable, tasksTable, peopleTable, boardMembershipsTable, accessControlTable } from "@workspace/db";
+import { eq, ne, and } from "drizzle-orm";
 
 const AI_BRAIN_PROMPT = `You are the AI brain of EasyBoard, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
 
@@ -274,16 +274,19 @@ export async function callAI(
   }
 }
 
-export async function getDatabaseContext(): Promise<string> {
-  const [boards, openTasks, upcomingMeetings, openVotes, people] = await Promise.all([
-    db.select().from(boardsTable),
-    db.select().from(tasksTable).where(ne(tasksTable.status, "done")),
-    db.select().from(meetingsTable).where(eq(meetingsTable.status, "scheduled")),
-    db.select().from(votesTable).where(eq(votesTable.status, "open")),
-    db.select().from(peopleTable),
-  ]);
+export async function getDatabaseContext(userId?: string, role?: string): Promise<string> {
+  const isAdmin = !userId || role === "admin";
 
-  return `CURRENT DATABASE STATE:
+  if (isAdmin) {
+    const [boards, openTasks, upcomingMeetings, openVotes, people] = await Promise.all([
+      db.select().from(boardsTable),
+      db.select().from(tasksTable).where(ne(tasksTable.status, "done")),
+      db.select().from(meetingsTable).where(eq(meetingsTable.status, "scheduled")),
+      db.select().from(votesTable).where(eq(votesTable.status, "open")),
+      db.select().from(peopleTable),
+    ]);
+
+    return `CURRENT DATABASE STATE:
 
 Boards: ${boards.map((b) => `${b.name} (${b.abbreviation})`).join(", ")}
 
@@ -298,6 +301,64 @@ ${openVotes.map((v) => `- ${v.resolutionNumber}: ${v.title} (deadline: ${v.deadl
 
 People:
 ${people.map((p) => `- ${p.name} (${p.role}, ${p.title || "no title"})`).join("\n")}`;
+  }
+
+  // Non-admin: scope to user's accessible boards/votes/tasks/people
+  const memberships = await db
+    .select()
+    .from(boardMembershipsTable)
+    .where(eq(boardMembershipsTable.personId, userId!));
+  const accessibleBoardIds = memberships.map((m) => m.boardId).filter(Boolean) as string[];
+
+  const voteAccessRows = await db
+    .select()
+    .from(accessControlTable)
+    .where(
+      and(
+        eq(accessControlTable.entityType, "vote"),
+        eq(accessControlTable.personId, userId!),
+        eq(accessControlTable.hasAccess, true)
+      )
+    );
+  const accessibleVoteIds = new Set(voteAccessRows.map((a) => a.entityId));
+
+  const [allBoards, allTasks, allMeetings, allVotes, allMemberships, allPeople] = await Promise.all([
+    db.select().from(boardsTable),
+    db.select().from(tasksTable).where(ne(tasksTable.status, "done")),
+    db.select().from(meetingsTable).where(eq(meetingsTable.status, "scheduled")),
+    db.select().from(votesTable).where(eq(votesTable.status, "open")),
+    db.select().from(boardMembershipsTable),
+    db.select().from(peopleTable),
+  ]);
+
+  const boards = allBoards.filter((b) => accessibleBoardIds.includes(b.id));
+  const openTasks = allTasks.filter((t) => t.assigneeId === userId);
+  const upcomingMeetings = allMeetings.filter((m) => m.boardId && accessibleBoardIds.includes(m.boardId));
+  const openVotes = allVotes.filter((v) => accessibleVoteIds.has(v.id));
+
+  const boardPersonIds = new Set(
+    allMemberships
+      .filter((m) => m.boardId && accessibleBoardIds.includes(m.boardId))
+      .map((m) => m.personId)
+      .filter(Boolean)
+  );
+  const people = allPeople.filter((p) => boardPersonIds.has(p.id));
+
+  return `CURRENT DATABASE STATE:
+
+Boards: ${boards.map((b) => `${b.name} (${b.abbreviation})`).join(", ") || "None"}
+
+Open tasks (for evidence matching):
+${openTasks.map((t) => `- ${t.taskNumber || "TASK"}: ${t.title} (due: ${t.dueDate || "no date"})`).join("\n") || "No open tasks"}
+
+Upcoming meetings (for document attachment):
+${upcomingMeetings.map((m) => `- ${m.title} on ${m.date}`).join("\n") || "No upcoming meetings"}
+
+Open votes:
+${openVotes.map((v) => `- ${v.resolutionNumber}: ${v.title} (deadline: ${v.deadline || "none"})`).join("\n") || "No open votes"}
+
+People:
+${people.map((p) => `- ${p.name} (${p.role}, ${p.title || "no title"})`).join("\n") || "None"}`;
 }
 
 export { CLASSIFY_PROMPT, COMMAND_PROMPT, SEARCH_PROMPT, REVIEW_PROMPT, SUGGEST_PROMPT };

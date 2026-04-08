@@ -291,6 +291,27 @@ router.post("/minutes/:id/sign", requireAuth, async (req, res): Promise<void> =>
 
 router.get("/minutes/:id/comments", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  const [minutes] = await db.select().from(minutesTable).where(eq(minutesTable.id, id));
+  if (!minutes) {
+    res.status(404).json({ error: "Minutes not found" });
+    return;
+  }
+
+  if (user.role !== "admin" && user.role !== "management" && minutes.meetingId) {
+    const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId));
+    if (meeting?.boardId) {
+      const [membership] = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+      if (!membership) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+    }
+  }
 
   const comments = await db
     .select()
