@@ -22,7 +22,7 @@ EasyBoard v2 is a complete corporate governance portal for Meridian Energy Group
 - 4 roles: `admin` (Secretary), `member` (Board Member), `management`, `observer`
 
 ## Test Credentials
-All passwords: `Meridian2024!`
+Password is set via the `SEED_PASSWORD` environment secret (check Replit Secrets).
 - **Secretary**: `a.alrashid@meridian-energy.com` (Ahmed Al-Rashid, role: admin)
 - **Board Member**: `n.petrov@meridian-energy.com` (Nadia Petrov, role: member, BoD Chair)
 - **Management/CFO**: `r.taylor@meridian-energy.com` (Robert Taylor, role: management)

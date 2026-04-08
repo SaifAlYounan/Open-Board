@@ -1,0 +1,79 @@
+Fix these security vulnerabilities in the EasyBoard codebase. Do not change any other functionality. After each fix, verify the app still compiles and runs.
+
+---
+
+## Fix 1 — Socket.io CORS wildcard (CRITICAL)
+
+File: `artifacts/api-server/src/index.ts`, line 23
+
+Current code:
+```typescript
+origin: "*"
+```
+
+Change to:
+```typescript
+origin: process.env.ALLOWED_ORIGIN || "http://localhost:3000"
+```
+
+Why: `origin: "*"` allows any website to open a WebSocket connection to the server and listen to live board meetings, votes, and minutes data. This must match the same origin used by the Express CORS configuration.
+
+---
+
+## Fix 2 — Hardcoded seed password (CRITICAL)
+
+File: `artifacts/api-server/src/seed.ts`, line 31
+
+Current code:
+```typescript
+const PASSWORD = process.env.SEED_PASSWORD || "Meridian2024!";
+```
+
+Change to:
+```typescript
+const PASSWORD = process.env.SEED_PASSWORD;
+if (!PASSWORD) {
+  throw new Error("SEED_PASSWORD environment variable is required. Set it before running seed.");
+}
+```
+
+Why: The fallback password is visible in the public GitHub repo. Anyone can try it on the login page. The password must come from an environment variable with no fallback.
+
+Then set `SEED_PASSWORD` in the Replit Secrets tab to a strong random password.
+
+---
+
+## Fix 3 — Express CORS fallback (MEDIUM)
+
+File: `artifacts/api-server/src/index.ts`
+
+Find the Express CORS configuration where `ALLOWED_ORIGIN` falls back to `true`. Change the fallback from `true` to `"http://localhost:3000"`.
+
+Before:
+```typescript
+origin: process.env.ALLOWED_ORIGIN || true
+```
+
+After:
+```typescript
+origin: process.env.ALLOWED_ORIGIN || "http://localhost:3000"
+```
+
+Why: `true` means "allow all origins", which defeats the purpose of CORS.
+
+---
+
+## Fix 4 — Remove credentials from documentation (LOW)
+
+File: `replit.md`
+
+Remove any references to `Meridian2024!` or any other passwords/credentials from this file and any other committed documentation. Replace with a note like: "Set SEED_PASSWORD in Replit Secrets before running seed."
+
+---
+
+## After all fixes
+
+1. Verify the app starts without errors
+2. Verify you can still log in (using the password from SEED_PASSWORD env var)
+3. Verify WebSocket connections still work from the app's own domain
+4. Confirm no hardcoded passwords remain anywhere in the codebase: search for `Meridian2024` across all files

@@ -43,7 +43,7 @@ function PeopleTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; title: string; role: string }>({ name: "", title: "", role: "member" });
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ name: "", email: "", title: "", role: "member", password: "Meridian2024!" });
+  const [addForm, setAddForm] = useState({ name: "", email: "", title: "", role: "member", password: "" });
   const [saving, setSaving] = useState(false);
 
   const list = (people as any[]) || [];
@@ -99,7 +99,7 @@ function PeopleTab() {
     if (res.ok) {
       queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
       setShowAdd(false);
-      setAddForm({ name: "", email: "", title: "", role: "member", password: "Meridian2024!" });
+      setAddForm({ name: "", email: "", title: "", role: "member", password: "" });
       toast({ title: "Person created" });
     } else {
       const err = await res.json().catch(() => ({}));
