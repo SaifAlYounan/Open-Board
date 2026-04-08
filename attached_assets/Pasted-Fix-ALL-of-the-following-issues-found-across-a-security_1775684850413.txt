@@ -1,0 +1,397 @@
+Fix ALL of the following issues found across a security audit, static code review, and live E2E testing. Do not break existing functionality. Test after each major fix.
+
+---
+
+# HIGH PRIORITY
+
+## 1 — Sanitize minutes PATCH content
+
+**File:** `artifacts/api-server/src/routes/minutes.ts`
+
+**Problem:** POST /minutes sanitizes content with `sanitizeRichHtml()`, but PATCH /minutes/:id saves raw content directly. XSS possible via minutes edit.
+
+**Fix:** In the PATCH handler, sanitize before saving:
+```typescript
+if (content != null) updates.content = sanitizeRichHtml(content);
+```
+
+---
+
+## 2 — Add UUID validation to boards routes
+
+**File:** `artifacts/api-server/src/routes/boards.ts`
+
+**Problem:** GET /boards/:invalid-uuid returns 500 (server crash). All other routes (votes, meetings, minutes) correctly return 400. Boards is missing the validation.
+
+**Fix:** Add at the top of the boards router:
+```typescript
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
+```
+
+---
+
+## 3 — Add pagination caps to all list endpoints
+
+**Files:** All route files with list/GET endpoints
+
+**Problem:** List endpoints return ALL records with no server-side limit. A client can request `?limit=999999`.
+
+**Fix:** Add to every list endpoint:
+```typescript
+const MAX_LIMIT = 200;
+const limit = Math.min(parseInt(req.query.limit as string) || 50, MAX_LIMIT);
+const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+```
+
+Apply to: boards, votes, meetings, minutes, documents, tasks, people, audit, dashboard endpoints. Use `.limit(limit).offset(offset)` on all queries.
+
+---
+
+## 4 — Validate meeting status values
+
+**File:** `artifacts/api-server/src/routes/meetings.ts`
+
+**Problem:** PATCH accepts any string as status. Invalid values stored silently.
+
+**Fix:**
+```typescript
+const VALID_MEETING_STATUSES = ["scheduled", "in_progress", "adjourned", "cancelled", "completed"];
+if (status != null && !VALID_MEETING_STATUSES.includes(status)) {
+  return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_MEETING_STATUSES.join(", ")}` });
+}
+```
+
+---
+
+## 5 — Validate minutes status values
+
+**File:** `artifacts/api-server/src/routes/minutes.ts`
+
+**Problem:** Same as meetings — PATCH accepts any status string.
+
+**Fix:**
+```typescript
+const VALID_MINUTES_STATUSES = ["draft", "pending_signature", "signed", "approved"];
+if (status != null && !VALID_MINUTES_STATUSES.includes(status)) {
+  return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_MINUTES_STATUSES.join(", ")}` });
+}
+```
+
+---
+
+## 6 — Validate role values on people endpoints
+
+**File:** `artifacts/api-server/src/routes/people.ts`
+
+**Problem:** POST and PATCH accept any string as role. An admin could accidentally set `role: "hacker"`.
+
+**Fix:**
+```typescript
+const VALID_ROLES = ["admin", "member", "observer", "management"];
+if (role != null && !VALID_ROLES.includes(role)) {
+  return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
+}
+```
+
+Apply to both POST and PATCH handlers.
+
+---
+
+## 7 — Validate task evidence decision values
+
+**File:** `artifacts/api-server/src/routes/tasks.ts`
+
+**Problem:** Evidence review accepts any string as decision.
+
+**Fix:**
+```typescript
+const VALID_DECISIONS = ["confirmed", "rejected"];
+if (!VALID_DECISIONS.includes(decision)) {
+  return res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
+}
+```
+
+---
+
+## 8 — Sanitize vote cast comment
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** Vote cast comment is stored without sanitization.
+
+**Fix:**
+```typescript
+import { sanitizeText } from "../lib/sanitize";
+// In the cast handler:
+const sanitizedComment = comment ? sanitizeText(comment) : null;
+// Use sanitizedComment instead of comment in the insert
+```
+
+---
+
+## 9 — Fix XSS sanitization stripping entire content
+
+**File:** `artifacts/api-server/src/lib/sanitize.ts`
+
+**Problem:** `sanitizeText("<script>alert(1)</script>")` returns `""` (empty string). It strips the tags AND the text content inside them. If someone types `Test <b>bold</b> text`, it should keep "Test bold text".
+
+**Fix:** Update sanitizeText to preserve text content:
+```typescript
+import sanitizeHtml from "sanitize-html";
+
+export function sanitizeText(input: string): string {
+  return sanitizeHtml(input, {
+    allowedTags: [],
+    allowedAttributes: {},
+    textFilter: (text) => text, // preserve text content
+  });
+}
+```
+
+Test: `sanitizeText("<script>alert(1)</script>")` should return `"alert(1)"` (text preserved, tag stripped).
+Test: `sanitizeText("Board Meeting <b>Q1</b>")` should return `"Board Meeting Q1"`.
+
+---
+
+## 10 — Fix POST /documents with no file returning 404 HTML
+
+**File:** `artifacts/api-server/src/routes/documents.ts`
+
+**Problem:** When no file is attached to the upload request, the endpoint returns 404 with HTML instead of 400 with JSON.
+
+**Fix:** Add a check at the start of the upload handler:
+```typescript
+if (!req.file) {
+  return res.status(400).json({ error: "No file uploaded" });
+}
+```
+
+---
+
+## 11 — Fix logout to clear cookie properly
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Logout clears the cookie but the JWT remains valid server-side. While full server-side token blacklisting is complex, the cookie clearing should at least be consistent.
+
+**Fix:** Ensure the logout endpoint clears the cookie with the SAME attributes it was set with:
+```typescript
+router.post("/logout", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/",
+  });
+  res.json({ message: "Logged out" });
+});
+```
+
+The `path` must match the original cookie path, otherwise browsers won't clear it.
+
+---
+
+## 12 — Strip passwordHash from req.user in auth middleware
+
+**File:** `artifacts/api-server/src/lib/auth.ts`
+
+**Problem:** `req.user` carries the full person record including `passwordHash`. If any future route accidentally returns `req.user`, the hash leaks.
+
+**Fix:** Strip it in the middleware:
+```typescript
+const { passwordHash, ...safeUser } = person;
+req.user = safeUser;
+```
+
+---
+
+## 13 — Fix secretary/settings dead route
+
+**Files:** `artifacts/easyboard/src/components/SecretarySidebar.tsx`
+
+**Problem:** Sidebar links to `/secretary/settings` but no settings page exists. Clicking it crashes with a white screen.
+
+**Fix:** Either:
+- **Option A (quick):** Remove the settings nav item from `SecretarySidebar.tsx`:
+  ```typescript
+  // Remove this line from navItems:
+  { href: '/secretary/settings', icon: Settings, label: 'Settings' },
+  ```
+- **Option B (better):** Create `src/pages/secretary/settings.tsx` with at minimum an organization name display and placeholder for future settings.
+
+---
+
+## 14 — Validate email format on POST /people
+
+**File:** `artifacts/api-server/src/routes/people.ts`
+
+**Problem:** No email format validation when creating users. `test@.com` is accepted.
+
+**Fix:**
+```typescript
+const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+if (!emailRegex.test(email)) {
+  return res.status(400).json({ error: "Invalid email format" });
+}
+```
+
+---
+
+# MEDIUM PRIORITY (code quality)
+
+## 15 — Add missing error states to query hooks
+
+**Files:** Multiple frontend pages
+
+**Problem:** ~7 pages have API queries without error display. On failure, UI shows blank.
+
+**Fix:** Add a global error handler to the React Query client:
+```typescript
+// In your QueryClient setup:
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      onError: (error) => {
+        toast.error("Failed to load data. Please refresh.");
+      },
+    },
+  },
+});
+```
+
+Or add individual error handling on each page with `isError` from the hook:
+```tsx
+const { data, isLoading, isError } = useGetBoard(boardId);
+if (isError) return <div className="text-red-500 p-4">Failed to load board data.</div>;
+```
+
+---
+
+## 16 — Add form validation feedback
+
+**Files:** `SecretaryMeetings.tsx`, `SecretaryVotes.tsx`, `SecretaryMeetingDetail.tsx`
+
+**Problem:** Forms validate but show no error message when validation fails.
+
+**Fix:** Add error state and display:
+```tsx
+const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+// On submit:
+if (!title) {
+  setFormErrors(prev => ({ ...prev, title: "Title is required" }));
+  return;
+}
+
+// In JSX:
+{formErrors.title && <p className="text-red-500 text-sm">{formErrors.title}</p>}
+```
+
+---
+
+## 17 — Add loading state to ObserverRoom
+
+**File:** `artifacts/easyboard/src/pages/observer/room.tsx`
+
+**Problem:** Board data loads with no spinner. Header shows nothing during fetch.
+
+**Fix:**
+```tsx
+const { data: board, isLoading } = useGetBoard(boardId, ...);
+if (isLoading) return <div className="flex items-center justify-center h-64"><Spinner /></div>;
+```
+
+---
+
+## 18 — Replace console.error/console.log with logger
+
+**Files:** All backend route files
+
+**Fix:** Search for any remaining `console.log`, `console.error`, `console.warn` in `artifacts/api-server/src/` and replace with `logger.info`, `logger.error`, `logger.warn`.
+
+---
+
+## 19 — Protect ballot secrecy (DESIGN DECISION)
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** GET /votes/:id returns ALL vote records with voter names and decisions to every user with access. Board members can see how everyone else voted.
+
+**This is a design decision.** If you want secret ballots:
+
+**Fix:** Only return individual vote records to admin/secretary. For other users, return only aggregates:
+```typescript
+// For non-admin users:
+const aggregates = {
+  totalVotes: voteRecords.length,
+  approved: voteRecords.filter(r => r.decision === "approved" || r.decision === "approved_with_comments").length,
+  notApproved: voteRecords.filter(r => r.decision === "not_approved" || r.decision === "not_approved_with_comments").length,
+  pending: votingMembers.length - voteRecords.length,
+};
+// Return aggregates instead of individual records
+
+// For admin:
+// Return full records as currently done
+```
+
+If you want OPEN ballots (everyone sees how everyone voted), leave as-is and add a comment documenting the design choice.
+
+---
+
+# LOW PRIORITY (nice-to-have)
+
+## 20 — Fix stale closure in SecretaryPending useEffect
+
+**File:** `artifacts/easyboard/src/pages/secretary/pending.tsx`
+
+**Fix:** Add `selectedMeetings` to the useEffect dependency array, or use a functional update pattern.
+
+---
+
+## 21 — Add aria-labels to icon-only buttons
+
+**Files:** `SecretarySidebar.tsx`, `SecretaryAdmin.tsx`, `SecretaryMeetings.tsx`, `MinutesSigning.tsx`
+
+**Fix:** Add `aria-label` to all icon-only buttons:
+```tsx
+<button aria-label="Logout" ...>
+<button aria-label="Sort ascending" ...>
+<button aria-label="Create meeting" ...>
+```
+
+---
+
+## 22 — Remove dead dynamic import in boards route
+
+**File:** `artifacts/api-server/src/routes/boards.ts`
+
+**Fix:** Replace dynamic import with static import:
+```typescript
+// Remove: const { and: andFn } = await import("drizzle-orm");
+// Use the already-imported: import { and } from "drizzle-orm";
+```
+
+---
+
+# AFTER ALL FIXES
+
+1. Login as all 4 roles — verify working
+2. GET /api/boards/not-a-uuid — expect 400 (not 500)
+3. PATCH meeting with status "hacked" — expect 400
+4. PATCH minutes with status "hacked" — expect 400
+5. PATCH person with role "hacker" — expect 400
+6. Create meeting with title `<script>alert(1)</script>` — title should be "alert(1)" not empty
+7. POST /documents with no file — expect 400 JSON
+8. POST /people with email "test@.com" — expect 400
+9. Edit minutes via PATCH with `<script>` in content — should be stripped
+10. Vote cast with `<script>` in comment — should be stripped
+11. Secretary settings nav item — should either work or be removed
+12. Verify all existing features still work (votes, meetings, minutes, documents)

@@ -196,6 +196,11 @@ router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
 router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { title, date, location, status } = pick(req.body, ["title", "date", "location", "status"] as (keyof typeof req.body)[]) as { title?: string; date?: string; location?: string; status?: string };
+  const VALID_MEETING_STATUSES = ["scheduled", "in_progress", "adjourned", "cancelled", "completed"];
+  if (status != null && !VALID_MEETING_STATUSES.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_MEETING_STATUSES.join(", ")}` });
+    return;
+  }
   const updates: Record<string, unknown> = {};
   if (title != null) updates.title = sanitizeText(title);
   if (date != null) updates.date = new Date(date);

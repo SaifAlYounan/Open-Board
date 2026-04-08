@@ -1,11 +1,20 @@
 import { Router } from "express";
 import { db, boardsTable, boardMembershipsTable, peopleTable, organizationsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { sql } from "drizzle-orm";
 
 const router = Router();
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
 
 router.get("/boards", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
@@ -146,12 +155,11 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
     res.status(400).json({ error: "roleInBoard required" });
     return;
   }
-  const { and: andFn } = await import("drizzle-orm");
   await db
     .update(boardMembershipsTable)
     .set({ roleInBoard })
     .where(
-      andFn(
+      and(
         eq(boardMembershipsTable.boardId, boardId),
         eq(boardMembershipsTable.personId, personId)
       )
@@ -162,11 +170,10 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
 router.delete("/boards/:id/members/:personId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const personId = Array.isArray(req.params.personId) ? req.params.personId[0] : req.params.personId;
-  const { and: andCond } = await import("drizzle-orm");
   await db
     .delete(boardMembershipsTable)
     .where(
-      andCond(
+      and(
         eq(boardMembershipsTable.boardId, boardId),
         eq(boardMembershipsTable.personId, personId)
       )

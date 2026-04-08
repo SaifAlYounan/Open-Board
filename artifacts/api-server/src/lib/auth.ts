@@ -50,7 +50,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       res.status(401).json({ error: "User not found" });
       return;
     }
-    req.user = person;
+    const { passwordHash: _, ...safeUser } = person;
+    req.user = safeUser as typeof peopleTable.$inferSelect;
     next();
   } catch (err) {
     logger.warn({ err }, "Auth token invalid");

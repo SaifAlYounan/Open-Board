@@ -311,6 +311,12 @@ router.post("/tasks/:id/evidence/review", requireAuth, requireAdmin, writeLimite
     return;
   }
 
+  const VALID_DECISIONS = ["confirmed", "rejected"];
+  if (!VALID_DECISIONS.includes(decision)) {
+    res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
+    return;
+  }
+
   const [evidence] = await db
     .update(taskEvidenceTable)
     .set({ secretaryDecision: decision, secretaryComment: comment, reviewedAt: new Date() })

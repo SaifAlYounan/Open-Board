@@ -55,15 +55,16 @@ export default function PendingActions() {
     const meetingList = (meetings as any[]);
     const sorted = [...meetingList].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const mostRecent = sorted[0]?.id || '';
-    const newSelected: Record<string, string> = {};
-    for (const action of (actions as any[])) {
-      if (action.actionType === 'create_minutes' && !selectedMeetings[action.id]) {
-        newSelected[action.id] = mostRecent;
+    setSelectedMeetings((prev) => {
+      const newSelected: Record<string, string> = {};
+      for (const action of (actions as any[])) {
+        if (action.actionType === 'create_minutes' && !prev[action.id]) {
+          newSelected[action.id] = mostRecent;
+        }
       }
-    }
-    if (Object.keys(newSelected).length > 0) {
-      setSelectedMeetings((prev) => ({ ...prev, ...newSelected }));
-    }
+      if (Object.keys(newSelected).length === 0) return prev;
+      return { ...prev, ...newSelected };
+    });
   }, [meetings, actions]);
 
   const handleApprove = (id: string, overrideData?: unknown) => {

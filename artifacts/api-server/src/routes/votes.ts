@@ -573,9 +573,10 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       }
     }
 
+    const sanitizedComment = comment ? sanitizeText(comment) : null;
     const [record] = await db
       .insert(voteRecordsTable)
-      .values({ voteId: id, personId: user.id, decision, comment })
+      .values({ voteId: id, personId: user.id, decision, comment: sanitizedComment })
       .returning();
 
     if (vote.boardId) {
