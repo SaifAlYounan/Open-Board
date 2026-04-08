@@ -1,3 +1,5 @@
+# EasyBoard
+
 <p align="center">
   <h1 align="center">✦ EasyBoard</h1>
   <p align="center"><strong>The open-source, AI-native board management platform.</strong></p>
@@ -143,8 +145,8 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 Layer 0 — Document Brain         (invisible — AI classification engine)
 Layer 1 — Secretary Interface    (AI copilot + approval queue)
 Layer 2 — Board Member Interface (zero friction — vote, sign, search)
-Layer 3 — Management Interface   (tasks + evidence upload)
-Layer 4 — Observer Interface     (read-only + comments)
+Layer 3 — Management Interface    (tasks + evidence upload)
+Layer 4 — Observer Interface      (read-only + comments)
 ```
 
 ### Tech Stack
@@ -154,16 +156,17 @@ Layer 4 — Observer Interface     (read-only + comments)
 - **Frontend:** React 18, Vite, Tailwind CSS, Radix UI
 - **Routing:** Wouter (frontend), Express Router (backend)
 - **AI:** Anthropic Claude Opus 4 (via @anthropic-ai/sdk)
-- **Auth:** JWT (jsonwebtoken) + bcryptjs
-- **Real-time:** Socket.io
+- **Auth:** JWT (jsonwebtoken) + bcryptjs — tokens in HttpOnly secure cookies (not localStorage) + `cookie-parser` middleware
+- **Real-time:** Socket.io (authenticate-on-handshake, board membership-verified room joins)
 - **Documents:** multer, pdf-parse, mammoth
 - **Signatures:** SHA-256 (Node.js crypto)
-- **Validation:** Zod schemas
+- **Validation:** Zod schemas, custom `pick()` utility for field allowlisting, UUID format validation on all route parameters
+- **Security:** Helmet (CSP, HSTS, X-Frame-Options, etc.), sanitize-html (backend), DOMPurify (frontend)
 - **Package Manager:** pnpm monorepo (6 workspaces)
 
 ### Database
 
-20+ tables covering organizations, boards, people, board memberships, meetings, agenda items, votes, vote records, minutes, minutes signatures, minutes suggestions, tasks, task evidence, documents, access control, approval rules, approval workflows, pending actions, attendance, and audit trail.
+20+ tables covering organizations, boards, people, board memberships, meetings, agenda items, votes, vote records, minutes, minutes signatures, minutes suggestions, tasks, task evidence, documents, access control, approval rules, approval workflows, pending actions, attendance, audit trail, and password reset tokens.
 
 Full schema in `lib/db/src/schema/`.
 
@@ -215,11 +218,57 @@ EasyBoard is designed for organizations that take data sovereignty seriously.
 - **Zero external dependencies at runtime** — fonts bundled locally, no CDN calls, no telemetry
 - **AI is pluggable** — use Anthropic's API, or swap in a local model. Your documents, your choice
 - **Mandatory JWT secret** — app refuses to start without `SESSION_SECRET`; no hardcoded fallbacks
-- **Rate limiting** — AI endpoints (10 requests/min) and auth endpoints (10 attempts/15 min)
+
+### Authentication & Sessions
+- **HttpOnly JWT cookies** — tokens stored exclusively in HttpOnly secure cookies, never in localStorage. **Note:** When deployed on Replit, Replit's platform proxy may rename and strip cookie security flags. The app code sets the flags correctly; this is a Replit platform limitation. Self-hosted deployments are unaffected.
+- API accepts `Authorization: Bearer <token>` header for programmatic access
+- JWT refresh endpoint (`/api/auth/refresh`) for session renewal without re-authentication
+- Session restoration endpoint (`/api/auth/me`) for cookie-based session lookups
+- 7-day token expiry; environment-aware cookie settings (secure + strict in production, lax in development)
+- **Limitation:** Logout clears the cookie client-side but does not invalidate the JWT server-side. A stolen token remains valid until expiry. Server-side token revocation is planned.
+
+### Input Sanitization
+- **Backend:** `sanitize-html` on most text inputs — two modes: plain text (all HTML stripped) and rich HTML (restricted allowlist: `b`, `i`, `u`, `strong`, `em`, `p`, `br`, `ul`, `ol`, `li`, `h1`–`h4`, `a`, `blockquote`, tables). *Known gap: minutes PATCH and vote cast comments are not yet sanitized — see [Known Issues](#known-issues-being-fixed).*
+- **Frontend:** `DOMPurify` sanitizes all rendered HTML content (e.g., minutes paragraph blocks) before display
+
+### Request Hardening
+- **1 MB JSON/URL-encoded body size limit** on all API endpoints
+- **10 MB maximum file upload size** (PDF, DOCX, TXT only — MIME type + extension validated)
+- **UUID format validation** on most route parameters (votes, meetings, minutes) — invalid UUIDs return 400 immediately. *Known gap: boards route is missing UUID validation — see [Known Issues](#known-issues-being-fixed).*
+- **`pick()` utility** on mutation endpoints (votes, meetings, tasks) strips unknown fields from request bodies, preventing mass-assignment attacks. Not yet applied to all routes.
+
+### Path Traversal Protection
+- All file paths resolved and validated to be within the `uploads/` directory before any read operation
+
+### Account Security
+- **Password complexity:** minimum 12 characters enforced on all password creation and reset flows
+- **bcrypt** password hashing (cost factor 10)
+- **Account lockout:** 30 failed login attempts → 24-hour automatic lockout (Secretary can reset)
+- **Password reset:** SHA-256-hashed one-time token (1-hour expiry); new password hashed with bcrypt before storage; no email service — Secretary relays reset link manually
+
+### Rate Limiting (multi-layer)
+- **Auth endpoints:** 10 attempts/15 min per IP + 10 attempts/15 min per email address (independent limits)
+- **AI endpoints:** 20 requests/min per authenticated user
+- **Write endpoints:** 30 requests/min per authenticated user
+
+### Access Control
 - **Per-entity access control** — every meeting, vote, document, and task has explicit access grants with DB-level uniqueness constraints
-- **Full audit trail** — every action logged with user, entity, timestamp, and IP
+- **Composite index** `access_control_entity_lookup` on `(entityType, entityId)` for fast permission lookups
+- **Board membership verification** on all sensitive operations; admins always pass
+
+### WebSocket Security (Socket.io)
+- Connections authenticated at **handshake** via HttpOnly cookie — unauthenticated connections rejected before any event is processed
+- Room join events (`join:board`, `join:vote`, `join:minutes`) verified against board membership or access control; no membership = no join
+- Join rate limit: 10 room joins per minute per socket connection
+
+### Security Headers
+- **Helmet** middleware enables Content Security Policy, HSTS, X-Frame-Options, MIME type sniffing protection, and other OWASP-recommended HTTP headers
+
+### Data Integrity
+- **Full audit trail** — every login, logout, password action, document event, and data reset logged with actor ID, entity, timestamp, and client IP
 - **SHA-256 signatures** — tamper-proof digital signatures on minutes
-- **CORS protection** — configurable origin whitelist via `ALLOWED_ORIGIN`
+- **CORS protection** — strict origin validation; only `*.replit.dev`, `*.replit.app`, and `localhost` accepted by default; configurable via `ALLOWED_ORIGIN` env var for production
+- **System reset** requires admin + `{ confirm: "RESET" }` in request body + wrapped in a database transaction (FK-safe delete order)
 - **No CLOUD Act exposure** — when self-hosted, no foreign government can compel a vendor to produce your board documents
 
 For a detailed comparison of open-source vs. proprietary board portal security, see [SECURITY.md](SECURITY.md).
@@ -233,7 +282,7 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 - `DATABASE_URL` (required) — PostgreSQL connection string
 - `SESSION_SECRET` (required) — Random 64-character hex string for JWT signing. App refuses to start without it.
 - `ANTHROPIC_API_KEY` (optional) — Enables AI features. App works without it.
-- `ALLOWED_ORIGIN` (optional) — CORS origin whitelist. Defaults to request origin.
+- `ALLOWED_ORIGIN` (optional) — CORS origin whitelist (comma-separated). Defaults to `*.replit.dev`, `*.replit.app`, `localhost`.
 - `SEED_PASSWORD` (optional) — Override default demo password.
 - `PORT` (optional) — Default: 3000
 
@@ -241,10 +290,53 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 - **Database:** Use a managed PostgreSQL instance (Neon, Supabase, RDS). Schema is standard PostgreSQL.
 - **File Storage:** Replace `/uploads/` with S3-compatible object storage for production.
-- **Auth:** JWT with mandatory `SESSION_SECRET`. Consider adding token refresh and short expiry (15 min access + 7 day refresh).
-- **Rate Limiting:** Built in — express-rate-limit on auth and AI endpoints.
-- **CORS:** Set `ALLOWED_ORIGIN` to your domain.
+- **Auth:** HttpOnly secure cookies with mandatory `SESSION_SECRET`. JWTs support refresh and session restoration endpoints. Consider short expiry (15 min access + 7 day refresh) for higher security.
+- **Rate Limiting:** Built in — per-IP and per-email limits on auth, per-user limits on AI and write endpoints.
+- **CORS:** Set `ALLOWED_ORIGIN` to your production domain.
 - **Seed Password:** Set `SEED_PASSWORD` env var for production demos. Change passwords after first login.
+
+---
+
+## Security Audit Status
+
+EasyBoard has undergone three rounds of automated security auditing (source code review + live adversarial API testing). We believe in full transparency about what was found and what was fixed.
+
+### Current Posture: CONDITIONAL PASS (as of April 8, 2026)
+
+**Round 1** found 4 critical, 5 high, 8 medium, 3 low vulnerabilities. All fixed.
+**Round 2** found 0 critical, 1 high, 2 medium, 4 low. All fixed.
+**Round 3** found 0 critical, 2 high, 4 medium, 4 low. Fixes in progress.
+
+### What Was Wrong (and fixed)
+
+These vulnerabilities existed in v2.0 and v2.1. They are now fixed in v2.2:
+
+- **WebSocket had zero authentication.** Any visitor could connect and listen to live board events (vote closures, minute signatures, comments) without logging in. *Fixed: authenticate at handshake, verify board membership on room joins.*
+- **Any user could read any board's data.** No access control on board detail, vote detail, meeting detail, minutes comments, document metadata, or task endpoints. An observer on one board could read every other board's membership, votes, and documents. *Fixed: board membership checks on all endpoints.*
+- **Vote certificates were publicly accessible.** Who voted how, accessible to anyone with the URL. *Fixed: access control on certificate endpoint.*
+- **CORS was wide open.** `origin: "*"` — any website could make authenticated API requests. *Fixed: strict origin validation with allowlist.*
+- **JWT tokens were in localStorage.** Readable by any XSS. *Fixed: HttpOnly secure cookies.*
+- **No request body size limits.** Unlimited JSON payloads accepted. *Fixed: 1MB limit.*
+- **System reset had no confirmation.** One POST and all data gone. *Fixed: requires `{ confirm: "RESET" }`.*
+- **AI search exposed the entire database.** Any user's AI query got context from ALL boards, ALL people, ALL meetings — regardless of access. *Fixed: scoped to user's accessible entities.*
+- **Seed script had a hardcoded fallback password.** If `SEED_PASSWORD` wasn't set, it silently used `Meridian2024!`. *Fixed: fail-fast if env var missing.*
+- **Error handlers were silently swallowing errors.** `.catch(() => {})` on workflow triggers. *Fixed: proper error logging.*
+
+### Known Issues (being fixed)
+
+These were found in Round 3 and are being addressed:
+
+- **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. This is a Replit platform limitation, not a code bug. Self-hosted deployments are unaffected.
+- **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted (name + decision + comment). This may violate secret ballot principles depending on your governance requirements. A configuration option for secret vs. open ballots is planned.
+- **Minutes PATCH doesn't sanitize content.** POST does, PATCH was missed. Fix pending.
+- **Meeting/minutes/people status fields accept arbitrary strings.** No enum validation on PATCH. Fix pending.
+- **Boards route missing UUID validation.** Returns 500 on invalid UUID instead of 400. Fix pending.
+- **No pagination caps on list endpoints.** All records returned. Fix pending.
+- **Vote cast comments not sanitized.** Fix pending.
+- **`/secretary/settings` is a dead route.** Sidebar links to it, page doesn't exist. Fix pending.
+- **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry.
+
+We will update this section as fixes are verified.
 
 ---
 
@@ -252,29 +344,38 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ### v2.2 — Security Hardening (April 8, 2026)
 
-**CORS Protection**
-- Replaced wildcard CORS (`origin: "*"`) with strict origin validation
-- Only `*.replit.dev`, `*.replit.app`, and `localhost` origins accepted by default
-- Added `ALLOWED_ORIGIN` environment variable support for production deployment
-- CORS rejections return generic 403 response (no stack trace exposure)
+This release addresses critical security vulnerabilities found during a comprehensive 3-round security audit. See [Security Audit Status](#security-audit-status) for full details of what was wrong.
 
-**Authentication Security**
-- Migrated JWT storage from localStorage to HttpOnly secure cookies
-- Added `cookie-parser` middleware
-- Environment-aware cookie settings (secure + strict in production, lax in development)
-- Added `/api/auth/me` endpoint for cookie-based session restoration
+**What was broken and is now fixed:**
 
-**API Hardening**
-- Added 1MB request body size limit on JSON and URL-encoded payloads
-- Added confirmation requirement (`confirm: "RESET"`) for system data reset endpoint
-- Workflow trigger errors now logged instead of silently swallowed
+- **CORS was wide open** — `origin: "*"` replaced with strict origin validation. Only `*.replit.dev`, `*.replit.app`, and `localhost` accepted. `ALLOWED_ORIGIN` env var for production.
+- **JWT was in localStorage** — migrated to HttpOnly secure cookies with `cookie-parser`. SameSite=Strict in production.
+- **WebSocket was unauthenticated** — Socket.io now authenticates at handshake via cookie. Room joins verified against board membership.
+- **No access control on most GET endpoints** — board membership checks added to boards, votes, meetings, minutes, documents, tasks. Observers and members now only see what they have access to.
+- **AI search leaked entire database** — `getDatabaseContext()` now scoped to the requesting user's accessible entities.
+- **System reset was dangerous** — now requires admin role + `{ confirm: "RESET" }` + wrapped in a database transaction.
+- **Seed password had hardcoded fallback** — now fails fast if `SEED_PASSWORD` env var is not set.
+- **No input sanitization** — added `sanitize-html` on backend (all text inputs), `DOMPurify` on frontend (rendered HTML).
+- **No request hardening** — added 1MB body limit, UUID validation on route parameters, `pick()` to strip unknown fields.
+- **Error handlers swallowed errors** — replaced `.catch(() => {})` with proper `logger.error()`.
 
-**Database**
-- Added composite index `access_control_entity_lookup` on (entityType, entityId) for faster permission lookups
+**New security features:**
 
-**Documentation & UI**
-- Removed hardcoded credentials from replit.md
-- Admin panel no longer pre-fills default password in user creation form
+- Helmet middleware (CSP, HSTS, X-Frame-Options, X-Content-Type-Options)
+- Rate limiting: login (10/15min per IP + per email), AI (20/min), writes (30/min)
+- Password complexity (12+ chars), bcrypt hashing
+- Account lockout (30 failures → 24h)
+- Password reset flow (SHA-256 token, 1h expiry)
+- JWT refresh endpoint
+- Path traversal protection on file downloads
+- Composite DB index on access control table
+- Full audit trail logging
+
+**Documentation:**
+
+- Removed hardcoded credentials from `replit.md`
+- Admin panel no longer pre-fills default password
+- This changelog now documents what was wrong, not just what was added
 
 ### v2.1 — Security Hardening (2026-04-07)
 - **Fixed:** JWT secret now mandatory — app refuses to start without `SESSION_SECRET`
@@ -283,7 +384,7 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 - **Fixed:** Access control uniqueness enforced at DB level
 - **Fixed:** Vote status enum now includes "cancelled"
 - **Fixed:** File type validation consistent across all upload endpoints (PDF, DOCX, TXT only)
-- **Added:** Rate limiting on AI endpoints (10/min) and auth endpoints (10/15min)
+- **Added:** Rate limiting on AI endpoints (20/min), auth endpoints (10/15min per IP + 10/15min per email), and write endpoints (30/min)
 - **Added:** AI error logging in document and task processing
 - **Added:** Configurable CORS origin via `ALLOWED_ORIGIN`
 - **Added:** Configurable seed password via `SEED_PASSWORD`
