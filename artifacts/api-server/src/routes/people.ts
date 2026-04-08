@@ -12,10 +12,23 @@ router.get("/people", requireAuth, requireAdmin, async (_req, res): Promise<void
   res.json(safe);
 });
 
+const VALID_ROLES = ["admin", "member", "observer", "management"];
+const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
 router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const { email, password, name, role, title, avatarColor } = req.body;
   if (!email || !password || !name || !role) {
     res.status(400).json({ error: "Required: email, password, name, role" });
+    return;
+  }
+
+  if (!emailRegex.test(email)) {
+    res.status(400).json({ error: "Invalid email format" });
+    return;
+  }
+
+  if (!VALID_ROLES.includes(role)) {
+    res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
     return;
   }
 
@@ -57,6 +70,10 @@ router.get("/people/:id", requireAuth, async (req, res): Promise<void> => {
 router.patch("/people/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { name, title, avatarColor, role, active } = req.body;
+  if (role != null && !VALID_ROLES.includes(role)) {
+    res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
+    return;
+  }
   const updates: Record<string, unknown> = {};
   if (name != null) updates.name = name;
   if (title != null) updates.title = title;

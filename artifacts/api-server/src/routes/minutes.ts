@@ -233,7 +233,7 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
 
   const [minutes] = await db
     .update(minutesTable)
-    .set({ content, updatedAt: new Date() })
+    .set({ content: sanitizeRichHtml(content), updatedAt: new Date() })
     .where(eq(minutesTable.id, id))
     .returning();
 
@@ -245,11 +245,18 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
+const VALID_MINUTES_STATUSES = ["draft", "pending_signature", "signed", "approved"];
+
 router.patch("/minutes/:id/status", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { status } = req.body;
   if (!status) {
     res.status(400).json({ error: "status required" });
+    return;
+  }
+
+  if (!VALID_MINUTES_STATUSES.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_MINUTES_STATUSES.join(", ")}` });
     return;
   }
 

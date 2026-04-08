@@ -168,7 +168,13 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 });
 
 router.post("/auth/logout", async (_req, res): Promise<void> => {
-  res.clearCookie("token", { path: "/" });
+  const isProd = process.env.NODE_ENV === "production";
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "strict",
+    path: "/",
+  });
   res.json({ ok: true });
 });
 

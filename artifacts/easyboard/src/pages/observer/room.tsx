@@ -14,10 +14,32 @@ export default function ObserverRoom() {
   const [tab, setTab] = useState<Tab>('votes');
   const [, setLocation] = useLocation();
 
-  const { data: board } = useGetBoard(boardId, { query: { queryKey: getGetBoardQueryKey(boardId) } });
+  const { data: board, isLoading, isError } = useGetBoard(boardId, { query: { queryKey: getGetBoardQueryKey(boardId) } });
   const { data: votes } = useListVotes({ boardId });
   const { data: meetings } = useListMeetings({ boardId });
   const { data: minutesList } = useListMinutes({ boardId });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f5f5f7]">
+        <TopNav />
+        <main className="pt-20 flex items-center justify-center h-64">
+          <div className="text-[#86868b] text-sm">Loading board…</div>
+        </main>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-[#f5f5f7]">
+        <TopNav />
+        <main className="pt-20 flex items-center justify-center h-64">
+          <div className="text-[#ff3b30] text-sm">Failed to load board. Please refresh.</div>
+        </main>
+      </div>
+    );
+  }
 
   const b = board as any;
   const STATUS_COLOR: Record<string, string> = {

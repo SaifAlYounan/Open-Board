@@ -286,6 +286,7 @@ function PeopleTab() {
                             disabled={saving}
                             className="p-1.5 rounded-lg text-[#34c759] hover:bg-[#34c75915] transition-colors"
                             title="Save"
+                            aria-label="Save changes"
                           >
                             <Check size={14} />
                           </button>
@@ -293,6 +294,7 @@ function PeopleTab() {
                             onClick={() => setEditingId(null)}
                             className="p-1.5 rounded-lg text-[#86868b] hover:bg-[#f5f5f7] transition-colors"
                             title="Cancel"
+                            aria-label="Cancel edit"
                           >
                             <X size={14} />
                           </button>
@@ -303,6 +305,7 @@ function PeopleTab() {
                             onClick={() => startEdit(person)}
                             className="p-1.5 rounded-lg text-[#86868b] hover:bg-[#f5f5f7] transition-colors"
                             title="Edit"
+                            aria-label="Edit person"
                           >
                             <Pencil size={14} />
                           </button>
@@ -315,6 +318,7 @@ function PeopleTab() {
                                 : "text-[#34c759] hover:bg-[#34c75915]"
                             )}
                             title={isActive ? "Deactivate" : "Activate"}
+                            aria-label={isActive ? "Deactivate person" : "Activate person"}
                             data-testid={`toggle-active-${person.id}`}
                           >
                             {isActive ? <UserX size={14} /> : <UserCheck size={14} />}

@@ -91,6 +91,7 @@ export function SecretarySidebar() {
               onClick={logout}
               className="text-[#86868b] hover:text-[#ff3b30] transition-colors p-1"
               data-testid="button-logout"
+              aria-label="Sign out"
             >
               <LogOut size={14} />
             </button>
