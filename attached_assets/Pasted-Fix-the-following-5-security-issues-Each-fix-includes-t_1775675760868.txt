@@ -1,0 +1,121 @@
+Fix the following 5 security issues. Each fix includes the exact file, the problem, and the code to write. Do not change any other functionality.
+
+---
+
+## Fix 1 — JWT: Move from localStorage to HttpOnly cookies (MEDIUM)
+
+The app stores JWT tokens in localStorage, which any malicious script on the page can read and steal.
+
+**Backend changes (artifacts/api-server/src/routes/auth.ts or wherever login response is):**
+
+After generating the JWT token, instead of sending it in the response body, set it as an HttpOnly cookie:
+
+```typescript
+res.cookie("token", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "strict",
+  maxAge: 24 * 60 * 60 * 1000 // 24 hours, adjust to match your JWT expiry
+});
+res.json({ success: true }); // don't include token in body
+```
+
+**Backend changes (auth middleware):**
+
+Update `requireAuth` middleware to read the token from the cookie instead of (or in addition to) the Authorization header:
+
+```typescript
+const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
+```
+
+Add cookie-parser if not already installed:
+```
+npm install cookie-parser
+```
+
+And in app.ts:
+```typescript
+import cookieParser from "cookie-parser";
+app.use(cookieParser());
+```
+
+**Frontend changes:**
+
+Remove all `localStorage.getItem("token")` and `localStorage.setItem("token", ...)` calls. The browser sends the cookie automatically with every request. Make sure all API calls use `credentials: "include"` in fetch options.
+
+**Logout:** Clear the cookie server-side with `res.clearCookie("token")`.
+
+---
+
+## Fix 2 — Add database index on access control lookups (MEDIUM)
+
+**File:** The schema file where the accessControl table is defined (likely `lib/db/src/schema/accessControl.ts`)
+
+Find the table definition and add a composite index:
+
+```typescript
+}, (t) => ({
+  uniq: unique().on(t.entityType, t.entityId, t.personId),
+  entityLookup: index("access_control_entity_lookup").on(t.entityType, t.entityId),
+}));
+```
+
+After adding, run the Drizzle migration to apply.
+
+---
+
+## Fix 3 — Add request body size limit (LOW)
+
+**File:** `artifacts/api-server/src/app.ts`
+
+Find `express.json()` and `express.urlencoded()` and add limits:
+
+```typescript
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+```
+
+This does NOT affect file uploads — those go through multer which already has its own limits (20MB for votes, 10MB for tasks).
+
+---
+
+## Fix 4 — Add confirmation to system/reset-data (LOW)
+
+**File:** `artifacts/api-server/src/routes/system.ts`
+
+Add a confirmation check at the start of the reset endpoint:
+
+```typescript
+if (req.body?.confirm !== "RESET") {
+  return res.status(400).json({ error: "Confirmation required. Send { confirm: 'RESET' } to proceed." });
+}
+```
+
+Update the frontend reset button to include `{ confirm: "RESET" }` in the request body.
+
+---
+
+## Fix 5 — Log workflow trigger errors instead of silencing them (LOW)
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+Find:
+```typescript
+setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch(() => {}));
+```
+
+Replace with:
+```typescript
+setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
+```
+
+---
+
+## After all fixes
+
+1. Verify the app starts without errors
+2. Verify login still works (token now in cookie, not localStorage)
+3. Verify WebSocket connections still work
+4. Verify the reset endpoint requires confirmation
+5. Run database migration if the index needs applying
+6. Check console/logs — workflow trigger errors should now appear in logs

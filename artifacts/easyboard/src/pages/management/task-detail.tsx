@@ -41,11 +41,10 @@ export default function TaskDetail() {
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
-    const token = localStorage.getItem('token');
     try {
       const response = await fetch(`/api/tasks/${id}/evidence`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
         body: formData,
       });
       if (!response.ok) {

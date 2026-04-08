@@ -4,11 +4,6 @@ import { SecretarySidebar } from "@/components/SecretarySidebar";
 import { GitBranch, ChevronRight, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react";
 
 const API_BASE = "";
-const getToken = () => localStorage.getItem("token");
-const authHeaders = () => {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
-};
 
 interface WorkflowStage {
   id: string;
@@ -59,7 +54,7 @@ export default function SecretaryWorkflows() {
   const { data: workflows = [], isLoading } = useQuery<Workflow[]>({
     queryKey: ["workflows"],
     queryFn: () =>
-      fetch(`${API_BASE}/api/workflows`, { headers: authHeaders() }).then((r) => r.json()),
+      fetch(`${API_BASE}/api/workflows`, { credentials: "include" }).then((r) => r.json()),
   });
 
   return (

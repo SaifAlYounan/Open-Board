@@ -17,11 +17,6 @@ const STATUS_COLORS: Record<string, { color: string; label: string }> = {
   overdue:            { color: '#ff3b30', label: 'Overdue' },
 };
 
-function getToken() { return localStorage.getItem('token'); }
-function authHeaders() {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
-}
 
 export default function SecretaryTaskDetail() {
   const params = useParams<{ id: string }>();
@@ -52,7 +47,8 @@ export default function SecretaryTaskDetail() {
     setSaving(true);
     const res = await fetch(`/api/tasks/${id}`, {
       method: 'PATCH',
-      headers: authHeaders(),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(editForm),
     });
     setSaving(false);

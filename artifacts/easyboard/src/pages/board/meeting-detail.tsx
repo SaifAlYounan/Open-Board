@@ -30,9 +30,8 @@ export default function BoardMeetingDetail() {
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
     fetch(`/api/meetings/${id}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
     })
       .then((r) => {
         if (!r.ok) throw new Error();

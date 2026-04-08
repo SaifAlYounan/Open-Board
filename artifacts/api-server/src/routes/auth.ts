@@ -42,6 +42,16 @@ router.post("/auth/login", loginLimiter, async (req, res): Promise<void> => {
 
   const token = signToken({ userId: person.id, email: person.email, role: person.role });
   const { passwordHash: _, ...safeUser } = person;
+
+  const isProd = process.env.NODE_ENV === "production";
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "strict" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+
   res.json({ token, user: { ...safeUser, avatarColor: person.avatarColor } });
   audit(req, "login", "person", person.id, { email: person.email, role: person.role });
 });
@@ -53,6 +63,7 @@ router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/auth/logout", async (_req, res): Promise<void> => {
+  res.clearCookie("token", { path: "/" });
   res.json({ ok: true });
 });
 

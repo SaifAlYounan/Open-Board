@@ -349,13 +349,9 @@ export async function customFetch<T = unknown>(
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-  if (token && !headers.has("authorization")) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
-
   // Attach bearer token when an auth getter is configured and no
   // Authorization header has been explicitly provided.
+  // (Web apps rely on HttpOnly session cookies sent automatically via credentials: "include")
   if (_authTokenGetter && !headers.has("authorization")) {
     const token = await _authTokenGetter();
     if (token) {
@@ -365,7 +361,7 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  const response = await fetch(input, { ...init, method, headers, credentials: "include" });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

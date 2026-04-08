@@ -7,11 +7,6 @@ import {
 } from "lucide-react";
 
 const API_BASE = "";
-const getToken = () => localStorage.getItem("token");
-const authHeaders = () => {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
-};
 
 interface VoteStats {
   totalVoters: number;
@@ -79,7 +74,7 @@ export default function WorkflowDetail() {
   const { data: workflow, isLoading } = useQuery<Workflow>({
     queryKey: ["workflows", id],
     queryFn: () =>
-      fetch(`${API_BASE}/api/workflows/${id}`, { headers: authHeaders() }).then((r) => r.json()),
+      fetch(`${API_BASE}/api/workflows/${id}`, { credentials: "include" }).then((r) => r.json()),
     enabled: !!id,
     refetchInterval: 5000,
   });

@@ -9,7 +9,6 @@ import {
   ArrowLeft, Clock, CheckCircle, XCircle, MinusCircle, Download, Upload, Trash2, FileText, Users, Shield, Calendar, Paperclip, X, Ban,
   GitBranch, ChevronRight, CheckCircle2
 } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
 
 function formatDate(d: string | null | undefined) {
   if (!d) return '—';
@@ -124,7 +123,6 @@ export default function SecretaryVoteDetail() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [showClose, setShowClose] = useState(false);
@@ -182,7 +180,7 @@ export default function SecretaryVoteDetail() {
   const handleDelete = async () => {
     const resp = await fetch(`/api/votes/${id}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
     });
     if (resp.status === 409) {
       toast({ title: 'Cannot delete', description: 'This vote has cast votes. Use Cancel Vote instead.', variant: 'destructive' });
@@ -225,7 +223,7 @@ export default function SecretaryVoteDetail() {
     try {
       const resp = await fetch(`/api/votes/${id}/documents`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
         body: formData,
       });
       if (!resp.ok) throw new Error('Upload failed');
@@ -243,7 +241,7 @@ export default function SecretaryVoteDetail() {
     try {
       await fetch(`/api/votes/${id}/documents/${docId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       toast({ title: 'Document removed' });
       queryClient.invalidateQueries({ queryKey: getGetVoteQueryKey(id) });
@@ -255,7 +253,7 @@ export default function SecretaryVoteDetail() {
   const handleDownloadCertificate = async () => {
     try {
       const resp = await fetch(`/api/votes/${id}/certificate`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
       });
       const cert = await resp.json();
       generateCertificatePDF(cert);

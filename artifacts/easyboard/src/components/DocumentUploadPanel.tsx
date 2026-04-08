@@ -27,7 +27,6 @@ export function DocumentUploadPanel() {
   }, []);
 
   const pollForClassification = (docId: string) => {
-    const token = localStorage.getItem('token');
     let attempts = 0;
     const maxAttempts = 30; // 30 × 3s = 90 seconds max
 
@@ -35,7 +34,7 @@ export function DocumentUploadPanel() {
       attempts++;
       try {
         const r = await fetch(`/api/documents/${docId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         });
         if (!r.ok) return;
         const doc = await r.json();
@@ -67,12 +66,11 @@ export function DocumentUploadPanel() {
 
     const formData = new FormData();
     formData.append('file', file);
-    const token = localStorage.getItem('token');
 
     try {
       const response = await fetch('/api/documents/upload', {
         method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        credentials: "include",
         body: formData,
       });
 

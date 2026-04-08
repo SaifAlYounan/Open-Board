@@ -23,6 +23,7 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -431,7 +432,7 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
   }
 
   if (status && ["approved", "rejected"].includes(status)) {
-    setImmediate(() => triggerWorkflowNextStage(id, status).catch(() => {}));
+    setImmediate(() => triggerWorkflowNextStage(id, status).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
   }
 
   const [board] = vote.boardId
@@ -582,7 +583,7 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
           .update(votesTable)
           .set({ status: newStatus as any, closedAt: new Date(), certificateHash: hash })
           .where(eq(votesTable.id, id));
-        setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch(() => {}));
+        setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
       }
     }
 

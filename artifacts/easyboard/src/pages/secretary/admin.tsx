@@ -25,14 +25,6 @@ const BOARD_ROLE_LABELS: Record<string, { label: string; color: string }> = {
   observer: { label: "Observer", color: "#34c759" },
 };
 
-function getToken() {
-  return localStorage.getItem("token");
-}
-
-function authHeaders() {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
-}
 
 // ─── People Tab ──────────────────────────────────────────────────────────────
 
@@ -51,7 +43,8 @@ function PeopleTab() {
   async function toggleActive(person: any) {
     const res = await fetch(`${API_BASE}/api/people/${person.id}`, {
       method: "PATCH",
-      headers: authHeaders(),
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ active: !person.active }),
     });
     if (res.ok) {
@@ -71,7 +64,8 @@ function PeopleTab() {
     setSaving(true);
     const res = await fetch(`${API_BASE}/api/people/${personId}`, {
       method: "PATCH",
-      headers: authHeaders(),
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(editForm),
     });
     setSaving(false);
@@ -92,7 +86,8 @@ function PeopleTab() {
     setSaving(true);
     const res = await fetch(`${API_BASE}/api/people`, {
       method: "POST",
-      headers: authHeaders(),
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(addForm),
     });
     setSaving(false);
@@ -365,7 +360,7 @@ function BoardMembersTab() {
   async function removeMember(personId: string) {
     const res = await fetch(`${API_BASE}/api/boards/${selectedBoardId}/members/${personId}`, {
       method: "DELETE",
-      headers: authHeaders(),
+      credentials: "include",
     });
     if (res.ok) {
       queryClient.invalidateQueries({ queryKey: getGetBoardQueryKey(selectedBoardId!) });
@@ -383,7 +378,8 @@ function BoardMembersTab() {
     setSaving(true);
     const res = await fetch(`${API_BASE}/api/boards/${selectedBoardId}/members`, {
       method: "POST",
-      headers: authHeaders(),
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(addMemberForm),
     });
     setSaving(false);
@@ -636,11 +632,9 @@ function AuditTab() {
 
   useEffect(() => {
     setLoading(true);
-    const token = localStorage.getItem("token");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
     Promise.all([
-      fetch(`${API_BASE}/api/audit?limit=500`, { headers }).then(r => r.json()),
-      fetch(`${API_BASE}/api/audit/people`, { headers }).then(r => r.json()),
+      fetch(`${API_BASE}/api/audit?limit=500`, { credentials: "include" }).then(r => r.json()),
+      fetch(`${API_BASE}/api/audit/people`, { credentials: "include" }).then(r => r.json()),
     ]).then(([logData, peopleData]) => {
       setLogs(Array.isArray(logData) ? logData : []);
       setPeople(Array.isArray(peopleData) ? peopleData : []);
@@ -802,7 +796,9 @@ function SystemTab() {
     try {
       const res = await fetch(`${API_BASE}/api/system/reset-data`, {
         method: "POST",
-        headers: authHeaders(),
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ confirm: "RESET" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Reset failed");
