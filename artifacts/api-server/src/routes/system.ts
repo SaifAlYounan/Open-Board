@@ -28,6 +28,7 @@ import {
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { audit } from "../lib/auditLog";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -44,34 +45,37 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
       }
     }
 
-    // Delete in FK-safe order — children before parents
-    await db.delete(minutesSignaturesTable);
-    await db.delete(minutesSuggestionsTable);
-    await db.delete(minutesTable);
-    await db.delete(agendaDocumentsTable);
-    await db.delete(agendaItemsTable);
-    await db.delete(attendanceTable);
-    await db.delete(pendingActionsTable);
-    await db.delete(voteRecordsTable);
-    await db.delete(approvalRuleWeightsTable);
-    await db.delete(approvalRuleRecusalsTable);
-    await db.delete(approvalRuleRequiredVotersTable);
-    await db.delete(approvalRulesTable);
-    await db.delete(voteDocumentsTable);
-    await db.delete(workflowStagesTable);
-    await db.delete(approvalWorkflowsTable);
-    await db.delete(votesTable);
-    await db.delete(taskEvidenceTable);
-    await db.delete(tasksTable);
-    await db.delete(meetingsTable);
-    await db.delete(documentsTable);
+    // Wrap all deletes in a transaction for atomicity
+    await db.transaction(async (tx) => {
+      // Delete in FK-safe order — children before parents
+      await tx.delete(minutesSignaturesTable);
+      await tx.delete(minutesSuggestionsTable);
+      await tx.delete(minutesTable);
+      await tx.delete(agendaDocumentsTable);
+      await tx.delete(agendaItemsTable);
+      await tx.delete(attendanceTable);
+      await tx.delete(pendingActionsTable);
+      await tx.delete(voteRecordsTable);
+      await tx.delete(approvalRuleWeightsTable);
+      await tx.delete(approvalRuleRecusalsTable);
+      await tx.delete(approvalRuleRequiredVotersTable);
+      await tx.delete(approvalRulesTable);
+      await tx.delete(voteDocumentsTable);
+      await tx.delete(workflowStagesTable);
+      await tx.delete(approvalWorkflowsTable);
+      await tx.delete(votesTable);
+      await tx.delete(taskEvidenceTable);
+      await tx.delete(tasksTable);
+      await tx.delete(meetingsTable);
+      await tx.delete(documentsTable);
 
-    // Remove access control entries for transactional entities only
-    await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "vote"));
-    await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "meeting"));
-    await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "minutes"));
-    await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "task"));
-    await db.delete(accessControlTable).where(eq(accessControlTable.entityType, "document"));
+      // Remove access control entries for transactional entities only
+      await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "vote"));
+      await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "meeting"));
+      await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "minutes"));
+      await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "task"));
+      await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "document"));
+    });
 
     audit(req, "data_reset", undefined, undefined, { clearedBy: req.user?.email });
     res.json({
@@ -79,7 +83,7 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
       message: "All transactional data cleared. Company, people, and board rooms are preserved.",
     });
   } catch (err: any) {
-    console.error("[system/reset-data]", err.message, err.cause?.message);
+    logger.error({ err }, "[system/reset-data] failed");
     res.status(500).json({ error: err.cause?.message || err.message });
   }
 });

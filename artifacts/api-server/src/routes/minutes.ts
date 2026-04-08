@@ -15,13 +15,24 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { logger } from "../lib/logger";
+import { writeLimiter } from "../lib/rateLimiters";
 
 const COMMENT_COLORS = [
   "#ff3b30", "#ff9500", "#34c759", "#0071e3", "#5856d6", "#af52de",
   "#ff2d55", "#5ac8fa", "#30b0c7", "#64d2ff",
 ];
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
+
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
 
 router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
@@ -92,7 +103,7 @@ router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
   res.json(result.filter(Boolean));
 });
 
-router.post("/minutes", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/minutes", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const { meetingId, content } = req.body;
   if (!meetingId || content == null) {
     res.status(400).json({ error: "Required: meetingId, content" });
@@ -209,7 +220,7 @@ router.get("/minutes/:id", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
-router.patch("/minutes/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { content } = req.body;
   if (content == null) {
@@ -231,7 +242,7 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, async (req, res): Promis
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
-router.patch("/minutes/:id/status", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/minutes/:id/status", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { status } = req.body;
   if (!status) {
@@ -254,7 +265,7 @@ router.patch("/minutes/:id/status", requireAuth, requireAdmin, async (req, res):
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
-router.post("/minutes/:id/sign", requireAuth, async (req, res): Promise<void> => {
+router.post("/minutes/:id/sign", requireAuth, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
@@ -285,7 +296,8 @@ router.post("/minutes/:id/sign", requireAuth, async (req, res): Promise<void> =>
       res.status(409).json({ error: "Already signed" });
       return;
     }
-    throw err;
+    logger.error({ err }, "Failed to record minutes signature");
+    res.status(500).json({ error: "Failed to record signature" });
   }
 });
 
@@ -330,7 +342,7 @@ router.get("/minutes/:id/comments", requireAuth, async (req, res): Promise<void>
   res.json(result);
 });
 
-router.post("/minutes/:id/comments", requireAuth, async (req, res): Promise<void> => {
+router.post("/minutes/:id/comments", requireAuth, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
   const { originalText, commentText } = req.body;
@@ -361,7 +373,7 @@ router.post("/minutes/:id/comments", requireAuth, async (req, res): Promise<void
   res.status(201).json({ ...comment, person: safePerson });
 });
 
-router.patch("/minutes/:id/comments/:commentId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/minutes/:id/comments/:commentId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const commentId = Array.isArray(req.params.commentId) ? req.params.commentId[0] : req.params.commentId;
   const { status } = req.body;
 

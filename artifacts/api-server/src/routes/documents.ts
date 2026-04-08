@@ -17,6 +17,7 @@ import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
+import { writeLimiter } from "../lib/rateLimiters";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,17 +53,17 @@ async function extractTextFromPdf(filePath: string): Promise<string> {
       ["-layout", "-enc", "UTF-8", filePath, "-"],
       { maxBuffer: 50 * 1024 * 1024 }
     );
-    if (stderr) console.warn("[pdf] pdftotext stderr:", stderr.slice(0, 200));
+    if (stderr) logger.warn({ stderr: stderr.slice(0, 200) }, "[pdf] pdftotext stderr");
     const extracted = stdout?.trim() ?? "";
     if (extracted.length > 0) {
-      console.log(`[pdf] pdftotext extracted ${extracted.length} chars`);
+      logger.info({ chars: extracted.length }, "[pdf] pdftotext extracted text");
       return stdout;
     }
   } catch (err) {
     const msg = (err as NodeJS.ErrnoException).code === "ENOENT"
       ? "pdftotext not found in PATH — using pdf-parse fallback"
       : `pdftotext failed: ${(err as Error).message}`;
-    console.warn("[pdf]", msg);
+    logger.warn(`[pdf] ${msg}`);
   }
 
   // Fallback: pdf-parse v1 (pure JS, works in any Node.js environment)
@@ -73,12 +74,12 @@ async function extractTextFromPdf(filePath: string): Promise<string> {
     const data = await pdfParse(buffer, { max: 0 });
     const extracted = data.text?.trim() ?? "";
     if (extracted.length > 0) {
-      console.log(`[pdf] pdf-parse extracted ${extracted.length} chars`);
+      logger.info({ chars: extracted.length }, "[pdf] pdf-parse extracted text");
       return data.text;
     }
-    console.warn("[pdf] pdf-parse returned empty — PDF may be image-only or encrypted");
+    logger.warn("[pdf] pdf-parse returned empty — PDF may be image-only or encrypted");
   } catch (err) {
-    console.error("[pdf] pdf-parse failed:", (err as Error).message);
+    logger.error({ err }, "[pdf] pdf-parse failed");
   }
 
   return "";
@@ -101,7 +102,7 @@ async function extractText(filePath: string, mimeType: string, originalName: str
       if (result.value) return result.value;
     }
   } catch (err) {
-    console.error("[extractText] unexpected error:", (err as Error).message);
+    logger.error({ err }, "[extractText] unexpected error");
   }
   return "Could not extract text from document.";
 }
@@ -114,7 +115,7 @@ function truncateText(text: string, maxChars = 48000): string {
 
 const router = Router();
 
-router.post("/documents/upload", requireAuth, (req, res, next) => {
+router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
     if (err) {
       const msg = err.message || "Upload failed";
@@ -273,7 +274,7 @@ router.get("/documents/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ ...doc, uploaderName: uploader[0]?.name || null });
 });
 
-router.delete("/documents/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.delete("/documents/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
   await db.delete(documentsTable).where(eq(documentsTable.id, id));
@@ -281,7 +282,7 @@ router.delete("/documents/:id", requireAuth, requireAdmin, async (req, res): Pro
   res.sendStatus(204);
 });
 
-router.post("/documents/:id/reclassify", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/documents/:id/reclassify", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
   if (!doc) {

@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import { UploadCloud, FileType, CheckCircle2, AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PendingActionCard } from "./PendingActionCard";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListDocumentsQueryKey, getListPendingActionsQueryKey, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 
@@ -14,6 +13,7 @@ export function DocumentUploadPanel() {
   const [classifying, setClassifying] = useState(false);
   const [classification, setClassification] = useState<any>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -122,6 +122,13 @@ export function DocumentUploadPanel() {
     }
   };
 
+  const onDropZoneKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInputRef.current?.click();
+    }
+  };
+
   const reset = () => {
     stopPolling();
     setResult(null);
@@ -139,6 +146,10 @@ export function DocumentUploadPanel() {
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        onKeyDown={onDropZoneKeyDown}
+        tabIndex={0}
+        role="button"
+        aria-label="Upload document area. Press Enter or Space to browse files, or drag and drop."
         data-testid="panel-document-upload"
       >
         {isUploading ? (
@@ -179,7 +190,7 @@ export function DocumentUploadPanel() {
               <span className="bg-[#f5f5f7] text-[#1d1d1f] hover:bg-[#e8e8ed] px-6 py-2.5 rounded-full font-medium transition-colors inline-block">
                 Browse Files
               </span>
-              <input type="file" className="hidden" onChange={onFileChange} accept=".pdf,.docx,.txt" data-testid="input-file-upload" />
+              <input ref={fileInputRef} type="file" className="hidden" onChange={onFileChange} accept=".pdf,.docx,.txt" data-testid="input-file-upload" />
             </label>
           </div>
         )}

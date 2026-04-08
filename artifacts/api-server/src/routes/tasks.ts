@@ -16,13 +16,23 @@ import { callAI, REVIEW_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
+import { writeLimiter } from "../lib/rateLimiters";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 10 * 1024 * 1024 } });
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
+
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
 
 let taskSequence = 1;
 async function getNextTaskNumber(): Promise<string> {
@@ -87,7 +97,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   res.json(result);
 });
 
-router.post("/tasks", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const { boardId, title, description, assigneeId, sourceMeetingId, sourceMinutesId, dueDate, sourceParagraph } = req.body;
   if (!title) {
     res.status(400).json({ error: "title required" });
@@ -176,7 +186,7 @@ router.get("/tasks/:id", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
-router.patch("/tasks/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { title, description, assigneeId, status, dueDate } = req.body;
   const updates: Record<string, unknown> = {};
@@ -201,7 +211,7 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, async (req, res): Promise<
   res.json({ ...task, assignee: assignee[0] ? safeAssignee : null, sourceMeetingTitle: null });
 });
 
-router.delete("/tasks/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.delete("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
   await db.delete(tasksTable).where(eq(tasksTable.id, id));
@@ -210,7 +220,7 @@ router.delete("/tasks/:id", requireAuth, requireAdmin, async (req, res): Promise
 });
 
 // Evidence upload
-router.post("/tasks/:id/evidence", requireAuth, upload.single("file"), async (req, res): Promise<void> => {
+router.post("/tasks/:id/evidence", requireAuth, writeLimiter, upload.single("file"), async (req, res): Promise<void> => {
   const taskId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
@@ -291,7 +301,7 @@ ${evidenceText}`;
   res.json({ ...updatedEvidence, submitter: safePerson });
 });
 
-router.post("/tasks/:id/evidence/review", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/tasks/:id/evidence/review", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const taskId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { evidenceId, decision, comment } = req.body;
   if (!evidenceId || !decision) {

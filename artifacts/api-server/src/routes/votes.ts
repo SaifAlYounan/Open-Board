@@ -24,8 +24,18 @@ import { grantDefaultAccess, hasAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 import { logger } from "../lib/logger";
+import { writeLimiter } from "../lib/rateLimiters";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
+
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -161,11 +171,22 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   res.json(result);
 });
 
-router.post("/votes", requireAuth, requireAdmin, async (req, res): Promise<void> => {
-  const { boardId, meetingId, resolutionNumber, title, resolutionText, type, deadline, approvalRule } = req.body;
-  if (!boardId || !resolutionNumber || !title || !resolutionText || !type) {
-    res.status(400).json({ error: "Required: boardId, resolutionNumber, title, resolutionText, type" });
+router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
+  const { boardId, meetingId, resolutionNumber: rawResolutionNumber, title, resolutionText, type, deadline, approvalRule } = req.body;
+  if (!boardId || !title || !resolutionText || !type) {
+    res.status(400).json({ error: "Required: boardId, title, resolutionText, type" });
     return;
+  }
+
+  // Generate resolution number server-side if not provided
+  let resolutionNumber = rawResolutionNumber;
+  if (!resolutionNumber) {
+    const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, boardId));
+    const abbrev = board?.abbreviation || "GEN";
+    const year = new Date().getFullYear();
+    const existing = await db.select().from(votesTable).where(eq(votesTable.boardId, boardId));
+    const count = existing.length + 1;
+    resolutionNumber = `RES-${abbrev}-${year}-${String(count).padStart(3, "0")}`;
   }
 
   const [vote] = await db
@@ -406,7 +427,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
-router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { title, resolutionText, deadline, status } = req.body;
   const updates: Record<string, unknown> = {};
@@ -461,7 +482,7 @@ router.patch("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<
   });
 });
 
-router.delete("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.delete("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
   const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
@@ -501,7 +522,7 @@ router.delete("/votes/:id", requireAuth, requireAdmin, async (req, res): Promise
   res.sendStatus(204);
 });
 
-router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
+router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Promise<void> => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const user = req.user!;
@@ -603,7 +624,7 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
       res.status(409).json({ error: "You have already voted" });
       return;
     }
-    console.error("[votes] cast error:", anyErr.message);
+    logger.error({ err: anyErr }, "[votes] cast error");
     res.status(500).json({ error: "Failed to record vote" });
   }
 });
@@ -636,7 +657,7 @@ router.get("/votes/:id/documents", requireAuth, async (req, res): Promise<void> 
   res.json(docsWithUploader);
 });
 
-router.post("/votes/:id/documents", requireAuth, (req, res, next) => {
+router.post("/votes/:id/documents", requireAuth, writeLimiter, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
     if (err) {
       res.status(400).json({ error: err.message || "Upload failed" });

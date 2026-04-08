@@ -24,6 +24,13 @@ export default function SecretaryMembers() {
 
           {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading...</div>}
 
+          {!isLoading && (people as any[] || []).length === 0 && (
+            <div className="text-center py-16 text-[#86868b] text-sm bg-white rounded-2xl border border-[#e5e5e7]">
+              No members found.
+            </div>
+          )}
+
+          {(people as any[] || []).length > 0 && (
           <div className="bg-white rounded-2xl border border-[#e5e5e7] overflow-hidden">
             <table className="w-full">
               <thead>
@@ -63,6 +70,7 @@ export default function SecretaryMembers() {
               </tbody>
             </table>
           </div>
+          )}
         </div>
       </main>
     </div>
