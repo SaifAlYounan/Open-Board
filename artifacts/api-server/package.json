@@ -26,6 +26,7 @@
     "pdf-parse": "^1.1.4",
     "pino": "^9",
     "pino-http": "^10",
+    "sanitize-html": "^2.17.2",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
@@ -36,6 +37,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "catalog:",
+    "@types/sanitize-html": "^2.16.1",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",

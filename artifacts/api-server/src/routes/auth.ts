@@ -18,11 +18,21 @@ const loginLimiter = rateLimit({
   message: { error: "Too many login attempts. Please wait 15 minutes before trying again." },
 });
 
+const loginLimiterByEmail = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => `email:${(req.body.email as string)?.toLowerCase() ?? "unknown"}`,
+  validate: { xForwardedForHeader: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many login attempts for this account. Try again later." },
+});
+
 const loginAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
 const MAX_FAILURES = 30;
 const LOCKOUT_MS = 24 * 60 * 60 * 1000;
 
-router.post("/auth/login", loginLimiter, async (req, res): Promise<void> => {
+router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): Promise<void> => {
   const { email, password } = req.body;
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !password || !emailRegex.test(email)) {

@@ -31,14 +31,16 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 router.get("/audit", requireAuth, requireAdmin, async (req, res): Promise<void> => {
-  const { personId, action, search, limit = "200", offset = "0" } = req.query;
+  const { personId, action, search, limit, offset } = req.query;
+  const safeLimit = Math.min(parseInt(limit as string) || 50, 200);
+  const safeOffset = Math.max(parseInt(offset as string) || 0, 0);
 
   const rows = await db
     .select()
     .from(auditTrailTable)
     .orderBy(desc(auditTrailTable.createdAt))
-    .limit(Number(limit))
-    .offset(Number(offset));
+    .limit(safeLimit)
+    .offset(safeOffset);
 
   let filtered = rows;
   if (personId) filtered = filtered.filter((r) => r.personId === personId);

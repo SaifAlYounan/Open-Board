@@ -20,6 +20,8 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { sanitizeText } from "../lib/sanitize";
+import { pick } from "../lib/pick";
 import { grantDefaultAccess, hasAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
@@ -171,12 +173,17 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   res.json(result);
 });
 
+const VALID_VOTE_STATUSES = ["open", "approved", "rejected", "lapsed", "cancelled"];
+
 router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
-  const { boardId, meetingId, resolutionNumber: rawResolutionNumber, title, resolutionText, type, deadline, approvalRule } = req.body;
+  const { boardId, meetingId, resolutionNumber: rawResolutionNumber, title, resolutionText, type, deadline, approvalRule } = pick(req.body, ["boardId", "meetingId", "resolutionNumber", "title", "resolutionText", "type", "deadline", "approvalRule"] as (keyof typeof req.body)[]) as { boardId?: string; meetingId?: string; resolutionNumber?: string; title?: string; resolutionText?: string; type?: string; deadline?: string; approvalRule?: unknown };
   if (!boardId || !title || !resolutionText || !type) {
     res.status(400).json({ error: "Required: boardId, title, resolutionText, type" });
     return;
   }
+
+  const cleanTitle = sanitizeText(title);
+  const cleanResolutionText = sanitizeText(resolutionText);
 
   // Generate resolution number server-side if not provided
   let resolutionNumber = rawResolutionNumber;
@@ -195,8 +202,8 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
       boardId,
       meetingId,
       resolutionNumber,
-      title,
-      resolutionText,
+      title: cleanTitle,
+      resolutionText: cleanResolutionText,
       type,
       deadline: deadline ? new Date(deadline) : null,
     })
@@ -429,10 +436,14 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, resolutionText, deadline, status } = req.body;
+  const { title, resolutionText, deadline, status } = pick(req.body, ["title", "resolutionText", "deadline", "status"] as (keyof typeof req.body)[]) as { title?: string; resolutionText?: string; deadline?: string; status?: string };
+  if (status != null && !VALID_VOTE_STATUSES.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_VOTE_STATUSES.join(", ")}` });
+    return;
+  }
   const updates: Record<string, unknown> = {};
-  if (title != null) updates.title = title;
-  if (resolutionText != null) updates.resolutionText = resolutionText;
+  if (title != null) updates.title = sanitizeText(title);
+  if (resolutionText != null) updates.resolutionText = sanitizeText(resolutionText);
   if (deadline != null) updates.deadline = new Date(deadline);
   if (status != null) {
     updates.status = status;

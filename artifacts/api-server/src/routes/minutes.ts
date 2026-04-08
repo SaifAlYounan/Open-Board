@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { sanitizeRichHtml } from "../lib/sanitize";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
@@ -110,11 +111,13 @@ router.post("/minutes", requireAuth, requireAdmin, writeLimiter, async (req, res
     return;
   }
 
+  const cleanContent = sanitizeRichHtml(content);
+
   // If minutes already exist for this meeting, update content instead of inserting (unique constraint on meeting_id)
   const existingList = await db.select().from(minutesTable).where(eq(minutesTable.meetingId, meetingId)).limit(1);
   if (existingList.length) {
     const existing = existingList[0];
-    const [updated] = await db.update(minutesTable).set({ content, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
+    const [updated] = await db.update(minutesTable).set({ content: cleanContent, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
     const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
     audit(req, "minutes_saved", "minutes", existing.id, { meetingTitle: meeting?.title });
     res.json({ ...updated, meetingTitle: meeting?.title || null, meetingDate: meeting?.date || null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
@@ -123,7 +126,7 @@ router.post("/minutes", requireAuth, requireAdmin, writeLimiter, async (req, res
 
   const [minutes] = await db
     .insert(minutesTable)
-    .values({ meetingId, content })
+    .values({ meetingId, content: cleanContent })
     .returning();
 
   // Grant access based on board

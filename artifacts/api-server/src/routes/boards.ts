@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, boardsTable, boardMembershipsTable, peopleTable, organizationsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { sanitizeText } from "../lib/sanitize";
 import { sql } from "drizzle-orm";
 
 const router = Router();
@@ -48,7 +49,7 @@ router.post("/boards", requireAuth, requireAdmin, async (req, res): Promise<void
   const [org] = await db.select().from(organizationsTable);
   const [board] = await db
     .insert(boardsTable)
-    .values({ name, abbreviation, type, organizationId: org?.id })
+    .values({ name: sanitizeText(name), abbreviation: abbreviation ? sanitizeText(abbreviation) : undefined, type, organizationId: org?.id })
     .returning();
   res.status(201).json({ ...board, memberCount: 0 });
 });

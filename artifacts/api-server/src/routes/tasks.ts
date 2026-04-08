@@ -12,6 +12,8 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { sanitizeText } from "../lib/sanitize";
+import { pick } from "../lib/pick";
 import { callAI, REVIEW_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
@@ -98,7 +100,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
-  const { boardId, title, description, assigneeId, sourceMeetingId, sourceMinutesId, dueDate, sourceParagraph } = req.body;
+  const { boardId, title, description, assigneeId, sourceMeetingId, sourceMinutesId, dueDate, sourceParagraph } = pick(req.body, ["boardId", "title", "description", "assigneeId", "sourceMeetingId", "sourceMinutesId", "dueDate", "sourceParagraph"] as (keyof typeof req.body)[]) as { boardId?: string; title?: string; description?: string; assigneeId?: string; sourceMeetingId?: string; sourceMinutesId?: string; dueDate?: string; sourceParagraph?: string };
   if (!title) {
     res.status(400).json({ error: "title required" });
     return;
@@ -110,13 +112,13 @@ router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res):
     .insert(tasksTable)
     .values({
       boardId,
-      title,
-      description,
+      title: sanitizeText(title),
+      description: description ? sanitizeText(description) : undefined,
       assigneeId,
       sourceMeetingId,
       sourceMinutesId,
       dueDate,
-      sourceParagraph,
+      sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
       taskNumber,
     })
     .returning();
@@ -188,10 +190,10 @@ router.get("/tasks/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, description, assigneeId, status, dueDate } = req.body;
+  const { title, description, assigneeId, status, dueDate } = pick(req.body, ["title", "description", "assigneeId", "status", "dueDate"] as (keyof typeof req.body)[]) as { title?: string; description?: string; assigneeId?: string; status?: string; dueDate?: string };
   const updates: Record<string, unknown> = {};
-  if (title != null) updates.title = title;
-  if (description != null) updates.description = description;
+  if (title != null) updates.title = sanitizeText(title);
+  if (description != null) updates.description = sanitizeText(description);
   if (assigneeId != null) updates.assigneeId = assigneeId;
   if (status != null) updates.status = status;
   if (dueDate != null) updates.dueDate = dueDate;

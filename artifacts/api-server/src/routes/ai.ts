@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, or, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { logger } from "../lib/logger";
 import {
   callAI,
   getDatabaseContext,
@@ -159,7 +160,7 @@ router.post("/ai/search", requireAuth, aiRateLimit, async (req, res): Promise<vo
       .limit(3),
     ]);
   } catch (dbErr: unknown) {
-    console.error("[ai/search] DB query failed:", (dbErr as Error).message);
+    logger.error({ err: dbErr }, "[ai/search] DB query failed");
     res.json({ answer: "Search is temporarily unavailable. Please try again.", sources: [] });
     return;
   }
@@ -189,7 +190,7 @@ router.post("/ai/search", requireAuth, aiRateLimit, async (req, res): Promise<vo
         );
     } catch (acErr: unknown) {
       // Fail-closed: on DB error, surface no results (prevents accidental exposure).
-      console.error("[ai/search] Access control query failed — returning empty results:", (acErr as Error).message);
+      logger.error({ err: acErr }, "[ai/search] Access control query failed — returning empty results");
       accessQueryFailed = true;
     }
 

@@ -1,0 +1,171 @@
+Fix these 7 remaining security issues. All are straightforward. Test after each fix.
+
+---
+
+## 1 — Sanitize inputs at the API boundary (HIGH)
+
+**Files:** All route files that accept text input — `routes/meetings.ts`, `routes/votes.ts`, `routes/minutes.ts`, `routes/tasks.ts`, `routes/boards.ts`
+
+**Problem:** Text fields (meeting titles, vote titles, resolution text, comments, task descriptions) accept raw HTML including `<script>` tags. DOMPurify catches it on the frontend, but the API should never store unsanitized HTML.
+
+**Fix:** Install sanitize-html on the server:
+```bash
+cd artifacts/api-server && npm install sanitize-html && npm install -D @types/sanitize-html
+```
+
+Create a utility:
+```typescript
+// src/lib/sanitize.ts
+import sanitizeHtml from "sanitize-html";
+
+export function sanitizeText(input: string): string {
+  return sanitizeHtml(input, {
+    allowedTags: [],      // strip ALL HTML tags
+    allowedAttributes: {}, // strip ALL attributes
+  });
+}
+```
+
+Then in every POST/PATCH route that accepts text fields, sanitize before saving:
+```typescript
+import { sanitizeText } from "../lib/sanitize";
+
+// Before inserting/updating:
+const title = sanitizeText(req.body.title);
+const description = sanitizeText(req.body.description);
+```
+
+**Exception:** Minutes content (`routes/minutes.ts`) uses rich HTML intentionally — for that field only, use a more permissive config that allows formatting tags but strips scripts:
+```typescript
+export function sanitizeRichHtml(input: string): string {
+  return sanitizeHtml(input, {
+    allowedTags: ["b", "i", "u", "strong", "em", "p", "br", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "blockquote", "table", "thead", "tbody", "tr", "th", "td"],
+    allowedAttributes: {
+      a: ["href", "target"],
+    },
+  });
+}
+```
+
+---
+
+## 2 — Validate vote status values (MEDIUM)
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** PATCH /votes/:id accepts any string as status. Sending `{"status":"closed"}` stores an invalid status — the vote enters a broken state with no certificate hash.
+
+**Fix:** Add validation before updating:
+```typescript
+const VALID_VOTE_STATUSES = ["open", "approved", "rejected", "lapsed", "cancelled"];
+
+// In the PATCH handler:
+if (req.body.status && !VALID_VOTE_STATUSES.includes(req.body.status)) {
+  return res.status(400).json({ 
+    error: `Invalid status. Must be one of: ${VALID_VOTE_STATUSES.join(", ")}` 
+  });
+}
+```
+
+---
+
+## 3 — Strip unknown fields from PATCH/POST bodies (MEDIUM)
+
+**Files:** All route files with POST/PATCH handlers
+
+**Problem:** Endpoints accept and silently ignore extra fields. An attacker could probe for hidden fields or future columns.
+
+**Fix:** Create a pick utility:
+```typescript
+// src/lib/pick.ts
+export function pick<T extends object>(obj: T, keys: (keyof T)[]): Partial<T> {
+  const result: Partial<T> = {};
+  for (const key of keys) {
+    if (key in obj) result[key] = obj[key];
+  }
+  return result;
+}
+```
+
+Use it in each route:
+```typescript
+import { pick } from "../lib/pick";
+
+// Example for votes PATCH:
+const allowed = pick(req.body, ["title", "description", "status", "boardId", "resolutionText", "customQuorum", "customMinApprovals"]);
+// Use `allowed` instead of `req.body` for the update
+```
+
+Apply the same pattern to all POST/PATCH handlers — only allow documented fields through.
+
+---
+
+## 4 — Replace console.error with logger (LOW)
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** Uses `console.error` instead of the project's pino logger. Inconsistent log format, no structured correlation.
+
+**Fix:** Replace:
+```typescript
+console.error("Error:", err);
+```
+With:
+```typescript
+logger.error({ err }, "Vote operation failed");
+```
+
+Check all other route files for any remaining `console.log` / `console.error` / `console.warn` and replace with `logger.info` / `logger.error` / `logger.warn`.
+
+---
+
+## 5 — Cap audit log pagination (LOW)
+
+**File:** `artifacts/api-server/src/routes/audit.ts` (or wherever audit logs are served)
+
+**Problem:** No maximum limit on pagination — admin can request limit=999999 and get a massive result set.
+
+**Fix:**
+```typescript
+const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+```
+
+---
+
+## 6 — Add max limit to all paginated endpoints (LOW)
+
+**Files:** Any endpoint that accepts `limit` / `offset` query params
+
+**Fix:** Same pattern as #5 — cap limit at 200 (or 100) for all list endpoints. Apply to boards, votes, meetings, minutes, documents, tasks, people.
+
+---
+
+## 7 — Add user-level rate limiting alongside IP-based (LOW)
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Rate limiting is IP-based only. Behind shared IPs (corporate networks, VPNs), one user's failed attempts could lock out all users on that IP.
+
+**Fix:** Add a secondary rate limiter keyed on the email being attempted:
+```typescript
+const loginLimiterByEmail = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => req.body.email?.toLowerCase() || req.ip,
+  message: { error: "Too many login attempts for this account. Try again later." },
+});
+
+router.post("/login", loginLimiterByIp, loginLimiterByEmail, async (req, res) => { ... });
+```
+
+---
+
+## AFTER ALL FIXES
+
+1. Test: create a meeting with title `<script>alert(1)</script>` — the saved title should have the script tag stripped
+2. Test: PATCH a vote with `{"status":"closed"}` — should get 400 error
+3. Test: PATCH a vote with extra field `{"status":"open","hackerField":"test"}` — hackerField should be ignored (not stored)
+4. Test: check server logs — no console.error, all structured via pino
+5. Test: GET audit logs with limit=99999 — should be capped at 200
+6. Verify all existing functionality still works (login, vote, minutes)
