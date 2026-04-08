@@ -139,4 +139,23 @@ We monitor dependencies for known vulnerabilities and update promptly.
 
 ---
 
+### Audit History
+
+EasyBoard has undergone four rounds of automated adversarial security auditing:
+
+- **Round 1:** 4 critical, 5 high, 8 medium, 3 low — all fixed
+- **Round 2:** 0 critical, 1 high, 2 medium, 4 low — all fixed
+- **Round 3:** 0 critical, 2 high, 4 medium, 4 low — all fixed
+- **Round 4:** 2 critical, 4 high, 6 medium, 5 low — fixes in progress
+
+Each round consists of:
+1. Fresh clone of the repository
+2. Static code review of every route and component
+3. Live API testing with curl across all roles (admin, member, observer, management)
+4. Permission boundary testing (IDOR, privilege escalation)
+5. Input validation testing (XSS, SQL injection, invalid UUIDs, arbitrary status values)
+6. Business logic testing (vote lifecycle, minutes workflow, access grants)
+
+Full findings from each round are documented in the [README changelog](README.md#changelog) and [Known Issues](README.md#known-issues-being-fixed).
+
 *Last updated: April 8, 2026*

@@ -226,6 +226,7 @@ EasyBoard is designed for organizations that take data sovereignty seriously.
 - Session restoration endpoint (`/api/auth/me`) for cookie-based session lookups
 - 7-day token expiry; environment-aware cookie settings (secure + strict in production, lax in development)
 - **Limitation:** Logout clears the cookie client-side but does not invalidate the JWT server-side. A stolen token remains valid until expiry. Server-side token revocation is planned.
+- **Known issue:** Login response currently returns the raw JWT in the JSON body alongside the cookie. This will be removed — the HttpOnly cookie is the sole intended auth mechanism.
 
 ### Input Sanitization
 - **Backend:** `sanitize-html` on most text inputs — two modes: plain text (all HTML stripped) and rich HTML (restricted allowlist: `b`, `i`, `u`, `strong`, `em`, `p`, `br`, `ul`, `ol`, `li`, `h1`–`h4`, `a`, `blockquote`, tables). *Known gap: minutes PATCH and vote cast comments are not yet sanitized — see [Known Issues](#known-issues-being-fixed).*
@@ -267,7 +268,7 @@ EasyBoard is designed for organizations that take data sovereignty seriously.
 ### Data Integrity
 - **Full audit trail** — every login, logout, password action, document event, and data reset logged with actor ID, entity, timestamp, and client IP
 - **SHA-256 signatures** — tamper-proof digital signatures on minutes
-- **CORS protection** — strict origin validation; only `*.replit.dev`, `*.replit.app`, and `localhost` accepted by default; configurable via `ALLOWED_ORIGIN` env var for production
+- **CORS protection** — strict origin validation. Defaults to `*.replit.dev`, `*.replit.app`, and `localhost` (for the Replit template). **For self-hosted or production deployments, set `ALLOWED_ORIGIN` to your actual domain** (e.g., `ALLOWED_ORIGIN=https://board.yourcompany.com`). The Replit defaults do not apply when `ALLOWED_ORIGIN` is set.
 - **System reset** requires admin + `{ confirm: "RESET" }` in request body + wrapped in a database transaction (FK-safe delete order)
 - **No CLOUD Act exposure** — when self-hosted, no foreign government can compel a vendor to produce your board documents
 
@@ -299,17 +300,18 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Security Audit Status
 
-EasyBoard has undergone three rounds of automated security auditing (source code review + live adversarial API testing). We believe in full transparency about what was found and what was fixed.
+EasyBoard has undergone four rounds of automated security auditing (source code review + live adversarial API testing). We believe in full transparency about what was found and what was fixed.
 
 ### Current Posture: CONDITIONAL PASS (as of April 8, 2026)
 
 **Round 1** found 4 critical, 5 high, 8 medium, 3 low vulnerabilities. All fixed.
 **Round 2** found 0 critical, 1 high, 2 medium, 4 low. All fixed.
-**Round 3** found 0 critical, 2 high, 4 medium, 4 low. Fixes in progress.
+**Round 3** found 0 critical, 2 high, 4 medium, 4 low. All fixed.
+**Round 4** found 2 critical, 4 high, 6 medium, 5 low. Fixes in progress.
 
 ### What Was Wrong (and fixed)
 
-These vulnerabilities existed in v2.0 and v2.1. They are now fixed in v2.2:
+These vulnerabilities existed in v2.0 and v2.1. They are now fixed:
 
 - **WebSocket had zero authentication.** Any visitor could connect and listen to live board events (vote closures, minute signatures, comments) without logging in. *Fixed: authenticate at handshake, verify board membership on room joins.*
 - **Any user could read any board's data.** No access control on board detail, vote detail, meeting detail, minutes comments, document metadata, or task endpoints. An observer on one board could read every other board's membership, votes, and documents. *Fixed: board membership checks on all endpoints.*
@@ -324,17 +326,32 @@ These vulnerabilities existed in v2.0 and v2.1. They are now fixed in v2.2:
 
 ### Known Issues (being fixed)
 
-These were found in Round 3 and are being addressed:
+These were found in Rounds 3–4 and are being addressed:
 
+**Critical / Functional:**
+- **Minutes signing workflow is broken.** The sign endpoint requires `status === "signing"` but "signing" is not in the valid status list. Minutes can never be signed. The frontend and backend use different status names (`review`/`signing` vs `pending_signature`/`approved`). Fix pending.
+- **JWT token returned in login response body.** The raw JWT is sent in the JSON response alongside the HttpOnly cookie. XSS can read the response body. Fix: remove token from response body.
+
+**High:**
+- **Management users bypass meeting access control.** The meeting detail endpoint explicitly exempts management from board membership checks. Any management user can read any meeting. Fix pending.
+- **Observer minutes navigation is a dead link.** Observers clicking published minutes get a 404 — the route points to a member-only page. Fix pending.
+- **No rate limiting on read endpoints.** All GET endpoints (boards, meetings, votes, documents) have no rate limiter. Mass enumeration possible at full speed. Fix pending.
+- **Vote/agenda item/task `type` and `status` fields accept arbitrary strings.** No enum validation on multiple PATCH/POST endpoints. Fix pending.
+
+**Medium:**
+- **No pagination caps on list endpoints.** All records returned with no server-side limit. Fix pending.
+- **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted (name + decision + comment). This may violate secret ballot principles depending on governance requirements. A configuration option for secret vs. open ballots is planned.
+- **Password reset tokens logged in plaintext.** Server logs contain the raw reset token. Fix: log token hash only.
+- **Task number sequence not transaction-safe.** Concurrent requests can produce duplicate task numbers. Fix pending.
+- **Resolution number uniqueness not enforced at DB level.** Fix: add unique constraint.
+- **Minutes comment/suggestion resolution accepts any string.** Fix pending.
+
+**Low / Platform:**
 - **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. This is a Replit platform limitation, not a code bug. Self-hosted deployments are unaffected.
-- **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted (name + decision + comment). This may violate secret ballot principles depending on your governance requirements. A configuration option for secret vs. open ballots is planned.
-- **Minutes PATCH doesn't sanitize content.** POST does, PATCH was missed. Fix pending.
-- **Meeting/minutes/people status fields accept arbitrary strings.** No enum validation on PATCH. Fix pending.
-- **Boards route missing UUID validation.** Returns 500 on invalid UUID instead of 400. Fix pending.
-- **No pagination caps on list endpoints.** All records returned. Fix pending.
-- **Vote cast comments not sanitized.** Fix pending.
-- **`/secretary/settings` is a dead route.** Sidebar links to it, page doesn't exist. Fix pending.
 - **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry.
+- **Content-Disposition header not sanitized in file downloads.** Fix pending.
+- **Sub-parameter UUIDs not validated.** Top-level `:id` params are validated, sub-params like `:personId` are not. Fix pending.
+- **`pick()` not applied to all mutation endpoints.** People routes still accept unfiltered request bodies. Fix pending.
 
 We will update this section as fixes are verified.
 
