@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'wouter';
+import { useParams, useLocation } from 'wouter';
 import { TopNav } from '@/components/TopNav';
 import { ArrowLeft, Calendar, MapPin, Users } from 'lucide-react';
 
@@ -24,6 +24,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 export default function BoardMeetingDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const [, navigate] = useLocation();
 
   const [meeting, setMeeting] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -59,7 +60,7 @@ export default function BoardMeetingDetail() {
         <main className="pt-20 px-8 pb-8 max-w-3xl mx-auto flex items-center justify-center" style={{ minHeight: 'calc(100vh - 80px)' }}>
           <div className="text-center">
             <div className="text-[#1d1d1f] font-medium mb-2">Meeting not found</div>
-            <button onClick={() => window.history.back()} className="text-[#0071e3] text-sm hover:underline">
+            <button onClick={() => navigate("/board")} className="text-[#0071e3] text-sm hover:underline">
               Go back
             </button>
           </div>
@@ -78,7 +79,7 @@ export default function BoardMeetingDetail() {
       <main className="pt-20 px-8 pb-8 max-w-3xl mx-auto space-y-6">
 
         <div>
-          <button onClick={() => window.history.back()}
+          <button onClick={() => navigate("/board")}
             className="flex items-center gap-1.5 text-sm text-[#86868b] hover:text-[#1d1d1f] mb-4 transition-colors">
             <ArrowLeft size={16} /> Back
           </button>

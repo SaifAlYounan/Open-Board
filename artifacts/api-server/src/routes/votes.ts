@@ -22,6 +22,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { pick } from "../lib/pick";
+import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess, hasAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
@@ -34,6 +35,14 @@ const router = Router();
 router.param("id", (_req, res, next, id) => {
   if (!UUID_REGEX.test(id)) {
     res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
+
+router.param("docId", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid docId format" });
     return;
   }
   next();
@@ -100,6 +109,7 @@ function buildApprovalSummary(rule: {
 router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
   const { boardId, status } = req.query;
+  const { limit, offset } = parsePagination(req.query);
 
   let votes = await db.select().from(votesTable).orderBy(votesTable.createdAt);
 
@@ -120,6 +130,8 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
     const accessibleIds = new Set(accessible.map((a) => a.entityId));
     votes = votes.filter((v) => accessibleIds.has(v.id));
   }
+
+  votes = votes.slice(offset, offset + limit);
 
   const allStages = await db.select().from(workflowStagesTable);
   const allWorkflows = await db.select().from(approvalWorkflowsTable);
@@ -179,6 +191,12 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
   const { boardId, meetingId, resolutionNumber: rawResolutionNumber, title, resolutionText, type, deadline, approvalRule } = pick(req.body, ["boardId", "meetingId", "resolutionNumber", "title", "resolutionText", "type", "deadline", "approvalRule"] as (keyof typeof req.body)[]) as { boardId?: string; meetingId?: string; resolutionNumber?: string; title?: string; resolutionText?: string; type?: string; deadline?: string; approvalRule?: unknown };
   if (!boardId || !title || !resolutionText || !type) {
     res.status(400).json({ error: "Required: boardId, title, resolutionText, type" });
+    return;
+  }
+
+  const VALID_VOTE_TYPES = ["simple", "resolution", "election", "special"];
+  if (!VALID_VOTE_TYPES.includes(type)) {
+    res.status(400).json({ error: `Invalid vote type. Must be one of: ${VALID_VOTE_TYPES.join(", ")}` });
     return;
   }
 
@@ -746,7 +764,8 @@ router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res)
   }
 
   audit(req, "vote_material_downloaded", "vote", req.params.id as string, { filename: doc.filename, docId });
-  res.setHeader("Content-Disposition", `attachment; filename="${doc.filename}"`);
+  const safeFilename = doc.filename.replace(/[^\w.\-]/g, "_");
+  res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
   res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
   fs.createReadStream(doc.filePath).pipe(res);
 });

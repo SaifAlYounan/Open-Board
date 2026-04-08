@@ -10,9 +10,10 @@ import {
   meetingsTable,
   accessControlTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { parsePagination } from "../lib/pagination";
 import { pick } from "../lib/pick";
 import { callAI, REVIEW_PROMPT } from "../lib/ai";
 import { grantDefaultAccess } from "../lib/access";
@@ -36,11 +37,12 @@ router.param("id", (_req, res, next, id) => {
   next();
 });
 
-let taskSequence = 1;
 async function getNextTaskNumber(): Promise<string> {
-  const tasks = await db.select().from(tasksTable).orderBy(tasksTable.createdAt);
   const year = new Date().getFullYear();
-  const seq = (tasks.length + 1).toString().padStart(3, "0");
+  const startOfYear = new Date(year, 0, 1).toISOString();
+  const result = await db.execute(sql`SELECT COUNT(*)::int AS count FROM tasks WHERE created_at >= ${startOfYear}`);
+  const rows = result.rows as { count: number }[];
+  const seq = ((rows[0]?.count ?? 0) + 1).toString().padStart(3, "0");
   return `TASK-${year}-${seq}`;
 }
 
@@ -53,6 +55,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   }
 
   const { boardId, assigneeId, status } = req.query;
+  const { limit, offset } = parsePagination(req.query);
 
   let tasks = await db.select().from(tasksTable).orderBy(tasksTable.createdAt);
 
@@ -78,6 +81,8 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   if (user.role === "management") {
     tasks = tasks.filter((t) => t.assigneeId === user.id);
   }
+
+  tasks = tasks.slice(offset, offset + limit);
 
   const result = await Promise.all(
     tasks.map(async (t) => {
@@ -191,6 +196,11 @@ router.get("/tasks/:id", requireAuth, async (req, res): Promise<void> => {
 router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { title, description, assigneeId, status, dueDate } = pick(req.body, ["title", "description", "assigneeId", "status", "dueDate"] as (keyof typeof req.body)[]) as { title?: string; description?: string; assigneeId?: string; status?: string; dueDate?: string };
+  const VALID_TASK_STATUSES = ["todo", "in_progress", "done", "blocked"];
+  if (status != null && !VALID_TASK_STATUSES.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` });
+    return;
+  }
   const updates: Record<string, unknown> = {};
   if (title != null) updates.title = sanitizeText(title);
   if (description != null) updates.description = sanitizeText(description);

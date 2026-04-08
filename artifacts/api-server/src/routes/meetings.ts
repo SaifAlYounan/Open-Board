@@ -13,6 +13,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { pick } from "../lib/pick";
+import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { writeLimiter } from "../lib/rateLimiters";
@@ -23,6 +24,14 @@ const router = Router();
 router.param("id", (_req, res, next, id) => {
   if (!UUID_REGEX.test(id)) {
     res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
+
+router.param("itemId", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid itemId format" });
     return;
   }
   next();
@@ -67,6 +76,7 @@ async function getMeetingDetail(meetingId: string, userId: string, role: string)
 router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
   const { boardId } = req.query;
+  const { limit, offset } = parsePagination(req.query);
 
   let meetings = await db.select().from(meetingsTable).orderBy(meetingsTable.date);
 
@@ -83,6 +93,8 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
     const memberBoardIds = new Set(memberships.map((m) => m.boardId));
     meetings = meetings.filter((m) => m.boardId && memberBoardIds.has(m.boardId));
   }
+
+  meetings = meetings.slice(offset, offset + limit);
 
   const result = await Promise.all(
     meetings.map(async (m) => {
@@ -179,7 +191,7 @@ router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  if (user.role !== "admin" && user.role !== "management" && detail.boardId) {
+  if (user.role !== "admin" && detail.boardId) {
     const [membership] = await db
       .select()
       .from(boardMembershipsTable)
@@ -235,6 +247,12 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
   const { title, type, description } = pick(req.body, ["title", "type", "description"] as (keyof typeof req.body)[]) as { title?: string; type?: string; description?: string };
   if (!title || !type) {
     res.status(400).json({ error: "title and type required" });
+    return;
+  }
+
+  const VALID_AGENDA_TYPES = ["discussion", "decision", "information", "approval", "other"];
+  if (!VALID_AGENDA_TYPES.includes(type)) {
+    res.status(400).json({ error: `Invalid agenda item type. Must be one of: ${VALID_AGENDA_TYPES.join(", ")}` });
     return;
   }
 

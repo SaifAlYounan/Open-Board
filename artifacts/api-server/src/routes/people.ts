@@ -3,12 +3,15 @@ import bcrypt from "bcryptjs";
 import { db, peopleTable, boardMembershipsTable, boardsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { pick } from "../lib/pick";
+import { parsePagination } from "../lib/pagination";
 
 const router = Router();
 
-router.get("/people", requireAuth, requireAdmin, async (_req, res): Promise<void> => {
+router.get("/people", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const { limit, offset } = parsePagination(req.query);
   const people = await db.select().from(peopleTable).orderBy(peopleTable.name);
-  const safe = people.map(({ passwordHash: _, ...p }) => p);
+  const safe = people.map(({ passwordHash: _, ...p }) => p).slice(offset, offset + limit);
   res.json(safe);
 });
 
@@ -69,7 +72,7 @@ router.get("/people/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/people/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { name, title, avatarColor, role, active } = req.body;
+  const { name, title, avatarColor, role, active } = pick(req.body, ["name", "title", "avatarColor", "role", "active"] as (keyof typeof req.body)[]) as { name?: string; title?: string; avatarColor?: string; role?: string; active?: boolean };
   if (role != null && !VALID_ROLES.includes(role)) {
     res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
     return;

@@ -123,10 +123,10 @@ export default function SecretaryTaskDetail() {
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-[#86868b] mb-1 block">Status</label>
-                    <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                    <label htmlFor="task-status" className="text-xs font-medium text-[#86868b] mb-1 block">Status</label>
+                    <select id="task-status" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
                       className="w-full px-3 py-2 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30">
-                      {Object.entries(STATUS_COLORS).map(([key, { label }]) => (
+                      {Object.entries(STATUS_COLORS).filter(([key]) => key !== 'overdue').map(([key, { label }]) => (
                         <option key={key} value={key}>{label}</option>
                       ))}
                     </select>

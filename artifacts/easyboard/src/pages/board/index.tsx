@@ -15,7 +15,7 @@ const INSIGHT_ICONS: Record<string, React.ComponentType<{ size?: number; classNa
 export default function BoardMemberDashboard() {
   const { data: summary } = useGetDashboardSummary();
   const { data: boards } = useListBoards();
-  const { data: insights } = useGetDashboardAiInsights();
+  const { data: insights, isLoading: insightsLoading } = useGetDashboardAiInsights();
   const [, setLocation] = useLocation();
   const s = summary as any;
   const boardList = (boards as any[]) || [];
@@ -41,7 +41,16 @@ export default function BoardMemberDashboard() {
         </div>
 
         {/* AI Insights */}
-        {insightList.length > 0 && (
+        {insightsLoading && (
+          <div className="bg-white rounded-2xl border border-[#e5e5e7] p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles size={16} className="text-[#0071e3]" />
+              <h2 className="font-semibold text-[#1d1d1f]">AI Insights</h2>
+            </div>
+            <div className="text-sm text-[#86868b]">Generating insights…</div>
+          </div>
+        )}
+        {!insightsLoading && insightList.length > 0 && (
           <div className="bg-white rounded-2xl border border-[#e5e5e7] p-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles size={16} className="text-[#0071e3]" />

@@ -14,6 +14,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeRichHtml } from "../lib/sanitize";
+import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
@@ -35,9 +36,18 @@ router.param("id", (_req, res, next, id) => {
   next();
 });
 
+router.param("commentId", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid commentId format" });
+    return;
+  }
+  next();
+});
+
 router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
   const { boardId, status } = req.query;
+  const { limit, offset } = parsePagination(req.query);
 
   let allMinutes = await db.select().from(minutesTable).orderBy(minutesTable.updatedAt);
 
@@ -72,6 +82,8 @@ router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
     const accessibleIds = new Set(minutesWithMeeting.filter(Boolean).map((m) => m!.id));
     allMinutes = allMinutes.filter((m) => accessibleIds.has(m.id));
   }
+
+  allMinutes = allMinutes.slice(offset, offset + limit);
 
   const result = await Promise.all(
     allMinutes.map(async (m) => {
@@ -245,7 +257,7 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
-const VALID_MINUTES_STATUSES = ["draft", "pending_signature", "signed", "approved"];
+const VALID_MINUTES_STATUSES = ["draft", "review", "signing", "signed"];
 
 router.patch("/minutes/:id/status", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -386,6 +398,12 @@ router.post("/minutes/:id/comments", requireAuth, writeLimiter, async (req, res)
 router.patch("/minutes/:id/comments/:commentId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const commentId = Array.isArray(req.params.commentId) ? req.params.commentId[0] : req.params.commentId;
   const { status } = req.body;
+
+  const VALID_SUGGESTION_STATUSES = ["resolved", "dismissed"];
+  if (!status || !VALID_SUGGESTION_STATUSES.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_SUGGESTION_STATUSES.join(", ")}` });
+    return;
+  }
 
   const [comment] = await db
     .update(minutesSuggestionsTable)
