@@ -250,6 +250,32 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Changelog
 
+### v2.2 — Security Hardening (April 8, 2026)
+
+**CORS Protection**
+- Replaced wildcard CORS (`origin: "*"`) with strict origin validation
+- Only `*.replit.dev`, `*.replit.app`, and `localhost` origins accepted by default
+- Added `ALLOWED_ORIGIN` environment variable support for production deployment
+- CORS rejections return generic 403 response (no stack trace exposure)
+
+**Authentication Security**
+- Migrated JWT storage from localStorage to HttpOnly secure cookies
+- Added `cookie-parser` middleware
+- Environment-aware cookie settings (secure + strict in production, lax in development)
+- Added `/api/auth/me` endpoint for cookie-based session restoration
+
+**API Hardening**
+- Added 1MB request body size limit on JSON and URL-encoded payloads
+- Added confirmation requirement (`confirm: "RESET"`) for system data reset endpoint
+- Workflow trigger errors now logged instead of silently swallowed
+
+**Database**
+- Added composite index `access_control_entity_lookup` on (entityType, entityId) for faster permission lookups
+
+**Documentation & UI**
+- Removed hardcoded credentials from replit.md
+- Admin panel no longer pre-fills default password in user creation form
+
 ### v2.1 — Security Hardening (2026-04-07)
 - **Fixed:** JWT secret now mandatory — app refuses to start without `SESSION_SECRET`
 - **Fixed:** `close_task` action now correctly matches by task number (was closing wrong task)
