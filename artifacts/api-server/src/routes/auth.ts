@@ -47,7 +47,7 @@ router.post("/auth/login", loginLimiter, async (req, res): Promise<void> => {
   res.cookie("token", token, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "strict" : "lax",
+    sameSite: "strict",
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: "/",
   });

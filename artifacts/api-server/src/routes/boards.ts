@@ -55,10 +55,23 @@ router.post("/boards", requireAuth, requireAdmin, async (req, res): Promise<void
 
 router.get("/boards/:id", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
   const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, id));
   if (!board) {
     res.status(404).json({ error: "Board not found" });
     return;
+  }
+
+  if (user.role !== "admin") {
+    const [membership] = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(sql`${boardMembershipsTable.boardId} = ${id} AND ${boardMembershipsTable.personId} = ${user.id}`);
+    if (!membership) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
   }
 
   const memberships = await db
@@ -79,6 +92,18 @@ router.get("/boards/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.get("/boards/:id/members", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  if (user.role !== "admin") {
+    const [membership] = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(sql`${boardMembershipsTable.boardId} = ${id} AND ${boardMembershipsTable.personId} = ${user.id}`);
+    if (!membership) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+  }
 
   const memberships = await db
     .select()

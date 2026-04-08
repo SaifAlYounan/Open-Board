@@ -20,7 +20,7 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
-import { grantDefaultAccess } from "../lib/access";
+import { grantDefaultAccess, hasAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 import { logger } from "../lib/logger";
@@ -236,6 +236,11 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
   const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  if (!await hasAccess(user.id, user.role, "vote", id)) {
+    res.status(403).json({ error: "Access denied" });
     return;
   }
 
@@ -605,10 +610,16 @@ router.post("/votes/:id/cast", requireAuth, async (req, res): Promise<void> => {
 
 router.get("/votes/:id/documents", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
 
   const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  if (!await hasAccess(user.id, user.role, "vote", id)) {
+    res.status(403).json({ error: "Access denied" });
     return;
   }
 
@@ -686,7 +697,14 @@ router.delete("/votes/:id/documents/:docId", requireAuth, requireAdmin, async (r
 });
 
 router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const docId = Array.isArray(req.params.docId) ? req.params.docId[0] : req.params.docId;
+  const user = req.user!;
+
+  if (!await hasAccess(user.id, user.role, "vote", id)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
 
   const [doc] = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
   if (!doc || !doc.filePath || !fs.existsSync(doc.filePath)) {
@@ -702,9 +720,16 @@ router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res)
 
 router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
   const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  if (!await hasAccess(user.id, user.role, "vote", id)) {
+    res.status(403).json({ error: "Access denied" });
     return;
   }
 

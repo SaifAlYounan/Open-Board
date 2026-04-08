@@ -19,6 +19,11 @@ router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void
     return;
   }
 
+  if (password.length < 12) {
+    res.status(400).json({ error: "Password must be at least 12 characters" });
+    return;
+  }
+
   try {
     const passwordHash = await bcrypt.hash(password, 10);
     const [person] = await db

@@ -163,6 +163,17 @@ router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  if (user.role !== "admin" && user.role !== "management" && detail.boardId) {
+    const [membership] = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(and(eq(boardMembershipsTable.boardId, detail.boardId), eq(boardMembershipsTable.personId, user.id)));
+    if (!membership) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+  }
+
   res.json(detail);
 });
 
@@ -237,6 +248,22 @@ router.delete("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, async (
 
 router.get("/meetings/:id/attendance", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  if (user.role !== "admin" && user.role !== "management") {
+    const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, id));
+    if (meeting?.boardId) {
+      const [membership] = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+      if (!membership) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+    }
+  }
+
   const attendanceRows = await db
     .select()
     .from(attendanceTable)

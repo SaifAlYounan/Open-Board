@@ -1,0 +1,317 @@
+Fix ALL of the following security issues found in a comprehensive security audit. This is a board governance platform — these fixes are essential before public deployment. Do not change any existing functionality. Test after each fix.
+
+---
+
+## CRITICAL FIXES
+
+### C1 — Authenticate WebSocket connections
+
+**File:** `artifacts/api-server/src/index.ts`
+
+**Problem:** Socket.IO accepts connections with NO authentication. Anyone can connect and join any board/vote/minutes room to monitor live governance events.
+
+**Fix:** Add authentication middleware to Socket.IO:
+
+```typescript
+import { verifyToken } from "./lib/auth"; // or wherever your JWT verify function is
+import cookieParser from "cookie-parser";
+
+// Parse cookies from the WebSocket handshake
+io.use(async (socket, next) => {
+  try {
+    // Parse cookie from handshake headers
+    const cookieHeader = socket.handshake.headers.cookie || "";
+    const cookies = Object.fromEntries(
+      cookieHeader.split(";").map(c => {
+        const [key, ...val] = c.trim().split("=");
+        return [key, val.join("=")];
+      })
+    );
+    const token = cookies.token;
+    if (!token) {
+      return next(new Error("Authentication required"));
+    }
+    const user = verifyToken(token);
+    if (!user) {
+      return next(new Error("Invalid token"));
+    }
+    socket.data.user = user;
+    next();
+  } catch (err) {
+    next(new Error("Authentication failed"));
+  }
+});
+```
+
+Then in the `join:board`, `join:vote`, `join:minutes` handlers, verify that `socket.data.user` has access to that entity before allowing the join. If the user doesn't have access, ignore the join request.
+
+---
+
+### C2 — Add access control to board detail endpoints
+
+**File:** `artifacts/api-server/src/routes/boards.ts`
+
+**Problem:** `GET /boards/:id` and `GET /boards/:id/members` return data to ANY authenticated user. Any user can read any board's membership.
+
+**Fix:** Before returning board data, check that the requesting user is either:
+- An admin, OR
+- A member of that board (check the accessControl table)
+
+If neither, return 403.
+
+---
+
+### C3 — Add access control to vote endpoints
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** `GET /votes/:id`, `GET /votes/:id/documents`, `GET /votes/:id/documents/:docId/download`, and `GET /votes/:id/certificate` have no access control.
+
+**Fix:** For each of these endpoints, look up which board the vote belongs to, then check that the requesting user has access to that board. If not, return 403.
+
+The certificate endpoint is especially sensitive — it shows how each board member voted.
+
+---
+
+### C4 — Fail-fast on missing seed password
+
+**File:** `artifacts/api-server/src/seed.ts`
+
+**Problem:** Falls back to `Meridian2024!` if `SEED_PASSWORD` env var is missing.
+
+**Fix:** Change:
+```typescript
+const PASSWORD = process.env.SEED_PASSWORD || "Meridian2024!";
+```
+To:
+```typescript
+const PASSWORD = process.env.SEED_PASSWORD;
+if (!PASSWORD) {
+  throw new Error("SEED_PASSWORD environment variable is required. Set it in Replit Secrets before running seed.");
+}
+```
+
+Then set `SEED_PASSWORD` in the Replit Secrets tab.
+
+---
+
+## HIGH FIXES
+
+### H1 — Add access control to meeting endpoints
+
+**File:** `artifacts/api-server/src/routes/meetings.ts`
+
+**Problem:** `GET /meetings/:id` and `GET /meetings/:id/attendance` have no access control.
+
+**Fix:** Check that the user has access to the meeting's board before returning data.
+
+---
+
+### H2 — Add access control to minutes comments
+
+**File:** `artifacts/api-server/src/routes/minutes.ts`
+
+**Problem:** `GET /minutes/:id/comments` has no access control.
+
+**Fix:** Look up which board the minutes belong to, check user access. The main `GET /minutes/:id` already does this correctly — apply the same pattern.
+
+---
+
+### H3 — Add access control to document detail
+
+**File:** `artifacts/api-server/src/routes/documents.ts`
+
+**Problem:** `GET /documents/:id` has no access control, even though `GET /documents` (list) correctly filters by access.
+
+**Fix:** Apply the same access control check from the list endpoint to the detail endpoint.
+
+---
+
+### H4 — Restrict task access by role
+
+**File:** `artifacts/api-server/src/routes/tasks.ts`
+
+**Problem:** `GET /tasks/:id` doesn't verify management users can only see their own tasks.
+
+**Fix:** If the user is a management/observer/member role (not admin), verify `task.assigneeId === user.id` or that the user has access via the access control table.
+
+---
+
+### H5 — Scope AI database context to user's access
+
+**File:** `artifacts/api-server/src/lib/ai.ts`
+
+**Problem:** `getDatabaseContext()` sends ALL boards, ALL people, ALL meetings, ALL votes to the AI regardless of who's asking. Any user can discover all governance data through the AI.
+
+**Fix:** Accept the user's ID as a parameter. Filter boards, meetings, votes, and tasks to only those the user has access to. Filter the people list to only members of boards the user can access.
+
+```typescript
+export async function getDatabaseContext(userId: string): Promise<string> {
+  // Get user's accessible board IDs from accessControl table
+  const userAccess = await db.select()
+    .from(accessControlTable)
+    .where(eq(accessControlTable.personId, userId));
+  const accessibleBoardIds = userAccess
+    .filter(a => a.entityType === "board")
+    .map(a => a.entityId);
+  
+  // Filter all queries to accessible boards only
+  // ...
+}
+```
+
+Update the caller in `routes/ai.ts` to pass `req.user.id`.
+
+---
+
+## MEDIUM FIXES
+
+### M1 — Add password complexity validation
+
+**File:** `artifacts/api-server/src/routes/people.ts`
+
+**Problem:** No password complexity requirements when creating users.
+
+**Fix:** Before hashing, validate:
+```typescript
+if (password.length < 12) {
+  return res.status(400).json({ error: "Password must be at least 12 characters" });
+}
+```
+
+---
+
+### M2 — Sanitize minutes HTML output
+
+**Files:** `artifacts/easyboard/src/pages/board/minutes-viewer.tsx` and `signing.tsx`
+
+**Problem:** Minutes content is rendered with `dangerouslySetInnerHTML` without sanitization. A malicious admin could inject scripts.
+
+**Fix:** Install DOMPurify:
+```
+npm install dompurify
+npm install -D @types/dompurify
+```
+
+Then sanitize before rendering:
+```typescript
+import DOMPurify from "dompurify";
+// ...
+dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(block.html) }}
+```
+
+---
+
+### M3 — Remove unused crypto-js
+
+**File:** `artifacts/easyboard/package.json`
+
+**Problem:** `crypto-js` is listed as a dependency but not used anywhere. It has had past vulnerabilities.
+
+**Fix:** Remove it:
+```bash
+cd artifacts/easyboard && npm uninstall crypto-js
+```
+
+---
+
+### M4 — Add account lockout
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Rate limiter resets after 15 minutes. Attacker gets ~960 attempts per day.
+
+**Fix:** Track failed login attempts per email in memory (or DB). After 30 cumulative failures, lock the account for 24 hours. Return a generic "Account locked" message.
+
+---
+
+### M5 — Force sameSite strict in all environments
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Cookie uses `sameSite: "lax"` in development.
+
+**Fix:** Change to `sameSite: "strict"` in all environments:
+```typescript
+sameSite: "strict", // always strict, regardless of NODE_ENV
+```
+
+---
+
+### M6 — Add HTTP security headers
+
+**File:** `artifacts/api-server/src/app.ts`
+
+**Problem:** No security headers (HSTS, X-Frame-Options, CSP, etc.)
+
+**Fix:** Install and add helmet:
+```bash
+cd artifacts/api-server && npm install helmet
+```
+```typescript
+import helmet from "helmet";
+app.use(helmet());
+```
+
+---
+
+### M7 — Add password reset flow
+
+This is a larger feature. At minimum:
+1. Add `POST /auth/forgot-password` — accepts email, generates a time-limited reset token (crypto.randomBytes), stores hash in DB, sends token to user (for now, log it to console since there's no email service)
+2. Add `POST /auth/reset-password` — accepts token + new password, validates token hasn't expired, hashes new password, updates user
+
+If this is too large for now, skip it and document it as a known limitation.
+
+---
+
+### M8 — Add JWT refresh mechanism
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+Add a `GET /auth/refresh` endpoint that reads the current JWT cookie, verifies it's still valid, and issues a new one with a fresh expiry. The frontend should call this periodically (e.g., every hour).
+
+---
+
+## LOW FIXES
+
+### L1 — Don't leak AI prompt in errors
+
+**File:** `artifacts/api-server/src/lib/ai.ts`
+
+**Fix:** Wrap AI calls in try/catch. On error, return `{ error: "AI service unavailable" }` to the client. Log the full error server-side only.
+
+---
+
+### L2 — Rate limit WebSocket join events
+
+**File:** `artifacts/api-server/src/index.ts`
+
+**Fix:** After adding authentication (C1), also add a simple rate limiter — e.g., max 10 join events per connection per minute. Disconnect if exceeded.
+
+---
+
+### L3 — Validate upload file paths
+
+**File:** `artifacts/api-server/src/routes/documents.ts`
+
+**Fix:** Before passing the file path to `execFile("pdftotext", ...)`, validate it starts with the expected uploads directory:
+```typescript
+const uploadsDir = path.resolve(process.cwd(), "uploads");
+if (!path.resolve(filePath).startsWith(uploadsDir)) {
+  throw new Error("Invalid file path");
+}
+```
+
+---
+
+## AFTER ALL FIXES
+
+1. Verify login still works (all roles)
+2. Verify WebSocket requires authentication — try connecting without a cookie, should be rejected
+3. Verify board data is access-controlled — log in as a board member, try accessing a board they're not on
+4. Verify vote certificate is access-controlled
+5. Verify AI search only returns data the user can access
+6. Verify minutes render correctly with DOMPurify
+7. Verify helmet headers are present (check response headers in browser dev tools)
+8. Run the full app — create a vote, cast votes, close it, generate certificate
