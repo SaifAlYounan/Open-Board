@@ -1,6 +1,6 @@
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
-import app from "./app";
+import app, { originValidator } from "./app";
 import { logger } from "./lib/logger";
 import { seed } from "./seed";
 
@@ -20,7 +20,7 @@ const server = http.createServer(app);
 
 // Socket.io for real-time vote/signature tracking
 export const io = new SocketIOServer(server, {
-  cors: { origin: process.env.ALLOWED_ORIGIN || true, methods: ["GET", "POST"], credentials: true },
+  cors: { origin: originValidator, methods: ["GET", "POST"], credentials: true },
 });
 
 io.on("connection", (socket) => {

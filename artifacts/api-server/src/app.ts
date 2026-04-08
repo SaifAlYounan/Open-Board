@@ -4,6 +4,39 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
+/**
+ * Resolves the allowed origin(s) for CORS.
+ *
+ * Priority:
+ *   1. ALLOWED_ORIGIN env var — explicit list, comma-separated
+ *   2. Any *.replit.dev or *.replit.app origin (Replit-hosted only)
+ *   3. localhost (development)
+ *
+ * External sites are rejected.
+ */
+function makeOriginValidator() {
+  if (process.env.ALLOWED_ORIGIN) {
+    const explicit = process.env.ALLOWED_ORIGIN.split(",").map((s) => s.trim());
+    return (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin || explicit.includes(origin)) return cb(null, true);
+      cb(new Error(`CORS: origin not allowed — ${origin}`));
+    };
+  }
+  return (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+    if (
+      !origin ||
+      /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+      /\.replit\.dev$/.test(origin) ||
+      /\.replit\.app$/.test(origin)
+    ) {
+      return cb(null, true);
+    }
+    cb(new Error(`CORS: origin not allowed — ${origin}`));
+  };
+}
+
+const originValidator = makeOriginValidator();
+
 const app: Express = express();
 
 app.use(
@@ -26,7 +59,7 @@ app.use(
   }),
 );
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGIN || true,
+  origin: originValidator,
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
@@ -36,4 +69,14 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err?.message?.startsWith("CORS:")) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  logger.error({ err }, "Unhandled error");
+  res.status(500).json({ error: "Internal server error" });
+});
+
+export { originValidator };
 export default app;
