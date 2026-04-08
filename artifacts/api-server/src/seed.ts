@@ -25,7 +25,7 @@ import {
   approvalRuleWeightsTable,
   voteDocumentsTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
 
 const PASSWORD = process.env.SEED_PASSWORD;
@@ -102,6 +102,7 @@ export async function seed() {
   if (hasData) {
     logger.info("People already exist — skipping seed");
     await migratePeopleTitles();
+    await migrateAddPasswordResetTokensTable();
     return;
   }
 
@@ -205,7 +206,30 @@ export async function seed() {
   }
 
   await migratePeopleTitles();
+  await migrateAddPasswordResetTokensTable();
   logger.info({ peopleCount: allPeople.length, boardsCount: allBoards.length }, "Seeding complete — organisation, people, and boards ready");
+}
+
+/**
+ * Idempotent migration: create password_reset_tokens table if it doesn't exist.
+ * Runs on every startup via CREATE TABLE IF NOT EXISTS.
+ */
+async function migrateAddPasswordResetTokensTable() {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        person_id UUID NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        used_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+      )
+    `);
+    logger.info("migrateAddPasswordResetTokensTable — OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddPasswordResetTokensTable — non-fatal");
+  }
 }
 
 /**

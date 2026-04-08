@@ -20,3 +20,4 @@ export * from "./taskEvidence";
 export * from "./pendingActions";
 export * from "./auditTrail";
 export * from "./approvalWorkflows";
+export * from "./passwordResetTokens";
