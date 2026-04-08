@@ -7,3 +7,11 @@ export const writeLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests. Please wait before trying again." },
 });
+
+export const readLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests." },
+});

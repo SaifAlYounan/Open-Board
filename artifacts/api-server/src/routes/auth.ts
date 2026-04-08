@@ -80,7 +80,7 @@ router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): 
     path: "/",
   });
 
-  res.json({ token, user: { ...safeUser, avatarColor: person.avatarColor } });
+  res.json({ user: { ...safeUser, avatarColor: person.avatarColor } });
   audit(req, "login", "person", person.id, { email: person.email, role: person.role });
 });
 
@@ -127,10 +127,10 @@ router.post("/auth/forgot-password", loginLimiter, async (req, res): Promise<voi
 
   await db.insert(passwordResetTokensTable).values({ personId: person.id, tokenHash, expiresAt });
 
-  // No email service — log token for Secretary to relay manually
-  logger.info({ email, resetToken: token }, "PASSWORD RESET TOKEN — relay manually to user (no email service)");
+  // No email service — log hash only; return raw token in response for secretary to relay manually
+  logger.info({ email, tokenHash }, "Password reset requested — relay token to user manually");
 
-  res.json(FORGOT_RESPONSE);
+  res.json({ ...FORGOT_RESPONSE, resetToken: token });
   audit(req, "password_reset_requested", "person", person.id, { email });
 });
 

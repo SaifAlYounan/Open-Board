@@ -34,7 +34,7 @@ export default function Login() {
   const onSubmit = (data: LoginFormValues) => {
     loginMutation.mutate({ data }, {
       onSuccess: (res) => {
-        login(res.token, res.user);
+        login("", res.user);
         
         switch (res.user.role) {
           case 'admin':

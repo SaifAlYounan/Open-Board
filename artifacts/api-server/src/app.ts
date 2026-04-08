@@ -5,6 +5,7 @@ import helmet from "helmet";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { readLimiter } from "./lib/rateLimiters";
 
 /**
  * Resolves the allowed origin(s) for CORS.
@@ -72,6 +73,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
+app.use("/api", readLimiter);
 app.use("/api", router);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

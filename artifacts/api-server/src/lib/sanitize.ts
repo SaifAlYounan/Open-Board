@@ -14,5 +14,9 @@ export function sanitizeRichHtml(input: string): string {
     allowedAttributes: {
       a: ["href", "target"],
     },
+    transformTags: {
+      a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer", target: "_blank" }),
+    },
+    disallowedTagsMode: "discard",
   });
 }

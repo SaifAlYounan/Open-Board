@@ -3,6 +3,7 @@ import { db, boardsTable, boardMembershipsTable, peopleTable, organizationsTable
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { parsePagination } from "../lib/pagination";
 import { sql } from "drizzle-orm";
 
 const router = Router();
@@ -18,6 +19,7 @@ router.param("id", (_req, res, next, id) => {
 
 router.get("/boards", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
+  const { limit, offset } = parsePagination(req.query);
 
   let boardIds: string[] | null = null;
 
@@ -32,10 +34,11 @@ router.get("/boards", requireAuth, async (req, res): Promise<void> => {
 
   const boards = await db.select().from(boardsTable);
   const filtered = boardIds !== null ? boards.filter((b) => boardIds!.includes(b.id)) : boards;
+  const paginated = filtered.slice(offset, offset + limit);
 
   // Add member counts
   const result = await Promise.all(
-    filtered.map(async (board) => {
+    paginated.map(async (board) => {
       const [{ count }] = await db
         .select({ count: sql<number>`count(*)` })
         .from(boardMembershipsTable)

@@ -1,0 +1,435 @@
+Fix ALL of the following issues found across a security audit, static code review, and live E2E testing (Round 4). Do not break existing functionality. Test after each fix.
+
+---
+
+# CRITICAL — Fix these first
+
+## 1 — Fix minutes status workflow (COMPLETELY BROKEN)
+
+**Files:** `artifacts/api-server/src/routes/minutes.ts` AND frontend `artifacts/easyboard/src/pages/secretary/minutes-editor.tsx`
+
+**Problem:** The minutes signing workflow is completely non-functional. The sign endpoint (line ~283) requires `status === "signing"`, but `VALID_MINUTES_STATUSES` is `["draft", "pending_signature", "signed", "approved"]` — "signing" is not in the list. The frontend sends `review` and `signing` which the backend rejects. No minutes can ever be signed.
+
+**Fix:** Align the statuses. Pick ONE source of truth. The frontend flow is: `draft → review → signing → signed`. The backend must accept these:
+
+```typescript
+const VALID_MINUTES_STATUSES = ["draft", "review", "signing", "signed"];
+```
+
+OR if you prefer the backend names, update the frontend `STATUS_FLOW` to match:
+```typescript
+// Frontend minutes-editor.tsx
+const STATUS_FLOW = ["draft", "pending_signature", "signing", "signed"];
+```
+
+Either way, `"signing"` MUST be in `VALID_MINUTES_STATUSES` or signing can never happen.
+
+Also update the database schema in `lib/db/src/schema/minutes.ts` to match whichever set you choose.
+
+---
+
+## 2 — Remove JWT from login response body
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Line ~83: `res.json({ token, user: ... })` returns the raw JWT in the response body. XSS can read this even though the cookie is HttpOnly.
+
+**Fix:** Remove `token` from the response:
+```typescript
+// Change:
+res.json({ token, user: { ...safeUser, avatarColor: person.avatarColor } });
+// To:
+res.json({ user: { ...safeUser, avatarColor: person.avatarColor } });
+```
+
+Do the same for the refresh endpoint if it also returns the token in the body.
+
+**Important:** Check if any frontend code reads `response.data.token`. If so, remove that too — the cookie handles auth automatically.
+
+---
+
+## 3 — Fix management bypass on meeting access control
+
+**File:** `artifacts/api-server/src/routes/meetings.ts`
+
+**Problem:** Line ~182: `if (user.role !== "admin" && user.role !== "management" && detail.boardId)` — management users skip the board membership check entirely and can see ALL meetings.
+
+**Fix:** Remove the management exemption:
+```typescript
+// Change:
+if (user.role !== "admin" && user.role !== "management" && detail.boardId) {
+// To:
+if (user.role !== "admin" && detail.boardId) {
+```
+
+Also fix the same pattern on the meetings LIST endpoint (line ~275 area) if it exempts management there too.
+
+---
+
+## 4 — Fix observer minutes navigation (dead link)
+
+**File:** `artifacts/easyboard/src/pages/observer/room.tsx` AND `App.tsx`
+
+**Problem:** Observer minutes tab links to `/board/minutes/:id` but that route requires role `member`. Observers get a 404.
+
+**Fix:** Either:
+- **Option A:** Add an observer-accessible minutes viewer route in App.tsx:
+  ```typescript
+  <Route path="/observer/minutes/:id" component={MinutesViewer} />
+  ```
+  And update observer/room.tsx to link to `/observer/minutes/:id`
+
+- **Option B:** Allow observers to access the existing `/board/minutes/:id` route by adding `observer` to the allowed roles in the ProtectedRoute.
+
+---
+
+# HIGH PRIORITY
+
+## 5 — Validate vote `type` field
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** `type` accepts any string. Should be restricted.
+
+**Fix:**
+```typescript
+const VALID_VOTE_TYPES = ["simple", "resolution", "election", "special"];
+if (!VALID_VOTE_TYPES.includes(type)) {
+  return res.status(400).json({ error: `Invalid vote type. Must be one of: ${VALID_VOTE_TYPES.join(", ")}` });
+}
+```
+
+---
+
+## 6 — Validate agenda item `type` field
+
+**File:** `artifacts/api-server/src/routes/meetings.ts`
+
+**Problem:** Agenda items accept any string as `type`.
+
+**Fix:**
+```typescript
+const VALID_AGENDA_TYPES = ["discussion", "decision", "information", "approval", "other"];
+for (const item of agendaItems) {
+  if (item.type && !VALID_AGENDA_TYPES.includes(item.type)) {
+    return res.status(400).json({ error: `Invalid agenda item type: ${item.type}` });
+  }
+}
+```
+
+---
+
+## 7 — Validate task status on PATCH
+
+**File:** `artifacts/api-server/src/routes/tasks.ts`
+
+**Problem:** `status` accepts any string on PATCH.
+
+**Fix:**
+```typescript
+const VALID_TASK_STATUSES = ["todo", "in_progress", "done", "blocked"];
+if (status != null && !VALID_TASK_STATUSES.includes(status)) {
+  return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` });
+}
+```
+
+Also fix the frontend `task-detail.tsx` — remove "overdue" from `STATUS_COLORS` as a selectable option (it should be computed, not user-settable).
+
+---
+
+## 8 — Validate minutes comment/suggestion resolution status
+
+**File:** `artifacts/api-server/src/routes/minutes.ts`
+
+**Problem:** Comment resolution accepts any string as status.
+
+**Fix:**
+```typescript
+const VALID_SUGGESTION_STATUSES = ["resolved", "dismissed"];
+if (!VALID_SUGGESTION_STATUSES.includes(status)) {
+  return res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_SUGGESTION_STATUSES.join(", ")}` });
+}
+```
+
+---
+
+## 9 — Add pagination to ALL list endpoints
+
+**Files:** All route files with GET list endpoints
+
+**Problem:** Every list endpoint returns ALL records with no limit.
+
+**Fix:** Create a shared pagination helper:
+```typescript
+// src/lib/pagination.ts
+export function parsePagination(query: any) {
+  const MAX_LIMIT = 200;
+  const limit = Math.min(parseInt(query.limit as string) || 50, MAX_LIMIT);
+  const offset = Math.max(parseInt(query.offset as string) || 0, 0);
+  return { limit, offset };
+}
+```
+
+Apply to: boards, votes, meetings, minutes, documents, tasks, people, audit endpoints:
+```typescript
+const { limit, offset } = parsePagination(req.query);
+// Add .limit(limit).offset(offset) to all queries
+```
+
+---
+
+## 10 — Add rate limiting to read endpoints
+
+**File:** `artifacts/api-server/src/lib/rateLimiters.ts`
+
+**Problem:** No rate limiting on GET endpoints. Mass enumeration possible.
+
+**Fix:**
+```typescript
+export const readLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests." },
+});
+```
+
+Apply to all GET routes, or apply globally in app.ts:
+```typescript
+app.use("/api", readLimiter);
+```
+
+(The write limiter and login limiter will still apply their stricter limits on top.)
+
+---
+
+## 11 — Stop logging password reset tokens in plaintext
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Line ~131: `logger.info({ email, resetToken: token }, "PASSWORD RESET TOKEN")` — the raw token is in server logs.
+
+**Fix:**
+```typescript
+// Change:
+logger.info({ email, resetToken: token }, "PASSWORD RESET TOKEN — relay manually to user");
+// To:
+logger.info({ email, tokenHash }, "Password reset requested — relay token to user manually");
+// Log the hash for audit trail, not the raw token
+```
+
+The actual token should be returned in the API response to the admin who triggered the reset (so they can relay it), but NOT persisted in logs.
+
+---
+
+## 12 — Add `pick()` to people routes
+
+**File:** `artifacts/api-server/src/routes/people.ts`
+
+**Problem:** PATCH doesn't use `pick()` to strip unknown fields.
+
+**Fix:**
+```typescript
+const allowed = pick(req.body, ["name", "title", "avatarColor", "role", "active"]);
+// Use `allowed` instead of destructuring directly from req.body
+```
+
+---
+
+## 13 — Add `rel="noopener noreferrer"` to sanitized links
+
+**File:** `artifacts/api-server/src/lib/sanitize.ts`
+
+**Problem:** `sanitizeRichHtml` allows `<a href>` but doesn't enforce safe attributes.
+
+**Fix:**
+```typescript
+export function sanitizeRichHtml(input: string): string {
+  return sanitizeHtml(input, {
+    allowedTags: ["b", "i", "u", "strong", "em", "p", "br", "ul", "ol", "li",
+                  "h1", "h2", "h3", "h4", "a", "blockquote", "table", "thead",
+                  "tbody", "tr", "th", "td"],
+    allowedAttributes: {
+      a: ["href", "target"],
+    },
+    transformTags: {
+      a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer", target: "_blank" }),
+    },
+    disallowedTagsMode: "discard",
+  });
+}
+```
+
+---
+
+## 14 — Fix Content-Disposition header in downloads
+
+**File:** `artifacts/api-server/src/routes/votes.ts` (and any other download endpoint)
+
+**Problem:** Filename not sanitized in Content-Disposition header.
+
+**Fix:**
+```typescript
+const safeFilename = doc.filename.replace(/[^\w.\-]/g, "_");
+res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+```
+
+---
+
+## 15 — Add UUID validation to sub-parameters
+
+**Files:** Routes with `:personId`, `:docId`, etc.
+
+**Problem:** Only top-level `:id` params are UUID-validated. Sub-params like `:personId` are not.
+
+**Fix:** Add `router.param` for all sub-parameters:
+```typescript
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param("personId", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) return res.status(400).json({ error: "Invalid personId format" });
+  next();
+});
+```
+
+---
+
+# MEDIUM PRIORITY
+
+## 16 — Fix task number race condition
+
+**File:** `artifacts/api-server/src/routes/tasks.ts`
+
+**Problem:** `getNextTaskNumber()` reads count then inserts — concurrent requests get duplicate numbers.
+
+**Fix:** Use a DB sequence or wrap in a transaction with a lock:
+```typescript
+async function getNextTaskNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const [result] = await db.execute(sql`
+    SELECT COUNT(*) as count FROM ${tasksTable}
+    WHERE created_at >= ${new Date(year, 0, 1).toISOString()}
+    FOR UPDATE
+  `);
+  const seq = (Number(result.count) + 1).toString().padStart(3, "0");
+  return `TASK-${year}-${seq}`;
+}
+```
+
+---
+
+## 17 — Add resolution number uniqueness constraint
+
+**File:** Database migration or schema
+
+**Problem:** No unique constraint on `votesTable.resolutionNumber`. Concurrent creates can duplicate.
+
+**Fix:** Add unique index:
+```sql
+CREATE UNIQUE INDEX votes_resolution_number_unique ON votes (resolution_number);
+```
+
+---
+
+## 18 — Fix label associations in forms
+
+**Files:** `pages/secretary/task-detail.tsx`, other forms
+
+**Problem:** Labels and form inputs not connected via `htmlFor`/`id`.
+
+**Fix:**
+```tsx
+<label htmlFor="task-status" className="...">Status</label>
+<select id="task-status" value={editForm.status} ...>
+```
+
+Apply to all form fields across all pages.
+
+---
+
+## 19 — Add keyboard navigation to sidebar
+
+**File:** `artifacts/easyboard/src/components/SecretarySidebar.tsx`
+
+**Problem:** Sidebar dropdowns are mouse-only. No keyboard support.
+
+**Fix:** Add `role="menu"`, `aria-expanded`, `tabIndex`, and `onKeyDown` handlers for Enter/Space/Escape/Arrow keys.
+
+---
+
+## 20 — Fix `window.history.back()` in meeting detail
+
+**File:** `artifacts/easyboard/src/pages/board/meeting-detail.tsx`
+
+**Problem:** Uses `window.history.back()` which goes to unrelated pages if user navigated directly.
+
+**Fix:** Use the router's navigate function to go to a known route:
+```tsx
+onClick={() => navigate("/board")}
+```
+
+---
+
+## 21 — Add loading states to AI insights
+
+**File:** `artifacts/easyboard/src/pages/board/index.tsx`
+
+**Fix:**
+```tsx
+const { data: insights, isLoading } = useGetDashboardAiInsights();
+if (isLoading) return <Spinner />;
+```
+
+---
+
+## 22 — Remove duplicate import in SecretaryMeetings
+
+**File:** `artifacts/easyboard/src/pages/secretary/meetings.ts`
+
+**Fix:** Remove duplicate `useState` import and unused `useListBoards` import.
+
+---
+
+# DESIGN DECISIONS (implement based on your preference)
+
+## 23 — Vote ballot secrecy
+
+**File:** `artifacts/api-server/src/routes/votes.ts`
+
+**Problem:** GET /votes/:id returns full vote records (name + decision + comment) to all users.
+
+**Options:**
+- **Secret ballots:** Only return aggregate counts to non-admin. Admin sees individual records after vote closes.
+- **Open ballots:** Leave as-is but add a comment in code documenting this is intentional.
+
+If secret ballots:
+```typescript
+if (user.role !== "admin") {
+  // Strip individual vote records, return only aggregates
+  delete voteDetail.voteRecords;
+}
+```
+
+## 24 — Observer access to votes
+
+**Problem:** `grantDefaultAccess()` gives observers access to all votes on their boards, including vote records (see #23).
+
+**Options:**
+- Exclude observers from vote access grants
+- Keep but ensure vote records are hidden (depends on #23)
+
+---
+
+# AFTER ALL FIXES
+
+1. Login as all 4 roles — verify working
+2. Create minutes → advance through full workflow: draft → review → signing → signed. **This is the most important test.**
+3. As management user: try GET /meetings/:id for a board they're NOT on — should get 403
+4. Login response body should NOT contain a `token` field
+5. PATCH vote with invalid status — expect 400
+6. PATCH task with status "overdue" — expect 400
+7. PATCH minutes with status "hacked" — expect 400
+8. GET any list endpoint with limit=99999 — should be capped at 200
+9. Check server logs — no raw reset tokens
+10. Observer clicks minutes in their board room — should render correctly (not 404)
+11. Full vote lifecycle works: create → cast → close → certificate
