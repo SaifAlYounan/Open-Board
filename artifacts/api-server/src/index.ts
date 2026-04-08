@@ -20,7 +20,7 @@ const server = http.createServer(app);
 
 // Socket.io for real-time vote/signature tracking
 export const io = new SocketIOServer(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: { origin: process.env.ALLOWED_ORIGIN || true, methods: ["GET", "POST"], credentials: true },
 });
 
 io.on("connection", (socket) => {
