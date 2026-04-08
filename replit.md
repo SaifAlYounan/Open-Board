@@ -16,9 +16,12 @@ EasyBoard v2 is a complete corporate governance portal for Meridian Energy Group
 - `/*` → EasyBoard frontend (port 25532)
 
 ## Authentication
-- JWT tokens stored in localStorage as `token`
-- `customFetch.ts` auto-attaches Bearer header
-- `AuthProvider` in `lib/auth.tsx` restores user via `/api/auth/me` on page load
+- JWT issued as HttpOnly cookie (`token`) on login via `POST /api/auth/login`
+- Cookie is `httpOnly: true`, `sameSite: lax` (dev) / `strict` (prod), `maxAge: 7 days`
+- `requireAuth` middleware reads cookie first, then falls back to `Authorization: Bearer` header (API tool compat)
+- `customFetch.ts` sends `credentials: "include"` on every request (no localStorage reads)
+- `AuthProvider` in `lib/auth.tsx` restores session via `GET /api/auth/me` with `credentials: "include"` on page load
+- Logout: `POST /api/auth/logout` clears the cookie server-side
 - 4 roles: `admin` (Secretary), `member` (Board Member), `management`, `observer`
 
 ## Test Credentials

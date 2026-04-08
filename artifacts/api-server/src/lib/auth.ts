@@ -32,13 +32,17 @@ export function verifyToken(token: string): AuthPayload {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const cookieToken = (req as any).cookies?.token as string | undefined;
+  const headerToken = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7)
+    : undefined;
+  const token = cookieToken || headerToken;
+
+  if (!token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const token = header.slice(7);
   try {
     const payload = verifyToken(token);
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, payload.userId));

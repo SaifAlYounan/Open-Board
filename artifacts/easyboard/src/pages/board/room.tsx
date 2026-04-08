@@ -45,9 +45,8 @@ export default function BoardRoom() {
   const toggleDocs = async (voteId: string) => {
     if (!docsExpanded[voteId] && !docsMap[voteId]) {
       try {
-        const token = localStorage.getItem('token');
         const resp = await fetch(`/api/votes/${voteId}/documents`, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',
         });
         const data = await resp.json();
         setDocsMap((prev) => ({ ...prev, [voteId]: data }));

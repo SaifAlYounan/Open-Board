@@ -23,13 +23,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 function useCustomFetch() {
-  const token = localStorage.getItem('token');
   return async (url: string, options: RequestInit = {}) => {
     const r = await fetch(url, {
       ...options,
+      credentials: 'include',
       headers: {
         ...(options.headers || {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(!options.body || options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       },
     });

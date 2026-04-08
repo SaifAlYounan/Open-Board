@@ -33,13 +33,10 @@ export default function SecretaryMinutesList() {
     }
     setCreating(true);
     try {
-      const token = localStorage.getItem('token');
       const res = await fetch('/api/minutes', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           meetingId: form.meetingId,
           content: form.content || '<h1>Board Minutes</h1><p>Begin writing minutes here...</p>',

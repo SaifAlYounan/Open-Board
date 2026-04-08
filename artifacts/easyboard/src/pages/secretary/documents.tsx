@@ -34,10 +34,9 @@ export default function SecretaryDocuments() {
   const handleRetryClassification = async (docId: string) => {
     setRetrying((prev) => ({ ...prev, [docId]: true }));
     try {
-      const token = localStorage.getItem('token');
       const res = await fetch(`/api/documents/${docId}/reclassify`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed');
       await refetch();

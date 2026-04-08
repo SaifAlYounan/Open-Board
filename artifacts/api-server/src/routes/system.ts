@@ -32,6 +32,10 @@ import { audit } from "../lib/auditLog";
 const router = Router();
 
 router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  if (req.body?.confirm !== "RESET") {
+    res.status(400).json({ error: "Confirmation required. Send { confirm: 'RESET' } in the request body." });
+    return;
+  }
   try {
     const uploadsDir = path.join(process.cwd(), "uploads");
     if (fs.existsSync(uploadsDir)) {
