@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, unique, index } from "drizzle-orm/pg-core";
 import { peopleTable } from "./people";
 
 export const accessControlTable = pgTable("access_control", {
@@ -9,4 +9,5 @@ export const accessControlTable = pgTable("access_control", {
   hasAccess: boolean("has_access").default(true),
 }, (t) => ({
   uniq: unique().on(t.entityType, t.entityId, t.personId),
+  entityLookup: index("access_control_entity_lookup").on(t.entityType, t.entityId),
 }));
