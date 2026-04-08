@@ -11,6 +11,8 @@ import {
 } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { sanitizeText } from "../lib/sanitize";
+import { pick } from "../lib/pick";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { writeLimiter } from "../lib/rateLimiters";
@@ -104,26 +106,30 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
-  const { boardId, title, date, location, agendaItems } = req.body;
+  const body = pick(req.body, ["boardId", "title", "date", "location", "agendaItems"] as (keyof typeof req.body)[]);
+  const { boardId, title, date, location, agendaItems } = body as { boardId?: string; title?: string; date?: string; location?: string; agendaItems?: { position: number; title: string; type: string; description?: string }[] };
   if (!boardId || !title || !date) {
     res.status(400).json({ error: "Required: boardId, title, date" });
     return;
   }
 
+  const cleanTitle = sanitizeText(title);
+  const cleanLocation = location ? sanitizeText(location) : undefined;
+
   const [meeting] = await db
     .insert(meetingsTable)
-    .values({ boardId, title, date: new Date(date), location })
+    .values({ boardId, title: cleanTitle, date: new Date(date), location: cleanLocation })
     .returning();
 
   // Create agenda items
   if (agendaItems?.length) {
     await db.insert(agendaItemsTable).values(
-      agendaItems.map((item: { position: number; title: string; type: string; description?: string }) => ({
+      agendaItems.map((item) => ({
         meetingId: meeting.id,
         position: item.position,
-        title: item.title,
+        title: sanitizeText(item.title),
         type: item.type,
-        description: item.description,
+        description: item.description ? sanitizeText(item.description) : undefined,
       }))
     );
   }
@@ -189,11 +195,11 @@ router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, date, location, status } = req.body;
+  const { title, date, location, status } = pick(req.body, ["title", "date", "location", "status"] as (keyof typeof req.body)[]) as { title?: string; date?: string; location?: string; status?: string };
   const updates: Record<string, unknown> = {};
-  if (title != null) updates.title = title;
+  if (title != null) updates.title = sanitizeText(title);
   if (date != null) updates.date = new Date(date);
-  if (location != null) updates.location = location;
+  if (location != null) updates.location = sanitizeText(location);
   if (status != null) updates.status = status;
 
   const [meeting] = await db.update(meetingsTable).set(updates).where(eq(meetingsTable.id, id)).returning();
@@ -221,7 +227,7 @@ router.delete("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (r
 
 router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, type, description } = req.body;
+  const { title, type, description } = pick(req.body, ["title", "type", "description"] as (keyof typeof req.body)[]) as { title?: string; type?: string; description?: string };
   if (!title || !type) {
     res.status(400).json({ error: "title and type required" });
     return;
@@ -232,7 +238,7 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
 
   const [item] = await db
     .insert(agendaItemsTable)
-    .values({ meetingId: id, position, title, type, description })
+    .values({ meetingId: id, position, title: sanitizeText(title), type, description: description ? sanitizeText(description) : undefined })
     .returning();
 
   res.status(201).json(item);
@@ -240,11 +246,11 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
 
 router.patch("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
-  const { title, type, description } = req.body;
+  const { title, type, description } = pick(req.body, ["title", "type", "description"] as (keyof typeof req.body)[]) as { title?: string; type?: string; description?: string };
   const updates: Record<string, unknown> = {};
-  if (title != null) updates.title = title;
+  if (title != null) updates.title = sanitizeText(title);
   if (type != null) updates.type = type;
-  if (description != null) updates.description = description;
+  if (description != null) updates.description = sanitizeText(description);
 
   const [item] = await db.update(agendaItemsTable).set(updates).where(eq(agendaItemsTable.id, itemId)).returning();
   if (!item) { res.status(404).json({ error: "Agenda item not found" }); return; }
