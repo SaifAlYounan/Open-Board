@@ -71,17 +71,14 @@ export default function SecretaryVotes() {
       toast({ title: 'Missing fields', description: 'Board, title, and resolution text are required.', variant: 'destructive' });
       return;
     }
-
-    const selectedBoard = (boards as any[])?.find((b: any) => b.id === form.boardId);
-    const abbrev = selectedBoard?.abbreviation || 'GEN';
-    const year = new Date().getFullYear();
-    const count = ((votes as any[])?.length || 0) + 1;
-    const resolutionNumber = `RES-${abbrev}-${year}-${String(count).padStart(3, '0')}`;
+    if (form.resolutionText.length < 10) {
+      toast({ title: 'Resolution text too short', description: 'Please enter a more complete resolution text.', variant: 'destructive' });
+      return;
+    }
 
     createVote.mutate({
       data: {
         boardId: form.boardId,
-        resolutionNumber,
         title: form.title,
         resolutionText: form.resolutionText,
         type: form.type,

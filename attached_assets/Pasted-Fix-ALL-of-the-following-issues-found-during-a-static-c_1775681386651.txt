@@ -1,0 +1,297 @@
+Fix ALL of the following issues found during a static code review and live E2E functional audit. Do not break existing functionality. Test after each major fix.
+
+---
+
+# CRITICAL / HIGH FIXES (do these first)
+
+## 1 — System reset requires admin + transaction
+
+**File:** `artifacts/api-server/src/routes/system.ts`
+
+**Problem:** The `POST /system/reset-data` endpoint uses `requireAuth` instead of `requireAdmin` — any logged-in user can wipe the database. Also, the multiple delete operations have no transaction wrapper, so a failure midway corrupts data.
+
+**Fix:**
+- Change middleware from `requireAuth` to `requireAuth, requireAdmin`
+- Wrap all deletes in a database transaction:
+```typescript
+await db.transaction(async (tx) => {
+  await tx.delete(minutesSignaturesTable);
+  // ... all other deletes in order ...
+});
+```
+
+---
+
+## 2 — Observer board detail IDOR (confirmed live bug)
+
+**File:** `artifacts/api-server/src/routes/boards.ts`
+
+**Problem:** `GET /boards/:id` and `GET /boards/:id/members` return data to ANY authenticated user. Live test confirmed: an observer assigned to BoD + SIC can read Finance & Audit Committee's full member list.
+
+**Fix:** Before returning board data, verify the user is either admin OR has access to that board via the accessControl table. Return 403 if not.
+
+---
+
+## 3 — Dead observer routes
+
+**Files:** `artifacts/easyboard/src/pages/observer/`
+
+**Problem:** Observer dashboard links board cards to `/observer/room/${boardId}` but that page doesn't exist. All board card clicks 404.
+
+**Fix:** Create `src/pages/observer/room.tsx` that shows a single board view for observers — tabs for votes, meetings, and minutes scoped to that board. Register the route in the app router.
+
+---
+
+## 4 — Rate limiting on write endpoints
+
+**File:** `artifacts/api-server/src/routes/votes.ts`, `meetings.ts`, `minutes.ts`, `tasks.ts`, `documents.ts`
+
+**Problem:** Only login and AI endpoints have rate limiting. All write operations (create vote, meeting, task, upload document) can be spammed.
+
+**Fix:** Add a write rate limiter:
+```typescript
+const writeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: "Too many requests. Please wait." },
+});
+```
+Apply to all POST/PATCH/DELETE routes.
+
+---
+
+## 5 — UUID format validation on all ID parameters
+
+**Files:** All route files that use `:id` params
+
+**Problem:** Route parameters like `boardId`, `voteId`, `meetingId` are used directly without checking they're valid UUIDs.
+
+**Fix:** Create a validation middleware or helper:
+```typescript
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateUUID(param: string) {
+  return (req, res, next) => {
+    if (!UUID_REGEX.test(req.params[param])) {
+      return res.status(400).json({ error: `Invalid ${param} format` });
+    }
+    next();
+  };
+}
+```
+Apply to all routes with `:id` parameters.
+
+---
+
+## 6 — Upload zone keyboard accessibility
+
+**File:** `artifacts/easyboard/src/components/DocumentUploadPanel.tsx`
+
+**Problem:** The drag-and-drop upload zone is a div with no keyboard access. Users who can't use a mouse cannot upload files.
+
+**Fix:** Make the file input label the full upload zone, or add `tabIndex={0}` with `onKeyDown` that triggers the file picker on Enter/Space:
+```tsx
+<div
+  tabIndex={0}
+  role="button"
+  aria-label="Upload document"
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInputRef.current?.click();
+    }
+  }}
+  // ... existing onDrop, etc.
+>
+```
+
+---
+
+# MEDIUM FIXES
+
+## 7 — TypeScript `any` replacement
+
+**Files:** Multiple frontend pages
+
+**Problem:** API responses cast as `any` everywhere — hides bugs, defeats type safety.
+
+**Fix:** Define interfaces for all API response types:
+```typescript
+interface Board { id: string; name: string; abbreviation: string; /* ... */ }
+interface Vote { id: string; title: string; status: string; boardId: string; /* ... */ }
+interface Meeting { id: string; title: string; status: string; /* ... */ }
+```
+Replace all `as any` and `as any[]` casts with proper types. Create a `types.ts` file in `src/` with all shared types.
+
+---
+
+## 8 — Missing loading states
+
+**Files:** `src/pages/secretary/pending.tsx`, `secretary/votes.tsx`, `observer/room.tsx`
+
+**Problem:** Data fetches start but no loading indicator shown. Forms render before data arrives.
+
+**Fix:** Check all `isLoading` flags from hooks. Show a spinner or skeleton while loading:
+```tsx
+if (isLoadingBoards || isLoadingMeetings) {
+  return <div className="flex items-center justify-center p-8"><Spinner /></div>;
+}
+```
+
+---
+
+## 9 — Form validation on vote creation
+
+**File:** `src/pages/secretary/votes.tsx`
+
+**Problem:** `resolutionText` textarea has no `required` attribute. Number inputs have no `min` validation.
+
+**Fix:**
+```tsx
+<textarea required minLength={10} ... />
+<input type="number" min={1} ... />
+```
+
+---
+
+## 10 — Resolution number race condition
+
+**File:** `src/pages/secretary/votes.tsx`
+
+**Problem:** Resolution number calculated client-side from current vote count. If two users create votes simultaneously, they get the same number.
+
+**Fix:** Have the backend generate and return the resolution number. Remove the client-side calculation. The backend should use a DB sequence or count+1 within a transaction.
+
+---
+
+## 11 — Missing aria-labels
+
+**Files:** Multiple components
+
+**Problem:** Icon-only buttons (logout, close, settings) have no aria-label.
+
+**Fix:** Add `aria-label` to all icon-only buttons:
+```tsx
+<button aria-label="Logout" onClick={logout}>...</button>
+<button aria-label="Close dialog" onClick={onClose}>...</button>
+```
+
+---
+
+## 12 — Minutes sign error handling
+
+**File:** `artifacts/api-server/src/routes/minutes.ts`
+
+**Problem:** The catch block re-throws instead of returning a proper error response.
+
+**Fix:** Replace `throw err` with:
+```typescript
+logger.error({ err }, "Failed to record signature");
+res.status(500).json({ error: "Failed to record signature" });
+```
+
+---
+
+## 13 — Email format validation on login
+
+**File:** `artifacts/api-server/src/routes/auth.ts`
+
+**Problem:** Login accepts any string as email without format validation.
+
+**Fix:**
+```typescript
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+if (!email || !password || !emailRegex.test(email)) {
+  res.status(400).json({ error: "Valid email and password required" });
+  return;
+}
+```
+
+---
+
+## 14 — Meeting PATCH response inconsistency
+
+**File:** `artifacts/api-server/src/routes/meetings.ts`
+
+**Problem:** PATCH returns `agendaItemCount: 0` hardcoded instead of actual count.
+
+**Fix:** Fetch the real agenda item count before returning:
+```typescript
+const agendaItems = await db.select().from(agendaItemsTable)
+  .where(eq(agendaItemsTable.meetingId, id));
+// return { ...meeting, agendaItemCount: agendaItems.length }
+```
+
+---
+
+## 15 — Memory leak in DocumentUploadPanel
+
+**File:** `artifacts/easyboard/src/components/DocumentUploadPanel.tsx`
+
+**Problem:** Polling interval can fire setState after component unmount.
+
+**Fix:** Add a mounted ref:
+```typescript
+const mountedRef = useRef(true);
+useEffect(() => () => { mountedRef.current = false; stopPolling(); }, []);
+// In poll callback: if (!mountedRef.current) return;
+```
+
+---
+
+## 16 — Empty state for members list
+
+**File:** `src/pages/secretary/members.tsx`
+
+**Problem:** Empty board shows blank instead of a message.
+
+**Fix:** Add:
+```tsx
+{members.length === 0 && (
+  <p className="text-gray-500 text-center py-8">No members assigned to this board.</p>
+)}
+```
+
+---
+
+# LOW FIXES
+
+## 17 — Replace console.log/console.error with logger
+
+**Files:** `artifacts/api-server/src/routes/documents.ts`, `votes.ts`
+
+**Fix:** Replace all `console.log`, `console.warn`, `console.error` with `logger.info`, `logger.warn`, `logger.error`.
+
+---
+
+## 18 — Hide edit button for non-pending actions
+
+**File:** `src/pages/secretary/pending.tsx`
+
+**Fix:** Only show edit button when `action.status === 'pending'`.
+
+---
+
+## 19 — Null boardId meeting filter
+
+**File:** `artifacts/api-server/src/routes/meetings.ts`
+
+**Problem:** Meetings without a boardId are invisible to non-admin users.
+
+**Fix:** Change filter to include null-boardId meetings:
+```typescript
+meetings = meetings.filter((m) => !m.boardId || memberBoardIds.has(m.boardId));
+```
+
+---
+
+## AFTER ALL FIXES
+
+1. Verify login works for all 4 roles
+2. Verify observer can ONLY see boards they're assigned to
+3. Verify system reset requires admin role
+4. Verify observer dashboard board cards navigate correctly
+5. Verify upload works via keyboard (Tab to zone, Enter to open picker)
+6. Verify vote creation validates required fields
+7. Verify no console.log in production output
+8. Check that rate limiting works (spam a POST endpoint, should get 429)

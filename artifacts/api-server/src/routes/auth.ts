@@ -24,8 +24,9 @@ const LOCKOUT_MS = 24 * 60 * 60 * 1000;
 
 router.post("/auth/login", loginLimiter, async (req, res): Promise<void> => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    res.status(400).json({ error: "Email and password required" });
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !password || !emailRegex.test(email)) {
+    res.status(400).json({ error: "Valid email and password required" });
     return;
   }
 

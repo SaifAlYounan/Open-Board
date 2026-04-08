@@ -13,8 +13,18 @@ import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { writeLimiter } from "../lib/rateLimiters";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
+
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
 
 async function getMeetingDetail(meetingId: string, userId: string, role: string) {
   const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
@@ -93,7 +103,7 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
   res.json(result);
 });
 
-router.post("/meetings", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const { boardId, title, date, location, agendaItems } = req.body;
   if (!boardId || !title || !date) {
     res.status(400).json({ error: "Required: boardId, title, date" });
@@ -177,7 +187,7 @@ router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
   res.json(detail);
 });
 
-router.patch("/meetings/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { title, date, location, status } = req.body;
   const updates: Record<string, unknown> = {};
@@ -196,11 +206,12 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, async (req, res): Promi
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
     : [null];
 
+  const updatedItems = await db.select().from(agendaItemsTable).where(eq(agendaItemsTable.meetingId, id));
   audit(req, "meeting_updated", "meeting", id, { title: meeting.title });
-  res.json({ ...meeting, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: 0 });
+  res.json({ ...meeting, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: updatedItems.length });
 });
 
-router.delete("/meetings/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.delete("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, id));
   await db.delete(meetingsTable).where(eq(meetingsTable.id, id));
@@ -208,7 +219,7 @@ router.delete("/meetings/:id", requireAuth, requireAdmin, async (req, res): Prom
   res.sendStatus(204);
 });
 
-router.post("/meetings/:id/agenda", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { title, type, description } = req.body;
   if (!title || !type) {
@@ -227,7 +238,7 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, async (req, res):
   res.status(201).json(item);
 });
 
-router.patch("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
   const { title, type, description } = req.body;
   const updates: Record<string, unknown> = {};
@@ -240,7 +251,7 @@ router.patch("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, async (r
   res.json(item);
 });
 
-router.delete("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.delete("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
   await db.delete(agendaItemsTable).where(eq(agendaItemsTable.id, itemId));
   res.sendStatus(204);
@@ -280,7 +291,7 @@ router.get("/meetings/:id/attendance", requireAuth, async (req, res): Promise<vo
   res.json(result);
 });
 
-router.patch("/meetings/:id/attendance", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.patch("/meetings/:id/attendance", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { updates } = req.body;
   if (!updates?.length) {
