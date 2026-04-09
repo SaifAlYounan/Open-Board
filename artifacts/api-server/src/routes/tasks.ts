@@ -40,7 +40,8 @@ router.param("id", (_req, res, next, id) => {
 async function getNextTaskNumber(): Promise<string> {
   const year = new Date().getFullYear();
   const result = await db.execute(sql`SELECT nextval('task_seq')::int AS seq`);
-  const seq = String((result.rows[0] as any)?.seq ?? 1).padStart(3, "0");
+  const row = result.rows[0] as Record<string, unknown>;
+  const seq = String(typeof row?.seq === "number" ? row.seq : 1).padStart(3, "0");
   return `TASK-${year}-${seq}`;
 }
 
