@@ -217,7 +217,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     }
 
     case "create_vote": {
-      const { boardId, resolution_number, resolution_text, title, type, deadline, board_name, description } = actionData as any;
+      const { boardId, resolution_number, resolution_text, title, type, deadline, board_name, description, secret, is_secret } = actionData as any;
 
       const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"];
       const voteType = type || "simple";
@@ -260,7 +260,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
           resolutionText: resolution_text || (actionData as any).details?.resolution_text || "To be determined",
           type: voteType,
           deadline: deadline ? new Date(deadline) : null,
-          secret: d.secret === true || d.is_secret === true,
+          secret: secret === true || is_secret === true,
         })
         .returning();
 

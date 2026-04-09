@@ -828,7 +828,9 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
         deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
       }),
     } : null,
-    voteRecords: recordsWithPeople,
+    voteRecords: vote.secret && req.user?.role !== "admin"
+      ? []
+      : recordsWithPeople,
   });
 });
 
