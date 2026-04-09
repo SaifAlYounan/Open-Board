@@ -10,6 +10,7 @@ import {
   pendingActionsTable,
   peopleTable,
   accessControlTable,
+  boardsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
@@ -209,6 +210,28 @@ router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => 
                   status: "pending" as const,
                 }))
               );
+          }
+
+          // Grant document access to board members based on AI-detected board
+          const detectedBoardName = (result.data as any)?.board_name || (result.data as any)?.board;
+          if (detectedBoardName) {
+            const boards = await db
+              .select()
+              .from(boardsTable)
+              .where(eq(boardsTable.name, detectedBoardName));
+            if (boards.length) {
+              await grantDefaultAccess("document", doc.id, boards[0].id);
+            } else {
+              const allBoards = await db.select().from(boardsTable);
+              const match = allBoards.find(
+                (b) =>
+                  b.abbreviation?.toLowerCase() === detectedBoardName.toLowerCase() ||
+                  b.name.toLowerCase().includes(detectedBoardName.toLowerCase())
+              );
+              if (match) {
+                await grantDefaultAccess("document", doc.id, match.id);
+              }
+            }
           }
         }
       } catch (err: any) {

@@ -378,22 +378,37 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       }
 
       const year = new Date().getFullYear();
-      const tasks = await db.select().from(tasksTable);
-      const seq = (tasks.length + 1).toString().padStart(3, "0");
-      const taskNumber = `TASK-${year}-${seq}`;
 
-      const [newTask] = await db
-        .insert(tasksTable)
-        .values({
-          title: task || "Untitled Task",
-          assigneeId,
-          dueDate: deadline,
-          sourceParagraph,
-          sourceMeetingId,
-          taskNumber,
-          aiExtracted: true,
-        })
-        .returning();
+      // Retry up to 5 times if the generated task number collides with an existing one
+      let newTask: typeof tasksTable.$inferSelect | undefined;
+      let attempts = 0;
+      while (!newTask && attempts < 5) {
+        try {
+          const existingTasks = await db.select().from(tasksTable);
+          const seq = (existingTasks.length + 1 + attempts).toString().padStart(3, "0");
+          const taskNumber = `TASK-${year}-${seq}`;
+
+          [newTask] = await db
+            .insert(tasksTable)
+            .values({
+              title: task || "Untitled Task",
+              assigneeId,
+              dueDate: deadline,
+              sourceParagraph,
+              sourceMeetingId,
+              taskNumber,
+              aiExtracted: true,
+            })
+            .returning();
+        } catch (e: any) {
+          if (e.message?.includes("unique") || e.code === "23505") {
+            attempts++;
+          } else {
+            throw e;
+          }
+        }
+      }
+      if (!newTask) throw new Error("Failed to generate unique task number after 5 attempts");
 
       if (assigneeId) {
         await grantDefaultAccess("task", newTask.id, null, [assigneeId]);
@@ -494,6 +509,33 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
           voteId,
           status: isInitialGroup ? "active" : "pending",
         });
+      }
+
+      // Auto-attach the source document to the first vote in the workflow
+      if (actionData._sourceDocumentId && firstVote) {
+        try {
+          const [sourceDoc] = await db
+            .select()
+            .from(documentsTable)
+            .where(eq(documentsTable.id, actionData._sourceDocumentId as string));
+
+          if (sourceDoc) {
+            await db
+              .insert(voteDocumentsTable)
+              .values({
+                voteId: firstVote.id,
+                title: sourceDoc.title || sourceDoc.filename,
+                filename: sourceDoc.filename,
+                filePath: sourceDoc.filePath,
+                fileSize: sourceDoc.fileSize,
+                mimeType: sourceDoc.mimeType,
+                uploadedBy: sourceDoc.uploadedBy,
+              })
+              .onConflictDoNothing();
+          }
+        } catch (e) {
+          console.error("Failed to attach document to workflow vote:", e);
+        }
       }
 
       return { workflow, firstVote };
