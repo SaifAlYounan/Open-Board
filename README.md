@@ -235,7 +235,7 @@ EasyBoard is designed for organizations that take data sovereignty seriously.
 ### Request Hardening
 - **1 MB JSON/URL-encoded body size limit** on all API endpoints
 - **10 MB maximum file upload size** (PDF, DOCX, TXT only — MIME type + extension validated)
-- **UUID format validation** on all route parameters — invalid UUIDs return 400 immediately. *Known gap: documents and workflows routes still missing — see [Known Issues](#known-issues-being-fixed).*
+- **UUID format validation** on all route parameters — invalid UUIDs return 400 immediately
 - **`pick()` utility** on all mutation endpoints strips unknown fields from request bodies, preventing mass-assignment attacks
 
 ### Path Traversal Protection
@@ -300,15 +300,18 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Security Audit Status
 
-EasyBoard has undergone five rounds of automated security auditing (source code review + live adversarial API testing + live E2E functional tests). We believe in full transparency about what was found and what was fixed.
+EasyBoard has undergone eight rounds of automated security auditing (source code review + live adversarial API testing + live E2E functional tests), each run by three independent agents in parallel. We believe in full transparency about what was found and what was fixed.
 
-### Current Posture: CONDITIONAL PASS (as of April 9, 2026)
+### Current Posture: PASS (as of April 9, 2026)
 
 **Round 1** found 4 critical, 5 high, 8 medium, 3 low vulnerabilities. All fixed.
 **Round 2** found 0 critical, 1 high, 2 medium, 4 low. All fixed.
 **Round 3** found 0 critical, 2 high, 4 medium, 4 low. All fixed.
 **Round 4** found 2 critical, 4 high, 6 medium, 5 low. All fixed.
-**Round 5** (comprehensive, with full regression check) verified 37/38 prior findings fixed. Found 0 critical, 2 high, 4 medium, 2 low new issues. Fixes in progress.
+**Round 5** found 0 critical, 2 high, 4 medium, 2 low. All fixed.
+**Round 6** found 1 critical, 2 high, 4 medium, 0 low. All fixed.
+**Round 7** found 0 critical, 0 high, 2 medium, 3 low. All fixed.
+**Round 8** (final verification): 0 critical, 0 high, 0 medium, 0 low. **All 61 regression items from rounds 1–7 verified fixed. Zero new findings.**
 
 ### What Was Wrong (and fixed)
 
@@ -332,35 +335,55 @@ These vulnerabilities existed in earlier versions. They have been found and fixe
 - **No pagination on list endpoints.** All records returned with no limit. *Fixed: pagination with configurable limit (max 200) on all list endpoints.*
 - **No rate limiting on read endpoints.** Mass enumeration possible. *Fixed: global read rate limiter applied.*
 - **Password reset tokens logged in plaintext.** *Fixed: only token hash logged for audit trail.*
+- **Password reset token was returned in API response body.** *Fixed: response no longer contains the token.*
+- **Task number race condition under concurrent load.** *Fixed: retry logic on unique constraint violation.*
+- **Missing UUID validation on documents and workflows routes.** *Fixed: UUID validation applied to all routes.*
+- **Workflows endpoints missing write rate limiter and pagination.** *Fixed: writeLimiter and pagination added.*
+- **AI-proposed vote type not validated in pending actions.** *Fixed: validated against enum before execution.*
+- **`roleInBoard` accepted arbitrary strings.** *Fixed: validated against allowed roles.*
+- **Management users could read any minutes via direct ID.** List was scoped but detail endpoint bypassed board membership. *Fixed: board membership check on both list and detail.*
+- **Document filenames stored unsanitized.** *Fixed: special characters stripped on upload.*
+- **Vote type enum mismatch.** Backend used `["simple","resolution","election","special"]` but frontend sends `"circulation"` and `"meeting"`. *Fixed: enum includes all valid types.*
+- **Body size limit returned wrong HTTP status.** Payloads over 1MB returned 500 instead of 413. *Fixed: proper error handler for Express 4 and 5.*
+- **Source maps generated in production build.** *Fixed: disabled in build configuration.*
+- **Board role dropdown used wrong values.** Frontend sent `"chair"` but backend expected `"chairperson"`. *Fixed: dropdown values aligned with backend.*
 
-### Known Issues (being fixed)
+### Known Limitations
 
-These were found in Round 5 and are being addressed:
+These are design trade-offs or platform constraints, not bugs:
 
-**High:**
-- **Task number race condition.** Concurrent task creation requests can generate duplicate task numbers. The database unique constraint prevents silent data corruption (returns 500 instead), but the user experience is poor under concurrent load. Fix: wrap in transaction with retry logic.
-- **Missing UUID validation on documents and workflows routes.** Invalid UUIDs return 500 instead of 400. All other routes validate correctly. Fix pending.
-
-**Medium:**
-- **`workflows.ts` missing write rate limiter.** POST and PATCH on workflow endpoints are not rate-limited, unlike all other write endpoints. Fix pending.
-- **AI-proposed vote type not validated.** When executing a pending action that creates a vote, the AI-proposed type is not checked against the valid enum. Fix pending.
-- **`workflows` GET endpoint missing pagination.** Fix pending.
-- **`roleInBoard` field not validated in board membership PATCH.** Accepts arbitrary strings. Fix pending.
-
-**Low / Design:**
-- **Management users see all non-draft minutes regardless of board.** Minutes list endpoint filtering is inconsistent with meeting access control. Fix pending.
-- **Document filenames not sanitized on upload.** Filenames with special characters stored as-is. Fix pending.
-
-**Platform (not code bugs):**
 - **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments are unaffected.
-- **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry. Server-side token revocation is planned.
+- **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry. This is inherent to stateless JWT. Server-side token revocation is planned.
 - **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted. This may violate secret ballot principles depending on governance requirements. A configuration option for secret vs. open ballots is planned.
-
-We will update this section as fixes are verified.
 
 ---
 
 ## Changelog
+
+### v2.5 — Final Polish (April 9, 2026)
+
+Addresses all findings from Rounds 6–7. Verified clean by Round 8 (zero findings across 3 independent agents).
+
+- **Body size error handler** — Express 5 compatibility fix. Payloads over 1MB now correctly return 413 instead of 500.
+- **Source maps disabled** — production builds no longer generate `.map` files.
+- **Board role dropdown aligned** — frontend values now match backend's `VALID_BOARD_ROLES`.
+- **Certificate page navigation** — replaced `navigate(-1)` with proper route.
+- **Accessibility** — aria-labels added to all icon-only buttons.
+
+### v2.4 — Access Control & Validation Hardening (April 9, 2026)
+
+Addresses all findings from Rounds 5–6. Verified by Round 7 regression check (53/56 confirmed fixed, remaining 3 addressed in v2.5).
+
+- **Vote type enum fixed** — backend now accepts `"circulation"` and `"meeting"` alongside other types, matching frontend.
+- **Management minutes access control** — board membership checks on both list AND detail endpoints. No more IDOR via direct ID access.
+- **Password reset token removed from response body** — token no longer exposed in API response.
+- **Task number retry logic** — concurrent creation handled gracefully instead of 500.
+- **UUID validation on all routes** — documents and workflows routes now validate like all others.
+- **Workflows rate limiting and pagination** — write limiter and pagination caps added.
+- **AI-proposed vote type validated** — pending actions check type against enum before execution.
+- **`roleInBoard` validation** — returns 400 on invalid values instead of 500.
+- **Document filename sanitization** — special characters stripped on upload.
+- **`pendingActions` rate limiting** — approve/reject endpoints now have write rate limiter.
 
 ### v2.3 — Validation & Workflow Fixes (April 9, 2026)
 

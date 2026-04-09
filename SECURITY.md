@@ -94,7 +94,7 @@ EasyBoard takes the opposite approach. The code is public. The vulnerabilities a
 **What you get:**
 - **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
 - **Full deployment control.** Run it on your servers, in your jurisdiction, behind your firewall. No third-party access to your data.
-- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 5 rounds of auditing — what was wrong, when it was fixed, and what's still open.
+- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 8 rounds of auditing — what was wrong, when it was fixed, and what's still open.
 - **No vendor dependency.** You own the code and the data. If this project disappears tomorrow, you still have everything.
 
 **What you give up:**
@@ -141,13 +141,16 @@ We monitor dependencies for known vulnerabilities and update promptly.
 
 ### Audit History
 
-EasyBoard has undergone five rounds of automated adversarial security auditing:
+EasyBoard has undergone eight rounds of automated adversarial security auditing:
 
 - **Round 1:** 4 critical, 5 high, 8 medium, 3 low — all fixed
 - **Round 2:** 0 critical, 1 high, 2 medium, 4 low — all fixed
 - **Round 3:** 0 critical, 2 high, 4 medium, 4 low — all fixed
 - **Round 4:** 2 critical, 4 high, 6 medium, 5 low — all fixed
-- **Round 5:** 0 critical, 2 high, 4 medium, 2 low — fixes in progress (comprehensive round with full regression verification: 37/38 prior findings confirmed fixed)
+- **Round 5:** 0 critical, 2 high, 4 medium, 2 low — all fixed
+- **Round 6:** 1 critical, 2 high, 4 medium, 0 low — all fixed
+- **Round 7:** 0 critical, 0 high, 2 medium, 3 low — all fixed
+- **Round 8:** 0 critical, 0 high, 0 medium, 0 low — **PASS** (61 regression items verified, zero new findings)
 
 Each round consists of three parallel agents:
 1. **Security audit** — fresh clone, read every route/lib file, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)
@@ -157,5 +160,7 @@ Each round consists of three parallel agents:
 Each agent runs independently with a fresh clone of the repository. Findings are cross-referenced and verified against actual source code before being reported.
 
 Full findings from each round are documented in the [README changelog](README.md#changelog) and [Known Issues](README.md#known-issues-being-fixed).
+
+**Current posture: PASS** — all findings from 8 rounds resolved. No open vulnerabilities.
 
 *Last updated: April 9, 2026*
