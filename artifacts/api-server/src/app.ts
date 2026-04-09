@@ -81,7 +81,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     res.status(403).json({ error: "Forbidden" });
     return;
   }
-  if (err?.type === "entity.too.large") {
+  if (
+    err?.type === "entity.too.large" ||
+    err?.status === 413 ||
+    err?.statusCode === 413
+  ) {
     res.status(413).json({ error: "Request body too large. Maximum size is 1MB." });
     return;
   }

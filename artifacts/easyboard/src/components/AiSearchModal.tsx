@@ -37,11 +37,11 @@ export function AiSearchModal({ onClose }: AiSearchModalProps) {
           {searchMutation.isPending ? (
             <Loader2 size={18} className="text-[#0071e3] animate-spin" />
           ) : (
-            <button type="submit" className="text-[#0071e3] hover:text-[#0077ed] transition-colors" data-testid="button-submit-search">
+            <button type="submit" aria-label="Search" className="text-[#0071e3] hover:text-[#0077ed] transition-colors" data-testid="button-submit-search">
               <Search size={18} />
             </button>
           )}
-          <button type="button" onClick={onClose} className="text-[#86868b] hover:text-[#1d1d1f] transition-colors">
+          <button type="button" aria-label="Close" onClick={onClose} className="text-[#86868b] hover:text-[#1d1d1f] transition-colors">
             <X size={18} />
           </button>
         </form>

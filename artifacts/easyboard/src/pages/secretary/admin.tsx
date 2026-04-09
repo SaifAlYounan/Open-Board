@@ -19,7 +19,8 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const BOARD_ROLE_LABELS: Record<string, { label: string; color: string }> = {
-  chair: { label: "Chair", color: "#0071e3" },
+  chairperson: { label: "Chairperson", color: "#0071e3" },
+  vice_chairperson: { label: "Vice Chairperson", color: "#5856d6" },
   secretary: { label: "Secretary", color: "#5856d6" },
   member: { label: "Member", color: "#86868b" },
   observer: { label: "Observer", color: "#34c759" },
@@ -475,7 +476,8 @@ function BoardMembersTab() {
                       className="h-8 px-2 rounded-lg border border-[#e5e5e7] text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3] bg-white"
                     >
                       <option value="member">Member</option>
-                      <option value="chair">Chair</option>
+                      <option value="chairperson">Chairperson</option>
+                      <option value="vice_chairperson">Vice Chairperson</option>
                       <option value="secretary">Secretary</option>
                       <option value="observer">Observer</option>
                     </select>
@@ -549,6 +551,7 @@ function BoardMembersTab() {
                               onClick={() => removeMember(m.personId)}
                               className="p-1.5 rounded-lg text-[#ff3b30] hover:bg-[#ff3b3015] transition-colors"
                               title="Remove from board"
+                              aria-label="Remove from board"
                             >
                               <Trash2 size={13} />
                             </button>

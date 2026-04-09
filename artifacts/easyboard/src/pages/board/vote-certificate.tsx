@@ -40,7 +40,7 @@ export default function VoteCertificate() {
       <TopNav />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <button
-          onClick={() => navigate(-1 as any)}
+          onClick={() => navigate("/board")}
           className="flex items-center gap-2 text-sm text-[#0071e3] mb-6 hover:underline"
         >
           <ArrowLeft size={16} /> Back
