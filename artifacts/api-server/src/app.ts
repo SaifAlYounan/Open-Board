@@ -42,8 +42,11 @@ const originValidator = makeOriginValidator();
 
 const app: Express = express();
 
-// Trust the first proxy in the chain (Replit's reverse proxy in production).
-// Required so express-rate-limit reads req.ip / X-Forwarded-For correctly.
+// Trust exactly one proxy hop — Replit's reverse proxy in production.
+// Assumption: the app always sits directly behind a single load-balancer/proxy.
+// If the deployment topology changes (e.g., multi-hop CDN), update this value.
+// Without this, express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+// and falls back to incorrect IP identification for all clients.
 app.set("trust proxy", 1);
 
 app.use(helmet());
