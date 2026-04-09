@@ -311,8 +311,9 @@ router.post("/minutes/:id/sign", requireAuth, writeLimiter, async (req, res): Pr
     audit(req, "minutes_signed", "minutes", id);
     res.json({ ...sig, person: safePerson });
   } catch (err: unknown) {
-    const anyErr = err as { code?: string };
-    if (anyErr.code === "23505") {
+    const anyErr = err as { code?: string; cause?: { code?: string } };
+    const pgCode = anyErr.code ?? anyErr.cause?.code;
+    if (pgCode === "23505") {
       res.status(409).json({ error: "Already signed" });
       return;
     }
