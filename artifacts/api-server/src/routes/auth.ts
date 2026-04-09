@@ -10,6 +10,9 @@ import { logger } from "../lib/logger";
 
 const router = Router();
 
+// Constant-time dummy hash used when email is not found — prevents timing-based email enumeration.
+const DUMMY_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -42,6 +45,7 @@ router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): 
 
   const [person] = await db.select().from(peopleTable).where(eq(peopleTable.email, email));
   if (!person) {
+    await bcrypt.compare(password, DUMMY_HASH);
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }

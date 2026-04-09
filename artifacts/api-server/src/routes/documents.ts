@@ -212,27 +212,8 @@ router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => 
               );
           }
 
-          // Grant document access to board members based on AI-detected board
-          const detectedBoardName = (result.data as any)?.board_name || (result.data as any)?.board;
-          if (detectedBoardName) {
-            const boards = await db
-              .select()
-              .from(boardsTable)
-              .where(eq(boardsTable.name, detectedBoardName));
-            if (boards.length) {
-              await grantDefaultAccess("document", doc.id, boards[0].id);
-            } else {
-              const allBoards = await db.select().from(boardsTable);
-              const match = allBoards.find(
-                (b) =>
-                  b.abbreviation?.toLowerCase() === detectedBoardName.toLowerCase() ||
-                  b.name.toLowerCase().includes(detectedBoardName.toLowerCase())
-              );
-              if (match) {
-                await grantDefaultAccess("document", doc.id, match.id);
-              }
-            }
-          }
+          // Board assignment happens when Secretary approves AI-proposed actions.
+          // No automatic access grant here — prevents prompt injection via document content.
         }
       } catch (err: any) {
         logger.warn({ err: err?.message }, "[ai] background classification failed — document already stored");
@@ -352,7 +333,7 @@ router.get("/documents/:id/download", requireAuth, async (req, res): Promise<voi
   const UPLOADS_DIR = path.join(process.cwd(), "uploads");
   const resolvedPath = path.resolve(doc.filePath);
   const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
-  if (!resolvedPath.startsWith(resolvedUploadsDir)) {
+  if (!resolvedPath.startsWith(resolvedUploadsDir + path.sep) && resolvedPath !== resolvedUploadsDir) {
     res.status(403).json({ error: "Access denied" });
     return;
   }

@@ -588,7 +588,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     }
 
     case "flag_confidential": {
-      return { message: "Flagged as confidential", passage: (actionData as any).passage };
+      throw new Error("Confidentiality flagging is not yet implemented");
     }
 
     default:

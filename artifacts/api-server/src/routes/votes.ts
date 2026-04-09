@@ -486,9 +486,10 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
       if (["approved", "rejected", "lapsed"].includes(status)) {
         const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
         const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
+        const sortedRecords = [...records].sort((a, b) => a.personId!.localeCompare(b.personId!)).map(r => ({ personId: r.personId, decision: r.decision }));
         const hash = crypto
           .createHash("sha256")
-          .update(JSON.stringify({ id, status, approvals, total: records.length, closedAt: new Date().toISOString() }))
+          .update(JSON.stringify({ id, status, approvals, total: records.length, closedAt: new Date().toISOString(), records: sortedRecords }))
           .digest("hex");
         updates.certificateHash = hash;
       }
@@ -583,6 +584,11 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
+    if (!await hasAccess(user.id, user.role, "vote", id)) {
+      res.status(403).json({ error: "Access denied — you may be recused from this vote" });
+      return;
+    }
+
     const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"];
     if (!VALID_DECISIONS.includes(decision)) {
       res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
@@ -646,9 +652,10 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
           newStatus = evaluateByRule(rule, approvals, votingMembers.length);
         }
 
+        const sortedRecords = [...validRecords].sort((a, b) => a.personId!.localeCompare(b.personId!)).map(r => ({ personId: r.personId, decision: r.decision }));
         const hash = crypto
           .createHash("sha256")
-          .update(JSON.stringify({ id, status: newStatus, approvals, total: validRecords.length, closedAt: new Date().toISOString() }))
+          .update(JSON.stringify({ id, status: newStatus, approvals, total: validRecords.length, closedAt: new Date().toISOString(), records: sortedRecords }))
           .digest("hex");
         await db
           .update(votesTable)
@@ -717,6 +724,11 @@ router.post("/votes/:id/documents", requireAuth, writeLimiter, (req, res, next) 
   const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+
+  if (user.role !== "admin" && !await hasAccess(user.id, user.role, "vote", id)) {
+    res.status(403).json({ error: "Access denied" });
     return;
   }
 
