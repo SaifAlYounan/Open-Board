@@ -462,6 +462,17 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_VOTE_STATUSES.join(", ")}` });
     return;
   }
+  if (status != null && ["approved", "rejected", "lapsed", "cancelled"].includes(status)) {
+    const [current] = await db.select({ status: votesTable.status }).from(votesTable).where(eq(votesTable.id, id));
+    if (!current) {
+      res.status(404).json({ error: "Vote not found" });
+      return;
+    }
+    if (current.status !== "open") {
+      res.status(409).json({ error: `Cannot change status of a vote that is already closed (current status: ${current.status})` });
+      return;
+    }
+  }
   const updates: Record<string, unknown> = {};
   if (title != null) updates.title = sanitizeText(title);
   if (resolutionText != null) updates.resolutionText = sanitizeText(resolutionText);

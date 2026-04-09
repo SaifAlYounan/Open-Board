@@ -207,13 +207,11 @@ router.post("/ai/search", requireAuth, aiRateLimit, async (req, res): Promise<vo
       filteredVotes = matchingVotes.filter((v) => accessMap.has(`vote:${v.id}`));
       filteredMinutes = matchingMinutes.filter((m) => accessMap.has(`minutes:${m.id}`));
     } else {
-      // Empty access_control (e.g. freshly cleared DB or provisioning gap):
-      // Show only non-draft minutes as a safe public-visibility fallback.
-      // Documents, meetings, and votes are always member-restricted so remain empty.
+      // Empty access_control — user has no grants yet; return nothing.
       filteredDocs = [];
       filteredMeetings = [];
       filteredVotes = [];
-      filteredMinutes = matchingMinutes.filter((m) => m.status !== "draft");
+      filteredMinutes = [];
     }
   }
 

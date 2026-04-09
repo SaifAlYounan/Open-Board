@@ -240,6 +240,7 @@ async function migrateAddPasswordResetTokensTable() {
  * Runs on every startup — allows password resets across environments without manual DB access.
  */
 async function migrateUpdatePasswords() {
+  if (process.env.NODE_ENV === "production") return;
   const pass = process.env.SEED_PASSWORD;
   if (!pass) return;
   try {

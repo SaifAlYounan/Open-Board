@@ -222,8 +222,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
       const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"];
       const voteType = type || "simple";
       if (!VALID_VOTE_TYPES.includes(voteType)) {
-        res.status(400).json({ error: `Invalid vote type: ${voteType}` });
-        return;
+        throw new Error(`Invalid vote type: ${voteType}`);
       }
 
       // Auto-find board by name if needed
@@ -604,6 +603,10 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimi
   const [action] = await db.select().from(pendingActionsTable).where(eq(pendingActionsTable.id, id));
   if (!action) {
     res.status(404).json({ error: "Action not found" });
+    return;
+  }
+  if (action.status !== "pending") {
+    res.status(409).json({ error: `Action has already been resolved (status: ${action.status})` });
     return;
   }
 
