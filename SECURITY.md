@@ -54,7 +54,7 @@ Security does not rely on a single layer:
 | Authorization | Per-entity access control with DB-level uniqueness constraints |
 | Input | sanitize-html (backend), DOMPurify (frontend), Zod schemas, UUID validation |
 | Rate Limiting | Per-IP + per-email on auth, per-user on writes and AI |
-| Data | Full audit trail, SHA-256 signatures on minutes |
+| Data | Full audit trail, SHA-256 integrity hashes on votes and minutes |
 | Infrastructure | No debug endpoints, no source maps, no stack traces in responses |
 
 ### Data Sovereignty
@@ -94,7 +94,7 @@ EasyBoard takes the opposite approach. The code is public. The vulnerabilities a
 **What you get:**
 - **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
 - **Full deployment control.** Run it on your servers, in your jurisdiction, behind your firewall. No third-party access to your data.
-- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 10 rounds of auditing — what was wrong, when it was fixed, and what remains as known limitations.
+- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 11 rounds of auditing — what was wrong, when it was fixed, and what remains open.
 - **No vendor dependency.** You own the code and the data. If this project disappears tomorrow, you still have everything.
 
 **What you give up:**
@@ -141,28 +141,26 @@ We monitor dependencies for known vulnerabilities and update promptly.
 
 ### Audit History
 
-EasyBoard has undergone ten rounds of automated adversarial security auditing:
+EasyBoard has undergone eleven rounds of security auditing using multiple AI models and methodologies:
 
-- **Round 1:** 4 critical, 5 high, 8 medium, 3 low — all fixed
-- **Round 2:** 0 critical, 1 high, 2 medium, 4 low — all fixed
-- **Round 3:** 0 critical, 2 high, 4 medium, 4 low — all fixed
-- **Round 4:** 2 critical, 4 high, 6 medium, 5 low — all fixed
-- **Round 5:** 0 critical, 2 high, 4 medium, 2 low — all fixed
-- **Round 6:** 1 critical, 2 high, 4 medium, 0 low — all fixed
-- **Round 7:** 0 critical, 0 high, 2 medium, 3 low — all fixed
-- **Round 8:** 0 critical, 0 high, 0 medium, 0 low — **PASS** (61 regression items verified, zero new findings)
-- **Round 9:** 0 critical, 0 high, 2 medium, 4 low — adversarial red team. All findings documented as known limitations (none exploitable in production)
-- **Round 10:** Post-launch verification of new features (secret ballot, document access controls, auto-attach). Results pending.
+**Rounds 1–10** used automated AI agents (MiniMax m2.5 via OpenClaw), three parallel agents per round:
+1. **Security audit** — fresh clone, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)
+2. **Static code review** — every route and lib file checked for auth gaps, validation issues, type safety
+3. **Live E2E functional testing** — curl-based testing of every endpoint, every role, full lifecycle testing
 
-Each round consists of three parallel agents:
-1. **Security audit** — fresh clone, read every route/lib file, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)
-2. **Static code review** — every frontend component and backend route checked for dead code, missing error handling, type safety, accessibility, state management
-3. **Live E2E functional testing** — curl-based testing of every endpoint, every role, full lifecycle testing (vote create → cast → close → certificate, minutes draft → review → signing → signed)
+- **Rounds 1–4:** 4 critical, 5 high, 8 medium, 3 low (Round 1) down to 2 critical, 4 high, 6 medium, 5 low (Round 4) — all fixed
+- **Rounds 5–7:** Validation gaps, enum mismatches, rate limiting — all fixed
+- **Round 8:** Verification — 0 findings, 61 regression items confirmed fixed
+- **Round 9:** Adversarial red team — 0 critical, 0 high, 2 medium, 4 low. Documented as known limitations
+- **Round 10:** Post-launch verification of secret ballot, document access, auto-attach. Found and fixed 2 issues.
 
-Each agent runs independently with a fresh clone of the repository. Findings are cross-referenced and verified against actual source code before being reported.
+**Round 11** was a multi-model review:
+- **Claude Opus 4.6** (full static audit, reading entire codebase): flagged 4 catastrophic, 11 critical, 23 high-severity architectural and design issues — transaction safety, idempotency, certificate hash coverage, trust boundary validation, README claim accuracy
+- **MiniMax m2.5** (3 parallel agents, same methodology as Rounds 1–10): found 0 new issues in the same round
+- **Replit Agent**: independently assessed the codebase and disputed many of Opus's findings as already resolved or overstated
 
-Full findings from each round are documented in the [README changelog](README.md#changelog) and [Known Issues](README.md#known-issues-being-fixed).
+**The models disagreed.** Manual source code verification is in progress to determine which Round 11 findings are real vulnerabilities, which are contextual (demo vs production severity), and which are false positives. Confirmed findings will be fixed in v2.8.
 
-**Current posture: PASS** — all findings from 8 rounds resolved. No open vulnerabilities.
+**Current posture: BETA** — all endpoint-level findings from Rounds 1–10 are resolved. Architectural findings from Round 11 are under manual investigation.
 
 *Last updated: April 9, 2026*
