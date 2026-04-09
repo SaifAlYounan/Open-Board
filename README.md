@@ -135,6 +135,7 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 ### For Observers
 - **Read-Only Access** — view meetings, votes, and documents you're granted access to
 - **Per-Document Access Control** — Secretary can exclude individual members from specific documents (conflict-of-interest recusal)
+- **Secret Ballot** — votes can be marked as secret; individual votes visible only to the Secretary and the voter themselves
 - **Comment on Minutes** — participate in the review process
 - **AI Search** — search within your access scope
 
@@ -301,7 +302,7 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Security Audit Status
 
-EasyBoard has undergone eight rounds of automated security auditing (source code review + live adversarial API testing + live E2E functional tests), each run by three independent agents in parallel. We believe in full transparency about what was found and what was fixed.
+EasyBoard has undergone ten rounds of automated security auditing (source code review + live adversarial API testing + live E2E functional tests), each run by three independent agents in parallel. We believe in full transparency about what was found and what was fixed.
 
 ### Current Posture: PASS (as of April 9, 2026)
 
@@ -314,6 +315,7 @@ EasyBoard has undergone eight rounds of automated security auditing (source code
 **Round 7** found 0 critical, 0 high, 2 medium, 3 low. All fixed.
 **Round 8** (final verification): 0 critical, 0 high, 0 medium, 0 low. **All 61 regression items from rounds 1–7 verified fixed. Zero new findings.**
 **Round 9** (adversarial red team): 0 critical, 0 high, 2 medium, 4 low. All documented below as known limitations — none exploitable in production.
+**Round 10** (post-launch verification): testing new features (secret ballot, document access, auto-attach) and full regression. Results pending.
 
 ### What Was Wrong (and fixed)
 
@@ -357,7 +359,7 @@ These are design trade-offs, platform constraints, or low-severity items documen
 **Platform & Architecture:**
 - **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments are unaffected.
 - **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry. This is inherent to stateless JWT. Server-side token revocation is planned.
-- **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted. This may violate secret ballot principles depending on governance requirements. A configuration option for secret vs. open ballots is planned.
+- **Open ballots are the default.** Votes are visible to all board members unless the Secretary enables "Secret Ballot" on vote creation. When secret, only the voter and the Secretary can see individual votes; others see aggregate counts only.
 - **Audit log records proxy IP, not client IP.** Behind Replit's reverse proxy, all audit log entries show the same IP address. Self-hosted deployments can enable Express `trust proxy` to read the real client IP from headers.
 
 **Input Handling (Round 9 findings):**
@@ -456,6 +458,14 @@ If you do use AI: your documents are sent to Anthropic's API for processing. Rev
 ---
 
 ## Changelog
+
+### v2.7 — Secret Ballot & Stability Fixes (April 9, 2026)
+
+- **Secret ballot** — votes can now be marked as secret. When enabled, board members can only see their own vote and aggregate results. Individual votes are visible only to the Secretary. Certificates for secret ballots show counts without names. Toggle available on vote creation form.
+- **Task number collision fix** — approving AI-proposed tasks no longer crashes when the suggested task number already exists. Automatic retry with incremented numbers (up to 5 attempts).
+- **Document access auto-grant** — uploaded documents now automatically grant access to all board members once AI classification identifies the target board. Previously, only the uploading admin had access.
+- **Workflow document attachment** — auto-attach now works for AI-created workflows (attaches source document to the first workflow vote), not just standalone votes and meetings.
+- **Trust proxy** — Express now reads real client IPs from `X-Forwarded-For` behind reverse proxies. Audit logs show actual user IPs instead of proxy IP.
 
 ### v2.6 — Document Management & Access Control (April 9, 2026)
 

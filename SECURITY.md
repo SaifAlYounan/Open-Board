@@ -94,7 +94,7 @@ EasyBoard takes the opposite approach. The code is public. The vulnerabilities a
 **What you get:**
 - **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
 - **Full deployment control.** Run it on your servers, in your jurisdiction, behind your firewall. No third-party access to your data.
-- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 9 rounds of auditing — what was wrong, when it was fixed, and what remains as known limitations.
+- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 10 rounds of auditing — what was wrong, when it was fixed, and what remains as known limitations.
 - **No vendor dependency.** You own the code and the data. If this project disappears tomorrow, you still have everything.
 
 **What you give up:**
@@ -141,7 +141,7 @@ We monitor dependencies for known vulnerabilities and update promptly.
 
 ### Audit History
 
-EasyBoard has undergone nine rounds of automated adversarial security auditing:
+EasyBoard has undergone ten rounds of automated adversarial security auditing:
 
 - **Round 1:** 4 critical, 5 high, 8 medium, 3 low — all fixed
 - **Round 2:** 0 critical, 1 high, 2 medium, 4 low — all fixed
@@ -152,6 +152,7 @@ EasyBoard has undergone nine rounds of automated adversarial security auditing:
 - **Round 7:** 0 critical, 0 high, 2 medium, 3 low — all fixed
 - **Round 8:** 0 critical, 0 high, 0 medium, 0 low — **PASS** (61 regression items verified, zero new findings)
 - **Round 9:** 0 critical, 0 high, 2 medium, 4 low — adversarial red team. All findings documented as known limitations (none exploitable in production)
+- **Round 10:** Post-launch verification of new features (secret ballot, document access controls, auto-attach). Results pending.
 
 Each round consists of three parallel agents:
 1. **Security audit** — fresh clone, read every route/lib file, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)
