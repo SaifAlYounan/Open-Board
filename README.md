@@ -25,7 +25,7 @@ EasyBoard is a board management platform built by a governance professional, not
 
 **The AI is not an add-on. It is the product.**
 
-Upload draft minutes → the AI extracts action items, flags confidential passages, and proposes creating tasks with assignees and deadlines. Upload a board resolution → the AI proposes a circulation vote with the correct board and quorum rules. The Board Secretary reviews and approves. Everything else follows.
+Upload draft minutes → the AI extracts action items and proposes creating tasks with assignees and deadlines. Upload a board resolution → the AI proposes a circulation vote with the correct board and quorum rules. The Board Secretary reviews and approves. Everything else follows.
 
 Every proposed action goes through the Secretary's approval queue. Nothing executes without human approval. This is [human-in-the-loop governance](https://human-loop-guide.replit.app) by design.
 
@@ -98,7 +98,7 @@ Password: 0000
 
 The AI recognizes 7 document types:
 
-- **Draft Minutes** — Extracts action items, attendees, resolutions. Flags confidential passages. Proposes tasks with assignees and deadlines.
+- **Draft Minutes** — Extracts action items, attendees, resolutions. Proposes tasks with assignees and deadlines.
 - **Resolution** — Extracts resolution text. Proposes a circulation or meeting vote with the correct board.
 - **Financial Report** — Extracts key figures. Proposes attaching to the next relevant meeting.
 - **Evidence / Deliverable** — Matches against open tasks. Proposes closing the task with reasoning.
@@ -304,13 +304,15 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 > ⚠️ **EasyBoard is a working beta.** It demonstrates the AI-native governance pattern and is suitable for evaluation, demos, and feedback. It has not been audited to production security standards. Do not use with real board data without completing the fixes described below and conducting your own security review.
 
-EasyBoard has undergone eleven rounds of security auditing. Rounds 1–10 used automated AI agents (MiniMax m2.5 via OpenClaw) running three parallel checks per round: static code review, live API security testing, and end-to-end functional testing. Round 11 was a full static audit by Claude Opus 4.6 reading the complete source code, which identified architectural and design-level issues that endpoint-level testing missed.
+EasyBoard has undergone twelve rounds of security auditing. Rounds 1–10 used automated AI agents (MiniMax M2.7 via OpenClaw) running three parallel checks per round: static code review, live API security testing, and end-to-end functional testing. Round 11 was a full static audit by Claude Opus 4.6 reading the complete source code, which identified architectural and design-level issues that endpoint-level testing missed.
 
 ### Current Posture: BETA (as of April 9, 2026)
 
 **Rounds 1–10** (automated agents, 3 per round): identified and fixed 70+ endpoint-level vulnerabilities including authentication bypasses, access control gaps, input validation failures, and broken workflows. All endpoint-level findings from rounds 1–10 have been fixed and regression-verified.
 
-**Round 11** (multi-model review): The codebase was independently reviewed by Claude Opus 4.6 (full static audit), MiniMax m2.5 (3 agents: security, code review, E2E), and Replit Agent. The models disagreed on severity and validity of findings. Opus identified 4 catastrophic, 11 critical, and 23 high-severity architectural issues. MiniMax agents found 0 issues in the same round. Replit Agent assessed many of Opus's findings as already resolved or overstated. Manual source code verification is in progress to determine which findings are real, which are contextual (demo vs production), and which are false positives. Confirmed findings will be fixed in v2.8.
+**Round 11** (multi-model review): The codebase was independently reviewed by Claude Opus 4.6 (full static audit) and MiniMax M2.7 (3 agents: security, code review, E2E). Opus identified 4 catastrophic, 11 critical, and 23 high-severity architectural issues. MiniMax agents found 0 issues in the same codebase — demonstrating that endpoint-level automated testing cannot catch architectural and design-level flaws. Manual source code verification confirmed all 4 catastrophic and most critical findings as real. Partial fixes applied in v2.8.
+
+**Round 12** (post-fix verification): 4 MiniMax M2.7 agents verified v2.8 fixes. 10 of 12 applied fixes confirmed working. 2 fixes did not land as intended (reject idempotency missing, admin force-approve still possible). See v2.8 changelog for details.
 
 ### Audit History
 
@@ -319,7 +321,8 @@ EasyBoard has undergone eleven rounds of security auditing. Rounds 1–10 used a
 **Round 8** (verification): All 61 regression items verified fixed. Zero new endpoint-level findings.
 **Round 9** (adversarial red team): 0 critical, 0 high, 2 medium, 4 low. Documented as known limitations.
 **Round 10** (post-launch): Verified secret ballot, document access, auto-attach, task retry. Found and fixed 2 issues (certificate endpoint filter, AI destructuring).
-**Round 11** (multi-model review): Opus 4.6 flagged 4 catastrophic, 11 critical, 23 high. MiniMax m2.5 (3 agents) found 0 new issues. Replit Agent disputed many findings. Manual verification in progress — confirmed fixes in v2.8.
+**Round 11** (multi-model review): Opus 4.6 flagged 4 catastrophic, 11 critical, 23 high. MiniMax M2.7 (3 agents) found 0 new issues in the same codebase — a significant methodology gap. Manual verification confirmed all 4 catastrophic and most critical findings as real. v2.8 addresses 8 of the 15 most-severe items fully, 2 partially, with 5 still open.
+**Round 12** (post-fix verification): 4 MiniMax M2.7 agents re-tested after v2.8. Confirmed 10 of 12 applied fixes are working correctly. Identified 2 fixes that did not land as described (reject idempotency, admin force-approve).
 
 ### What Was Wrong (and fixed)
 
@@ -360,15 +363,21 @@ These vulnerabilities existed in earlier versions. They have been found and fixe
 
 Documented for transparency. Items marked **(v2.8)** are under manual verification and will be fixed if confirmed.
 
-**Architecture (Round 11 — under investigation):**
-- **AI action approval lacks transaction wrapping.** Approving an AI-proposed action can leave partial state if the operation fails midway. Double-approval creates duplicate entities. **(v2.8: idempotency check + transaction)**
-- **Certificate hash covers summary only.** SHA-256 hash includes vote ID, status, approval count, and close timestamp — but not individual vote records. Tampering with who-voted-how doesn't invalidate the hash. **(v2.8: hash expanded to include sorted vote records)**
-- **AI executor trusts action data without schema validation.** Fields from AI classification are passed to database inserts with minimal validation. **(v2.8: adding per-action-type validation)**
-- **Vote cast endpoint doesn't check per-entity access control.** A board member recused from a specific vote can still cast. **(v2.8: adding hasAccess check)**
-- **Admin can force vote status via PATCH.** An admin can set a vote to "approved" without any votes being cast. **(v2.8: restricting PATCH to cancel/lapse only)**
-- **Weighted voting, proxy voting, and confidentiality flagging** are in the schema but not implemented. They will be removed from feature claims until implemented.
-- **Account lockout is in-memory.** Server restart resets lockout counters. Persistent lockout planned.
-- **Login timing reveals email existence.** Bcrypt runs only for existing emails. **(v2.8: dummy compare)**
+**Architecture (Round 11 findings — partially addressed in v2.8):**
+- **AI action approval lacks transaction wrapping.** Approving an AI-proposed action can leave partial state if the operation fails midway. Idempotency check added on approve in v2.8, but no transaction wrapping and no audit log on approve/reject.
+- **AI executor trusts action data without schema validation.** Fields from AI classification are passed to database inserts with minimal validation. The core `executeAction` function remains a mass-assignment sink. Fixing this requires a schema validation layer — estimated 1–2 day refactor.
+- **Admin can force vote status via PATCH.** An admin can set a vote to "approved" without any votes being cast. The v2.8 guard only blocks re-transitions on already-closed votes — it does not prevent force-approving open votes. Fix pending.
+- **Reject endpoint has no idempotency check.** An already-approved action can be overwritten to "rejected" status. Fix pending.
+- **Weighted voting, proxy voting, and confidentiality flagging** are in the database schema but not implemented in application logic. They are stubs that silently do nothing.
+- **Account lockout is in-memory.** Server restart resets lockout counters. Combined with the `migrateUpdatePasswords` issue (see v2.8 changelog), a restart in non-production environments resets both lockouts and passwords.
+- **CORS allows any `*.replit.app` subdomain** with credentials. Any Replit-hosted page can make authenticated cross-origin requests to the demo.
+
+**Fixed in v2.8 (removed from Known Limitations):**
+- ~~Certificate hash covers summary only~~ → Now includes sorted vote records.
+- ~~Vote cast ignores per-entity access control~~ → `hasAccess()` check added.
+- ~~Login timing reveals email existence~~ → Dummy bcrypt compare added (~400ms both paths).
+- ~~AI search leaks all minutes for users with no access records~~ → Now returns empty results.
+- ~~AI classifier auto-grants board access without approval~~ → Removed; goes through pending actions.
 
 **Platform & Deployment:**
 - **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments are unaffected.
@@ -473,22 +482,30 @@ If you do use AI: your documents are sent to Anthropic's API for processing. Rev
 
 ## Changelog
 
-### v2.8 — Architectural Security Fixes (Pending)
+### v2.8 — Partial Security Fixes (April 9, 2026)
 
-Addresses confirmed findings from Round 11 multi-model review (Opus 4.6 + MiniMax m2.5 + Replit Agent). Manual verification in progress — only confirmed issues will be fixed:
+Addresses some findings from Round 11 multi-model review (Opus 4.6). Of the 15 most-severe findings, 8 are fully fixed, 2 partially fixed, 4 untouched, and 1 fix attempted but not yet landed. Architectural items (transaction wrapping, schema validation, JWT revocation, multi-tenant) remain open — they require a validation-layer refactor estimated at 1–2 days.
 
-- **Removed `migrateUpdatePasswords`** — seed script no longer overwrites all passwords on every restart. Passwords are set only during initial seed.
+**Fully fixed (8):**
 - **Fixed undefined `res` reference** in AI action executor — invalid vote type errors now throw properly instead of crashing the process.
-- **Added idempotency check** — AI action approval now verifies the action is still "pending" before executing. Prevents duplicate entity creation.
-- **Expanded certificate hash** — SHA-256 now covers sorted individual vote records, not just the summary. Tampering with vote records invalidates the hash.
+- **Added idempotency check on approve** — AI action approval now verifies the action is still "pending" before executing. Prevents duplicate entity creation. *(Note: the reject endpoint does not yet have this check.)*
+- **Expanded certificate hash** — SHA-256 now covers sorted individual vote records `{personId, decision}`, not just the summary. Tampering with vote records invalidates the hash. *(Note: this is a hash, not a digital signature — a database-level attacker could recompute it.)*
 - **Fixed AI search data leak** — users with no access records now see nothing (was: all non-draft minutes).
 - **Added access control to vote document upload** — only admin or board members with vote access can upload.
 - **Recusal enforcement on cast** — `hasAccess()` check added to vote cast endpoint.
-- **Admin cannot force-approve votes** — PATCH restricted to `cancelled` and `lapsed` statuses only.
-- **Fixed path traversal check** — download endpoint now uses trailing separator in startsWith.
+- **Fixed path traversal check** — download endpoint now uses trailing separator in `startsWith`.
 - **Document board assignment requires approval** — AI classification no longer auto-grants board access; goes through pending actions.
-- **Login timing equalized** — dummy bcrypt compare when email not found.
-- **Removed stub feature claims** — weighted voting, proxy voting, and confidentiality flagging removed from features until implemented.
+
+**Partially fixed (2):**
+- **`migrateUpdatePasswords` gated but not removed.** Added `NODE_ENV === "production"` guard — the function no longer runs in production. However, it still exists in the code and still runs in development, staging, and any environment where `NODE_ENV` is not explicitly set to `"production"`. The `.replit` file still hardcodes `SEED_PASSWORD (set in Replit Secrets)`. Self-hosters who forget to set `NODE_ENV` will still have all passwords wiped on every restart. Full removal is the correct fix.
+- **Login timing equalized** — dummy bcrypt compare when email not found. Timing is now ~400ms for both existing and non-existing emails. *(Note: account lockout counters are still in-memory and reset on server restart.)*
+
+**Not yet fixed (5):**
+- **Admin can still force-approve votes via PATCH.** The status guard added in this version only blocks transitions on already-closed votes. An admin can still PATCH an open vote to `"approved"` with zero votes cast, and the expanded certificate hash now covers the empty record set — lending false cryptographic credibility to the forgery. Fix pending.
+- **AI action executor has no transaction wrapping, no audit log on approve/reject, and accepts unvalidated fields via mass assignment.** The idempotency check was added, but the core `executeAction` function remains architecturally unchanged.
+- **Reject endpoint has no idempotency check.** An already-approved action can be overwritten to "rejected."
+- **Weighted voting, proxy voting, and confidentiality flagging** remain in the schema and code as stubs. They are not implemented. *(See Known Limitations.)*
+- **CORS still allows any `*.replit.app` subdomain with credentials.** Any Replit-hosted page can make authenticated API requests to the demo.
 
 ### v2.7 — Secret Ballot & Stability Fixes (April 9, 2026)
 
@@ -610,7 +627,7 @@ Addresses critical security vulnerabilities found in Round 1–3 security audits
 - Secretary approval queue: human-in-the-loop for all AI actions
 - 5 AI modes: CLASSIFY, COMMAND, SEARCH, REVIEW, SUGGEST
 - Natural language command bar for Secretary
-- Minutes lifecycle with SHA-256 digital signatures
+- Minutes lifecycle with SHA-256 integrity hashes
 - Voting with 4 options, custom approval rules, quorum enforcement
 - Role-based access control (Secretary, Board Member, Management, Observer)
 - Real-time updates via Socket.io

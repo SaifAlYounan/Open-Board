@@ -94,7 +94,7 @@ EasyBoard takes the opposite approach. The code is public. The vulnerabilities a
 **What you get:**
 - **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
 - **Full deployment control.** Run it on your servers, in your jurisdiction, behind your firewall. No third-party access to your data.
-- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 11 rounds of auditing — what was wrong, when it was fixed, and what remains open.
+- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 12 rounds of auditing — what was wrong, when it was fixed, and what remains open.
 - **No vendor dependency.** You own the code and the data. If this project disappears tomorrow, you still have everything.
 
 **What you give up:**
@@ -141,9 +141,9 @@ We monitor dependencies for known vulnerabilities and update promptly.
 
 ### Audit History
 
-EasyBoard has undergone eleven rounds of security auditing using multiple AI models and methodologies:
+EasyBoard has undergone twelve rounds of security auditing using multiple AI models and methodologies:
 
-**Rounds 1–10** used automated AI agents (MiniMax m2.5 via OpenClaw), three parallel agents per round:
+**Rounds 1–10** used automated AI agents (MiniMax M2.7 via OpenClaw), three parallel agents per round:
 1. **Security audit** — fresh clone, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)
 2. **Static code review** — every route and lib file checked for auth gaps, validation issues, type safety
 3. **Live E2E functional testing** — curl-based testing of every endpoint, every role, full lifecycle testing
@@ -156,11 +156,16 @@ EasyBoard has undergone eleven rounds of security auditing using multiple AI mod
 
 **Round 11** was a multi-model review:
 - **Claude Opus 4.6** (full static audit, reading entire codebase): flagged 4 catastrophic, 11 critical, 23 high-severity architectural and design issues — transaction safety, idempotency, certificate hash coverage, trust boundary validation, README claim accuracy
-- **MiniMax m2.5** (3 parallel agents, same methodology as Rounds 1–10): found 0 new issues in the same round
-- **Replit Agent**: independently assessed the codebase and disputed many of Opus's findings as already resolved or overstated
+- **MiniMax M2.7** (3 parallel agents, same methodology as Rounds 1–10): found 0 new issues in the same codebase — demonstrating that endpoint-level automated testing cannot catch architectural and design-level flaws
 
-**The models disagreed.** Manual source code verification is in progress to determine which Round 11 findings are real vulnerabilities, which are contextual (demo vs production severity), and which are false positives. Confirmed findings will be fixed in v2.8.
+Manual source code verification confirmed all 4 catastrophic and most critical findings as real. v2.8 addressed 8 of the 15 most-severe items fully, 2 partially, with 5 still open (including architectural items requiring a validation-layer refactor).
 
-**Current posture: BETA** — all endpoint-level findings from Rounds 1–10 are resolved. Architectural findings from Round 11 are under manual investigation.
+**Round 12** (post-fix verification):
+- 4 MiniMax M2.7 agents (security audit, code review, E2E testing, 25-item change verification) re-tested after v2.8
+- Confirmed 10 of 12 applied fixes are working correctly
+- Identified 2 fixes that did not land as intended: reject endpoint missing idempotency check, admin force-approve still possible on open votes
+- All findings cross-verified against source code
+
+**Current posture: BETA** — all endpoint-level findings from Rounds 1–10 are resolved. Of the 15 most-severe architectural findings from Round 11, 8 are fully fixed, 2 partially fixed, 5 remain open. See [README.md — Security Audit Status](README.md#security-audit-status) for full details.
 
 *Last updated: April 9, 2026*
