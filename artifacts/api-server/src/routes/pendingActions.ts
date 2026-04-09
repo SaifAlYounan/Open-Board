@@ -520,9 +520,8 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     }
 
     case "attach_to_meeting": {
-      const d = actionData as any;
-      const meetingId = d.meetingId || d.meeting_id;
-      const docId = d._sourceDocumentId || d.documentId;
+      const meetingId = (actionData.meetingId || actionData.meeting_id) as string | undefined;
+      const docId = (actionData._sourceDocumentId || actionData.documentId) as string | undefined;
       if (meetingId && docId) {
         try {
           const agendaItemsTable = (await import("@workspace/db")).agendaItemsTable;
