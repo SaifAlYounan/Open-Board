@@ -288,6 +288,64 @@ router.get("/documents/:id", requireAuth, async (req, res): Promise<void> => {
   res.json({ ...doc, uploaderName: uploader[0]?.name || null });
 });
 
+router.get("/documents/:id/download", requireAuth, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: "Invalid document ID" });
+    return;
+  }
+
+  const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
+  if (!doc) {
+    res.status(404).json({ error: "Document not found" });
+    return;
+  }
+
+  if (user.role !== "admin") {
+    const [access] = await db
+      .select()
+      .from(accessControlTable)
+      .where(
+        and(
+          eq(accessControlTable.entityType, "document"),
+          eq(accessControlTable.entityId, id),
+          eq(accessControlTable.personId, user.id),
+          eq(accessControlTable.hasAccess, true)
+        )
+      );
+    if (!access) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+  }
+
+  if (!doc.filePath) {
+    res.status(404).json({ error: "File not available" });
+    return;
+  }
+
+  const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+  const resolvedPath = path.resolve(doc.filePath);
+  const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
+  if (!resolvedPath.startsWith(resolvedUploadsDir)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    res.status(404).json({ error: "File not found on disk" });
+    return;
+  }
+
+  audit(req, "document_downloaded", "document", id, { filename: doc.filename });
+
+  res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename="${doc.filename.replace(/"/g, '\\"')}"`);
+  fs.createReadStream(resolvedPath).pipe(res);
+});
+
 router.delete("/documents/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
