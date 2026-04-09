@@ -94,7 +94,7 @@ EasyBoard takes the opposite approach. The code is public. The vulnerabilities a
 **What you get:**
 - **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
 - **Full deployment control.** Run it on your servers, in your jurisdiction, behind your firewall. No third-party access to your data.
-- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 3 rounds of auditing — what was wrong, when it was fixed, and what's still open.
+- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 5 rounds of auditing — what was wrong, when it was fixed, and what's still open.
 - **No vendor dependency.** You own the code and the data. If this project disappears tomorrow, you still have everything.
 
 **What you give up:**
@@ -158,4 +158,4 @@ Each agent runs independently with a fresh clone of the repository. Findings are
 
 Full findings from each round are documented in the [README changelog](README.md#changelog) and [Known Issues](README.md#known-issues-being-fixed).
 
-*Last updated: April 8, 2026*
+*Last updated: April 9, 2026*
