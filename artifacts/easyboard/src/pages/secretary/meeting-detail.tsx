@@ -260,8 +260,9 @@ export default function SecretaryMeetingDetail() {
               <div className="mt-4 pt-4 border-t border-[#e5e5e7] space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-[#1d1d1f] mb-1 block">Title</label>
+                    <label htmlFor="agenda-title" className="text-xs font-medium text-[#1d1d1f] mb-1 block">Title</label>
                     <input
+                      id="agenda-title"
                       value={newAgendaItem.title}
                       onChange={(e) => setNewAgendaItem({ ...newAgendaItem, title: e.target.value })}
                       placeholder="Agenda item title"
@@ -270,8 +271,9 @@ export default function SecretaryMeetingDetail() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-[#1d1d1f] mb-1 block">Type</label>
+                    <label htmlFor="agenda-type" className="text-xs font-medium text-[#1d1d1f] mb-1 block">Type</label>
                     <select
+                      id="agenda-type"
                       value={newAgendaItem.type}
                       onChange={(e) => setNewAgendaItem({ ...newAgendaItem, type: e.target.value })}
                       className="w-full px-3 py-2 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
@@ -284,8 +286,9 @@ export default function SecretaryMeetingDetail() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1 block">Description (optional)</label>
+                  <label htmlFor="agenda-description" className="text-xs font-medium text-[#1d1d1f] mb-1 block">Description (optional)</label>
                   <input
+                    id="agenda-description"
                     value={newAgendaItem.description}
                     onChange={(e) => setNewAgendaItem({ ...newAgendaItem, description: e.target.value })}
                     placeholder="Brief description"

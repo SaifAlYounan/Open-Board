@@ -39,10 +39,8 @@ router.param("id", (_req, res, next, id) => {
 
 async function getNextTaskNumber(): Promise<string> {
   const year = new Date().getFullYear();
-  const startOfYear = new Date(year, 0, 1).toISOString();
-  const result = await db.execute(sql`SELECT COUNT(*)::int AS count FROM tasks WHERE created_at >= ${startOfYear}`);
-  const rows = result.rows as { count: number }[];
-  const seq = ((rows[0]?.count ?? 0) + 1).toString().padStart(3, "0");
+  const result = await db.execute(sql`SELECT nextval('task_seq')::int AS seq`);
+  const seq = String((result.rows[0] as any)?.seq ?? 1).padStart(3, "0");
   return `TASK-${year}-${seq}`;
 }
 
@@ -111,31 +109,21 @@ router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res):
     return;
   }
 
-  const MAX_RETRIES = 3;
-  let task: typeof tasksTable.$inferSelect | undefined;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      const taskNumber = await getNextTaskNumber();
-      const [inserted] = await db
-        .insert(tasksTable)
-        .values({
-          boardId,
-          title: sanitizeText(title),
-          description: description ? sanitizeText(description) : undefined,
-          assigneeId,
-          sourceMeetingId,
-          sourceMinutesId,
-          dueDate,
-          sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
-          taskNumber,
-        })
-        .returning();
-      task = inserted;
-      break;
-    } catch (err: any) {
-      if (attempt === MAX_RETRIES - 1 || !String(err?.message || "").includes("unique")) throw err;
-    }
-  }
+  const taskNumber = await getNextTaskNumber();
+  const [task] = await db
+    .insert(tasksTable)
+    .values({
+      boardId,
+      title: sanitizeText(title),
+      description: description ? sanitizeText(description) : undefined,
+      assigneeId,
+      sourceMeetingId,
+      sourceMinutesId,
+      dueDate,
+      sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
+      taskNumber,
+    })
+    .returning();
   if (!task) { res.status(500).json({ error: "Failed to create task" }); return; }
 
   // Grant access to assignee + admins

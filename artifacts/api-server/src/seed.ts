@@ -104,6 +104,7 @@ export async function seed() {
     await migratePeopleTitles();
     await migrateAddPasswordResetTokensTable();
     await migrateUpdatePasswords();
+    await migrateAddSchemaConstraints();
     return;
   }
 
@@ -208,6 +209,7 @@ export async function seed() {
 
   await migratePeopleTitles();
   await migrateAddPasswordResetTokensTable();
+  await migrateAddSchemaConstraints();
   logger.info({ peopleCount: allPeople.length, boardsCount: allBoards.length }, "Seeding complete — organisation, people, and boards ready");
 }
 
@@ -246,6 +248,29 @@ async function migrateUpdatePasswords() {
     logger.info({ rowCount: (result as any).rowCount ?? "?" }, "migrateUpdatePasswords — passwords synced to SEED_PASSWORD");
   } catch (err) {
     logger.warn({ err }, "migrateUpdatePasswords — non-fatal");
+  }
+}
+
+/**
+ * Idempotent migration: create task_seq sequence (for race-condition-free task number generation)
+ * and add unique index on votes.resolution_number.
+ */
+async function migrateAddSchemaConstraints() {
+  try {
+    await db.execute(sql`CREATE SEQUENCE IF NOT EXISTS task_seq START 1`);
+    logger.info("migrateAddSchemaConstraints — task_seq OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddSchemaConstraints — task_seq non-fatal");
+  }
+  try {
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS votes_resolution_number_unique
+      ON votes(resolution_number)
+      WHERE resolution_number IS NOT NULL
+    `);
+    logger.info("migrateAddSchemaConstraints — votes_resolution_number_unique OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddSchemaConstraints — votes_resolution_number_unique non-fatal");
   }
 }
 

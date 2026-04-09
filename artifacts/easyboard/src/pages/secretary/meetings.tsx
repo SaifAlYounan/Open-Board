@@ -93,8 +93,8 @@ export default function SecretaryMeetings() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Board</label>
-                  <select value={form.boardId} onChange={(e) => setForm({ ...form, boardId: e.target.value })}
+                  <label htmlFor="meeting-board" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Board</label>
+                  <select id="meeting-board" value={form.boardId} onChange={(e) => setForm({ ...form, boardId: e.target.value })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
                     data-testid="select-meeting-board">
                     <option value="">Select board...</option>
@@ -102,24 +102,24 @@ export default function SecretaryMeetings() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Date & Time</label>
-                  <input type="datetime-local" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  <label htmlFor="meeting-date" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Date & Time</label>
+                  <input id="meeting-date" type="datetime-local" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
                     data-testid="input-meeting-date" />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Meeting Title</label>
-                <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                <label htmlFor="meeting-title" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Meeting Title</label>
+                <input id="meeting-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="e.g., Board of Directors Meeting Q2 2026"
                   className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
                   data-testid="input-meeting-title" />
               </div>
 
               <div>
-                <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Location</label>
-                <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
+                <label htmlFor="meeting-location" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Location</label>
+                <input id="meeting-location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
                   placeholder="e.g., Boardroom A, Abu Dhabi HQ"
                   className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
                   data-testid="input-meeting-location" />

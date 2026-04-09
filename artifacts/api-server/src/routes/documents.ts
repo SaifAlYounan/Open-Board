@@ -341,9 +341,90 @@ router.get("/documents/:id/download", requireAuth, async (req, res): Promise<voi
 
   audit(req, "document_downloaded", "document", id, { filename: doc.filename });
 
+  const safeFilename = doc.filename.replace(/[\r\n\\";\x00-\x1f]/g, "").replace(/^\.+/, "") || "download";
   res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${doc.filename.replace(/"/g, '\\"')}"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
   fs.createReadStream(resolvedPath).pipe(res);
+});
+
+router.get("/documents/:id/access", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: "Invalid document ID" });
+    return;
+  }
+
+  const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
+  if (!doc) {
+    res.status(404).json({ error: "Document not found" });
+    return;
+  }
+
+  const rows = await db
+    .select({
+      personId: accessControlTable.personId,
+      hasAccess: accessControlTable.hasAccess,
+      personName: peopleTable.name,
+      personEmail: peopleTable.email,
+      personRole: peopleTable.role,
+    })
+    .from(accessControlTable)
+    .leftJoin(peopleTable, eq(accessControlTable.personId, peopleTable.id))
+    .where(
+      and(
+        eq(accessControlTable.entityType, "document"),
+        eq(accessControlTable.entityId, id)
+      )
+    );
+
+  res.json(rows);
+});
+
+router.patch("/documents/:id/access", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const { personId, hasAccess: grant } = req.body;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    res.status(400).json({ error: "Invalid document ID" });
+    return;
+  }
+
+  if (!personId || typeof grant !== "boolean") {
+    res.status(400).json({ error: "Required: personId (string), hasAccess (boolean)" });
+    return;
+  }
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(personId)) {
+    res.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+
+  const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
+  if (!doc) {
+    res.status(404).json({ error: "Document not found" });
+    return;
+  }
+
+  const result = await db
+    .update(accessControlTable)
+    .set({ hasAccess: grant })
+    .where(
+      and(
+        eq(accessControlTable.entityType, "document"),
+        eq(accessControlTable.entityId, id),
+        eq(accessControlTable.personId, personId)
+      )
+    )
+    .returning();
+
+  if (result.length === 0) {
+    res.status(404).json({ error: "No access record found for this person on this document" });
+    return;
+  }
+
+  audit(req, grant ? "document_access_granted" : "document_access_revoked", "document", id, { personId });
+  res.json({ success: true, personId, hasAccess: grant });
 });
 
 router.delete("/documents/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {

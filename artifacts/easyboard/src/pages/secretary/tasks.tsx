@@ -75,8 +75,8 @@ export default function SecretaryTasks() {
                 className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 resize-none" />
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Assignee</label>
-                  <select value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}
+                  <label htmlFor="task-assignee" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Assignee</label>
+                  <select id="task-assignee" value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" data-testid="select-task-assignee">
                     <option value="">Select person...</option>
                     {(people as any[] || []).filter((p: any) => p.role === 'management' || p.role === 'member').map((p: any) => (
@@ -85,8 +85,8 @@ export default function SecretaryTasks() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Due Date</label>
-                  <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+                  <label htmlFor="task-due-date" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Due Date</label>
+                  <input id="task-due-date" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" />
                 </div>
               </div>

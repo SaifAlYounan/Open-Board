@@ -134,8 +134,8 @@ export default function SecretaryVotes() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Board</label>
-                  <select value={form.boardId} onChange={(e) => setForm({ ...form, boardId: e.target.value })}
+                  <label htmlFor="vote-board" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Board</label>
+                  <select id="vote-board" value={form.boardId} onChange={(e) => setForm({ ...form, boardId: e.target.value })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm text-[#1d1d1f] border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" data-testid="select-board">
                     <option value="">Select board...</option>
                     {(boards as any[] || []).map((b: any) => (
@@ -144,8 +144,8 @@ export default function SecretaryVotes() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Type</label>
-                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })}
+                  <label htmlFor="vote-type" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Type</label>
+                  <select id="vote-type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm text-[#1d1d1f] border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" data-testid="select-vote-type">
                     <option value="circulation">Circulation</option>
                     <option value="meeting">Meeting</option>
@@ -154,15 +154,15 @@ export default function SecretaryVotes() {
               </div>
 
               <div>
-                <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Resolution Title</label>
-                <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                <label htmlFor="vote-title" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Resolution Title</label>
+                <input id="vote-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="e.g., Approval of Q1 2026 Financial Statements"
                   className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm text-[#1d1d1f] border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" data-testid="input-vote-title" />
               </div>
 
               <div>
-                <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Resolution Text</label>
-                <textarea value={form.resolutionText} onChange={(e) => setForm({ ...form, resolutionText: e.target.value })}
+                <label htmlFor="vote-resolution-text" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Resolution Text</label>
+                <textarea id="vote-resolution-text" value={form.resolutionText} onChange={(e) => setForm({ ...form, resolutionText: e.target.value })}
                   placeholder="RESOLVED THAT the Board of Directors of Meridian Energy Group hereby approves..."
                   rows={4}
                   className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm text-[#1d1d1f] border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 resize-none" data-testid="textarea-resolution-text" />
@@ -170,14 +170,14 @@ export default function SecretaryVotes() {
 
               {form.type === 'circulation' && (
                 <div>
-                  <label className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Deadline</label>
-                  <input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })}
+                  <label htmlFor="vote-deadline" className="text-xs font-medium text-[#1d1d1f] mb-1.5 block">Deadline</label>
+                  <input id="vote-deadline" type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })}
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm text-[#1d1d1f] border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" data-testid="input-vote-deadline" />
                 </div>
               )}
 
               <div>
-                <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Approval Rule</label>
+                <div className="text-xs font-medium text-[#1d1d1f] mb-2">Approval Rule</div>
                 <div className="grid grid-cols-4 gap-2">
                   {RULE_PRESETS.map((preset) => (
                     <button
@@ -199,13 +199,13 @@ export default function SecretaryVotes() {
                 {form.ruleType === 'custom' && (
                   <div className="mt-3 grid grid-cols-2 gap-3 p-4 bg-[#f5f5f7] rounded-xl">
                     <div>
-                      <label className="text-xs font-medium text-[#1d1d1f] mb-1 block">Min Approvals</label>
-                      <input type="number" value={form.customMinApprovals} onChange={(e) => setForm({ ...form, customMinApprovals: e.target.value })}
+                      <label htmlFor="vote-min-approvals" className="text-xs font-medium text-[#1d1d1f] mb-1 block">Min Approvals</label>
+                      <input id="vote-min-approvals" type="number" value={form.customMinApprovals} onChange={(e) => setForm({ ...form, customMinApprovals: e.target.value })}
                         className="w-full px-3 py-2 bg-white rounded-lg text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" />
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-[#1d1d1f] mb-1 block">Quorum</label>
-                      <input type="number" value={form.customQuorum} onChange={(e) => setForm({ ...form, customQuorum: e.target.value })}
+                      <label htmlFor="vote-quorum" className="text-xs font-medium text-[#1d1d1f] mb-1 block">Quorum</label>
+                      <input id="vote-quorum" type="number" value={form.customQuorum} onChange={(e) => setForm({ ...form, customQuorum: e.target.value })}
                         className="w-full px-3 py-2 bg-white rounded-lg text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" />
                     </div>
                   </div>
@@ -219,7 +219,7 @@ export default function SecretaryVotes() {
                   return (
                     <div className="mt-3 space-y-3">
                       <div className="p-4 bg-[#f5f5f7] rounded-xl">
-                        <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Recused Members</label>
+                        <div className="text-xs font-medium text-[#1d1d1f] mb-2">Recused Members</div>
                         <p className="text-xs text-[#86868b] mb-2">Members who must abstain from this vote due to a conflict of interest.</p>
                         <div className="flex flex-wrap gap-2">
                           {votingMembers.map((m: any) => {
@@ -249,7 +249,7 @@ export default function SecretaryVotes() {
                         </div>
                       </div>
                       <div className="p-4 bg-[#f5f5f7] rounded-xl">
-                        <label className="text-xs font-medium text-[#1d1d1f] mb-2 block">Key Approvers</label>
+                        <div className="text-xs font-medium text-[#1d1d1f] mb-2">Key Approvers</div>
                         <p className="text-xs text-[#86868b] mb-2">Members whose approval is required for this resolution to pass, regardless of majority.</p>
                         <div className="flex flex-wrap gap-2">
                           {votingMembers.map((m: any) => {

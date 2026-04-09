@@ -290,7 +290,7 @@ router.get("/meetings/:id/attendance", requireAuth, async (req, res): Promise<vo
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  if (user.role !== "admin" && user.role !== "management") {
+  if (user.role !== "admin") {
     const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, id));
     if (meeting?.boardId) {
       const [membership] = await db
