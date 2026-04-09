@@ -134,6 +134,7 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 
 ### For Observers
 - **Read-Only Access** — view meetings, votes, and documents you're granted access to
+- **Per-Document Access Control** — Secretary can exclude individual members from specific documents (conflict-of-interest recusal)
 - **Comment on Minutes** — participate in the review process
 - **AI Search** — search within your access scope
 
@@ -455,6 +456,14 @@ If you do use AI: your documents are sent to Anthropic's API for processing. Rev
 ---
 
 ## Changelog
+
+### v2.6 — Document Management & Access Control (April 9, 2026)
+
+New features and improvements following public launch:
+
+- **Document download route** — `GET /api/documents/:id/download` now serves files with proper Content-Type, Content-Disposition, path traversal protection, access control checks, and audit logging. Previously returned "Cannot GET."
+- **Per-document access control** — Secretary can now toggle access for individual board members on any document via a new UI panel. Enables conflict-of-interest recusal: exclude a director from seeing specific materials while keeping their access to everything else on the board.
+- **Auto-attach documents to AI-created entities** — when the AI proposes a meeting or vote from an uploaded document and the Secretary approves, the source document is automatically linked to the created entity. Board members can now see and download the supporting document directly from the board room.
 
 ### v2.5 — Final Polish (April 9, 2026)
 
