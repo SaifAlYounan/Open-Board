@@ -42,6 +42,10 @@ const originValidator = makeOriginValidator();
 
 const app: Express = express();
 
+// Trust the first proxy in the chain (Replit's reverse proxy in production).
+// Required so express-rate-limit reads req.ip / X-Forwarded-For correctly.
+app.set("trust proxy", 1);
+
 app.use(helmet());
 
 app.use(
