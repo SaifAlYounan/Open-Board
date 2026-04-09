@@ -796,7 +796,7 @@ function SystemTab() {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
-  const passwordCorrect = password === "1961";
+  const passwordCorrect = password === "0000";
 
   async function handleReset() {
     setLoading(true);

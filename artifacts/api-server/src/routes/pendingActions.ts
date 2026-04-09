@@ -13,6 +13,8 @@ import {
   attendanceTable,
   approvalWorkflowsTable,
   workflowStagesTable,
+  voteDocumentsTable,
+  agendaDocumentsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
@@ -190,6 +192,27 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
         await grantDefaultAccess("meeting", meeting.id, resolvedBoardId);
       }
 
+      // Auto-attach the source document to the first agenda item
+      if (actionData._sourceDocumentId && normalizedAgenda.length) {
+        try {
+          const agendaItemsForAttach = (await import("@workspace/db")).agendaItemsTable;
+          const [firstAgendaItem] = await db
+            .select()
+            .from(agendaItemsForAttach)
+            .where(eq(agendaItemsForAttach.meetingId, meeting.id))
+            .orderBy(agendaItemsForAttach.position)
+            .limit(1);
+          if (firstAgendaItem) {
+            await db
+              .insert(agendaDocumentsTable)
+              .values({ agendaItemId: firstAgendaItem.id, documentId: actionData._sourceDocumentId as string })
+              .onConflictDoNothing();
+          }
+        } catch (e) {
+          console.error("Failed to attach document to meeting agenda:", e);
+        }
+      }
+
       return meeting;
     }
 
@@ -242,6 +265,32 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
 
       if (resolvedBoardId) {
         await grantDefaultAccess("vote", vote.id, resolvedBoardId);
+      }
+
+      // Auto-attach the source document to the vote
+      if (actionData._sourceDocumentId) {
+        try {
+          const [sourceDoc] = await db
+            .select()
+            .from(documentsTable)
+            .where(eq(documentsTable.id, actionData._sourceDocumentId as string));
+          if (sourceDoc) {
+            await db
+              .insert(voteDocumentsTable)
+              .values({
+                voteId: vote.id,
+                title: sourceDoc.title || sourceDoc.filename,
+                filename: sourceDoc.filename,
+                filePath: sourceDoc.filePath,
+                fileSize: sourceDoc.fileSize,
+                mimeType: sourceDoc.mimeType,
+                uploadedBy: sourceDoc.uploadedBy,
+              })
+              .onConflictDoNothing();
+          }
+        } catch (e) {
+          console.error("Failed to attach document to vote:", e);
+        }
       }
 
       return vote;
@@ -471,7 +520,30 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     }
 
     case "attach_to_meeting": {
-      return { message: "Document attachment noted" };
+      const d = actionData as any;
+      const meetingId = d.meetingId || d.meeting_id;
+      const docId = d._sourceDocumentId || d.documentId;
+      if (meetingId && docId) {
+        try {
+          const agendaItemsTable = (await import("@workspace/db")).agendaItemsTable;
+          const [firstAgendaItem] = await db
+            .select()
+            .from(agendaItemsTable)
+            .where(eq(agendaItemsTable.meetingId, meetingId))
+            .orderBy(agendaItemsTable.position)
+            .limit(1);
+          if (firstAgendaItem) {
+            await db
+              .insert(agendaDocumentsTable)
+              .values({ agendaItemId: firstAgendaItem.id, documentId: docId })
+              .onConflictDoNothing();
+            return { message: "Document attached to meeting" };
+          }
+        } catch (e) {
+          console.error("Failed to attach document to meeting:", e);
+        }
+      }
+      return { message: "Document attachment noted (no matching agenda item)" };
     }
 
     case "flag_confidential": {
@@ -496,8 +568,9 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimi
   const dataToUse = overrideData || action.actionData;
 
   // Merge documentId from the action row into the data so create_minutes can read document text
+  // _sourceDocumentId is used by create_meeting/create_vote/attach_to_meeting to auto-attach
   const dataWithContext = action.documentId
-    ? { ...(dataToUse as object), documentId: action.documentId }
+    ? { ...(dataToUse as object), documentId: action.documentId, _sourceDocumentId: action.documentId }
     : dataToUse;
 
   try {
