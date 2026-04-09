@@ -32,6 +32,7 @@ import BoardRoom from "@/pages/board/room";
 import BoardMeetingDetail from "@/pages/board/meeting-detail";
 import MinutesViewer from "@/pages/board/minutes-viewer";
 import MinutesSigning from "@/pages/board/signing";
+import VoteCertificate from "@/pages/board/vote-certificate";
 
 import ManagementDashboard from "@/pages/management/index";
 import TaskDetail from "@/pages/management/task-detail";
@@ -207,6 +208,13 @@ function Router() {
         {(params) => (
           <ProtectedRoute roles={['member']}>
             <MinutesSigning />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/board/vote/:id">
+        {() => (
+          <ProtectedRoute roles={['member']}>
+            <VoteCertificate />
           </ProtectedRoute>
         )}
       </Route>

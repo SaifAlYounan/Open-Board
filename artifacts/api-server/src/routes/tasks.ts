@@ -111,22 +111,32 @@ router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res):
     return;
   }
 
-  const taskNumber = await getNextTaskNumber();
-
-  const [task] = await db
-    .insert(tasksTable)
-    .values({
-      boardId,
-      title: sanitizeText(title),
-      description: description ? sanitizeText(description) : undefined,
-      assigneeId,
-      sourceMeetingId,
-      sourceMinutesId,
-      dueDate,
-      sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
-      taskNumber,
-    })
-    .returning();
+  const MAX_RETRIES = 3;
+  let task: typeof tasksTable.$inferSelect | undefined;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const taskNumber = await getNextTaskNumber();
+      const [inserted] = await db
+        .insert(tasksTable)
+        .values({
+          boardId,
+          title: sanitizeText(title),
+          description: description ? sanitizeText(description) : undefined,
+          assigneeId,
+          sourceMeetingId,
+          sourceMinutesId,
+          dueDate,
+          sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
+          taskNumber,
+        })
+        .returning();
+      task = inserted;
+      break;
+    } catch (err: any) {
+      if (attempt === MAX_RETRIES - 1 || !String(err?.message || "").includes("unique")) throw err;
+    }
+  }
+  if (!task) { res.status(500).json({ error: "Failed to create task" }); return; }
 
   // Grant access to assignee + admins
   const additionalIds = assigneeId ? [assigneeId] : [];

@@ -9,7 +9,7 @@ export const votesTable = pgTable("votes", {
   resolutionNumber: text("resolution_number").unique().notNull(),
   title: text("title").notNull(),
   resolutionText: text("resolution_text").notNull(),
-  type: text("type", { enum: ["meeting", "circulation"] }).notNull(),
+  type: text("type", { enum: ["circulation", "meeting", "simple", "resolution", "election", "special"] }).notNull(),
   deadline: timestamp("deadline", { withTimezone: true }),
   status: text("status", { enum: ["open", "approved", "rejected", "lapsed", "cancelled"] }).default("open"),
   certificateHash: text("certificate_hash"),

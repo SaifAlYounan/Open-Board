@@ -127,10 +127,10 @@ router.post("/auth/forgot-password", loginLimiter, async (req, res): Promise<voi
 
   await db.insert(passwordResetTokensTable).values({ personId: person.id, tokenHash, expiresAt });
 
-  // No email service — log hash only; return raw token in response for secretary to relay manually
-  logger.info({ email, tokenHash }, "Password reset requested — relay token to user manually");
+  // No email service — log hash only; admin can retrieve token from DB if needed
+  logger.info({ email }, "Password reset token generated — relay to user via secure channel");
 
-  res.json({ ...FORGOT_RESPONSE, resetToken: token });
+  res.json(FORGOT_RESPONSE);
   audit(req, "password_reset_requested", "person", person.id, { email });
 });
 

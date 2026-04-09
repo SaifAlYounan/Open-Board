@@ -17,6 +17,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
+import { writeLimiter } from "../lib/rateLimiters";
 
 /**
  * Parse an AI-proposed date string treating it as wall-clock time (no timezone conversion).
@@ -195,7 +196,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     case "create_vote": {
       const { boardId, resolution_number, resolution_text, title, type, deadline, board_name, description } = actionData as any;
 
-      const VALID_VOTE_TYPES = ["simple", "resolution", "election", "special"];
+      const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"];
       const voteType = type || "simple";
       if (!VALID_VOTE_TYPES.includes(voteType)) {
         res.status(400).json({ error: `Invalid vote type: ${voteType}` });
@@ -482,7 +483,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
   }
 }
 
-router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { actionData: overrideData, secretaryNotes } = req.body || {};
 
@@ -520,7 +521,7 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, async (re
   }
 });
 
-router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { secretaryNotes } = req.body || {};
 

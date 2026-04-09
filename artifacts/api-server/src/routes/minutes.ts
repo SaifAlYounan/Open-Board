@@ -180,9 +180,8 @@ router.get("/minutes/:id", requireAuth, async (req, res): Promise<void> => {
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
     : [null];
 
-  // Non-admin, non-management: verify board membership
-  // Management users see all non-draft minutes (same as the list endpoint).
-  if (user.role !== "admin" && user.role !== "management" && meeting?.boardId) {
+  // Non-admin: verify board membership (management also needs to be assigned to the board)
+  if (user.role !== "admin" && meeting?.boardId) {
     const membership = await db
       .select()
       .from(boardMembershipsTable)
@@ -332,7 +331,7 @@ router.get("/minutes/:id/comments", requireAuth, async (req, res): Promise<void>
     return;
   }
 
-  if (user.role !== "admin" && user.role !== "management" && minutes.meetingId) {
+  if (user.role !== "admin" && minutes.meetingId) {
     const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId));
     if (meeting?.boardId) {
       const [membership] = await db

@@ -194,7 +194,7 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
     return;
   }
 
-  const VALID_VOTE_TYPES = ["simple", "resolution", "election", "special"];
+  const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"];
   if (!VALID_VOTE_TYPES.includes(type)) {
     res.status(400).json({ error: `Invalid vote type. Must be one of: ${VALID_VOTE_TYPES.join(", ")}` });
     return;
