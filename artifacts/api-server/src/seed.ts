@@ -103,6 +103,7 @@ export async function seed() {
     logger.info("People already exist — skipping seed");
     await migratePeopleTitles();
     await migrateAddPasswordResetTokensTable();
+    await migrateUpdatePasswords();
     return;
   }
 
@@ -229,6 +230,22 @@ async function migrateAddPasswordResetTokensTable() {
     logger.info("migrateAddPasswordResetTokensTable — OK");
   } catch (err) {
     logger.warn({ err }, "migrateAddPasswordResetTokensTable — non-fatal");
+  }
+}
+
+/**
+ * Idempotent migration: if SEED_PASSWORD is set, update all people's password hashes to match.
+ * Runs on every startup — allows password resets across environments without manual DB access.
+ */
+async function migrateUpdatePasswords() {
+  const pass = process.env.SEED_PASSWORD;
+  if (!pass) return;
+  try {
+    const hash = await bcrypt.hash(pass, 10);
+    const result = await db.execute(sql`UPDATE people SET password_hash = ${hash}`);
+    logger.info({ rowCount: (result as any).rowCount ?? "?" }, "migrateUpdatePasswords — passwords synced to SEED_PASSWORD");
+  } catch (err) {
+    logger.warn({ err }, "migrateUpdatePasswords — non-fatal");
   }
 }
 
