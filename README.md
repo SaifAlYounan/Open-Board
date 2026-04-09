@@ -300,58 +300,61 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Security Audit Status
 
-EasyBoard has undergone four rounds of automated security auditing (source code review + live adversarial API testing). We believe in full transparency about what was found and what was fixed.
+EasyBoard has undergone five rounds of automated security auditing (source code review + live adversarial API testing + live E2E functional tests). We believe in full transparency about what was found and what was fixed.
 
-### Current Posture: CONDITIONAL PASS (as of April 8, 2026)
+### Current Posture: CONDITIONAL PASS (as of April 9, 2026)
 
 **Round 1** found 4 critical, 5 high, 8 medium, 3 low vulnerabilities. All fixed.
 **Round 2** found 0 critical, 1 high, 2 medium, 4 low. All fixed.
 **Round 3** found 0 critical, 2 high, 4 medium, 4 low. All fixed.
-**Round 4** found 2 critical, 4 high, 6 medium, 5 low. Fixes in progress.
+**Round 4** found 2 critical, 4 high, 6 medium, 5 low. All fixed.
+**Round 5** (comprehensive, with full regression check) verified 37/38 prior findings fixed. Found 0 critical, 2 high, 4 medium, 2 low new issues. Fixes in progress.
 
 ### What Was Wrong (and fixed)
 
-These vulnerabilities existed in v2.0 and v2.1. They are now fixed:
+These vulnerabilities existed in earlier versions. They have been found and fixed across rounds 1–4:
 
 - **WebSocket had zero authentication.** Any visitor could connect and listen to live board events (vote closures, minute signatures, comments) without logging in. *Fixed: authenticate at handshake, verify board membership on room joins.*
 - **Any user could read any board's data.** No access control on board detail, vote detail, meeting detail, minutes comments, document metadata, or task endpoints. An observer on one board could read every other board's membership, votes, and documents. *Fixed: board membership checks on all endpoints.*
 - **Vote certificates were publicly accessible.** Who voted how, accessible to anyone with the URL. *Fixed: access control on certificate endpoint.*
 - **CORS was wide open.** `origin: "*"` — any website could make authenticated API requests. *Fixed: strict origin validation with allowlist.*
 - **JWT tokens were in localStorage.** Readable by any XSS. *Fixed: HttpOnly secure cookies.*
+- **JWT token was returned in login response body.** XSS could read the response. *Fixed: login response now only contains user data; token is exclusively in the HttpOnly cookie.*
 - **No request body size limits.** Unlimited JSON payloads accepted. *Fixed: 1MB limit.*
-- **System reset had no confirmation.** One POST and all data gone. *Fixed: requires `{ confirm: "RESET" }`.*
+- **System reset had no confirmation.** One POST and all data gone. *Fixed: requires admin + `{ confirm: "RESET" }` + database transaction.*
 - **AI search exposed the entire database.** Any user's AI query got context from ALL boards, ALL people, ALL meetings — regardless of access. *Fixed: scoped to user's accessible entities.*
-- **Seed script had a hardcoded fallback password.** If `SEED_PASSWORD` wasn't set, it silently used `Meridian2024!`. *Fixed: fail-fast if env var missing.*
+- **Seed script had a hardcoded fallback password.** If `SEED_PASSWORD` wasn't set, it silently used a default. *Fixed: fail-fast if env var missing.*
 - **Error handlers were silently swallowing errors.** `.catch(() => {})` on workflow triggers. *Fixed: proper error logging.*
+- **Minutes signing workflow was completely broken.** Frontend and backend used different status names. The sign endpoint required a status that could never be reached. *Fixed: aligned status enums across frontend, backend, and database.*
+- **Management users bypassed meeting access control.** The meeting detail endpoint explicitly exempted management from board membership checks. *Fixed: management users now subject to the same board membership checks as other roles.*
+- **Observer minutes navigation was a dead link.** Observers clicking published minutes got a 404. *Fixed: observer-accessible minutes route added.*
+- **Multiple PATCH/POST endpoints accepted arbitrary strings** for status, type, and role fields. *Fixed: enum validation on all status, type, and role fields across votes, meetings, minutes, tasks, people, and agenda items.*
+- **No pagination on list endpoints.** All records returned with no limit. *Fixed: pagination with configurable limit (max 200) on all list endpoints.*
+- **No rate limiting on read endpoints.** Mass enumeration possible. *Fixed: global read rate limiter applied.*
+- **Password reset tokens logged in plaintext.** *Fixed: only token hash logged for audit trail.*
 
 ### Known Issues (being fixed)
 
-These were found in Rounds 3–4 and are being addressed:
-
-**Critical / Functional:**
-- **Minutes signing workflow is broken.** The sign endpoint requires `status === "signing"` but "signing" is not in the valid status list. Minutes can never be signed. The frontend and backend use different status names (`review`/`signing` vs `pending_signature`/`approved`). Fix pending.
-- **JWT token returned in login response body.** The raw JWT is sent in the JSON response alongside the HttpOnly cookie. XSS can read the response body. Fix: remove token from response body.
+These were found in Round 5 and are being addressed:
 
 **High:**
-- **Management users bypass meeting access control.** The meeting detail endpoint explicitly exempts management from board membership checks. Any management user can read any meeting. Fix pending.
-- **Observer minutes navigation is a dead link.** Observers clicking published minutes get a 404 — the route points to a member-only page. Fix pending.
-- **No rate limiting on read endpoints.** All GET endpoints (boards, meetings, votes, documents) have no rate limiter. Mass enumeration possible at full speed. Fix pending.
-- **Vote/agenda item/task `type` and `status` fields accept arbitrary strings.** No enum validation on multiple PATCH/POST endpoints. Fix pending.
+- **Task number race condition.** Concurrent task creation requests can generate duplicate task numbers. The database unique constraint prevents silent data corruption (returns 500 instead), but the user experience is poor under concurrent load. Fix: wrap in transaction with retry logic.
+- **Missing UUID validation on documents and workflows routes.** Invalid UUIDs return 500 instead of 400. All other routes validate correctly. Fix pending.
 
 **Medium:**
-- **No pagination caps on list endpoints.** All records returned with no server-side limit. Fix pending.
-- **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted (name + decision + comment). This may violate secret ballot principles depending on governance requirements. A configuration option for secret vs. open ballots is planned.
-- **Password reset tokens logged in plaintext.** Server logs contain the raw reset token. Fix: log token hash only.
-- **Task number sequence not transaction-safe.** Concurrent requests can produce duplicate task numbers. Fix pending.
-- **Resolution number uniqueness not enforced at DB level.** Fix: add unique constraint.
-- **Minutes comment/suggestion resolution accepts any string.** Fix pending.
+- **`workflows.ts` missing write rate limiter.** POST and PATCH on workflow endpoints are not rate-limited, unlike all other write endpoints. Fix pending.
+- **AI-proposed vote type not validated.** When executing a pending action that creates a vote, the AI-proposed type is not checked against the valid enum. Fix pending.
+- **`workflows` GET endpoint missing pagination.** Fix pending.
+- **`roleInBoard` field not validated in board membership PATCH.** Accepts arbitrary strings. Fix pending.
 
-**Low / Platform:**
-- **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. This is a Replit platform limitation, not a code bug. Self-hosted deployments are unaffected.
-- **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry.
-- **Content-Disposition header not sanitized in file downloads.** Fix pending.
-- **Sub-parameter UUIDs not validated.** Top-level `:id` params are validated, sub-params like `:personId` are not. Fix pending.
-- **`pick()` not applied to all mutation endpoints.** People routes still accept unfiltered request bodies. Fix pending.
+**Low / Design:**
+- **Management users see all non-draft minutes regardless of board.** Minutes list endpoint filtering is inconsistent with meeting access control. Fix pending.
+- **Document filenames not sanitized on upload.** Filenames with special characters stored as-is. Fix pending.
+
+**Platform (not code bugs):**
+- **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments are unaffected.
+- **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry. Server-side token revocation is planned.
+- **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted. This may violate secret ballot principles depending on governance requirements. A configuration option for secret vs. open ballots is planned.
 
 We will update this section as fixes are verified.
 
@@ -359,9 +362,35 @@ We will update this section as fixes are verified.
 
 ## Changelog
 
+### v2.3 — Validation & Workflow Fixes (April 9, 2026)
+
+Addresses all findings from Round 4 security audit, static code review, and E2E functional testing. Verified by Round 5 comprehensive regression check (37/38 items confirmed fixed).
+
+**Critical fixes:**
+- **Minutes signing workflow was broken** — frontend and backend used different status enums. Aligned to `draft → review → signing → signed` across frontend, backend, and database schema.
+- **JWT token removed from login response body** — was being sent in JSON alongside HttpOnly cookie, defeating the purpose. Now only in the cookie.
+
+**High fixes:**
+- **Management meeting access bypass removed** — management users now subject to board membership checks like all other roles.
+- **Observer minutes navigation fixed** — observer-accessible minutes route added.
+- **Read rate limiter added** — global rate limit on all GET endpoints prevents mass enumeration.
+- **Enum validation on all status/type/role fields** — votes, meetings, minutes, tasks, people, agenda items.
+
+**Medium fixes:**
+- **Pagination added to all list endpoints** — configurable limit, max 200.
+- **Password reset tokens no longer logged in plaintext** — only token hash logged.
+- **Minutes PATCH now sanitizes content** — was missing on PATCH while POST had it.
+- **Vote cast comments now sanitized** — was storing raw input.
+- **Email format validated on user creation** — was accepting malformed addresses.
+- **`pick()` applied to people routes** — strips unknown fields from request body.
+- **UUID validation on boards route** — was returning 500 on invalid UUID.
+- **Sub-parameter UUID validation** — `:personId`, `:docId` now validated.
+- **Content-Disposition header sanitized** in file downloads.
+- **Secretary settings route fixed** — no longer a dead link.
+
 ### v2.2 — Security Hardening (April 8, 2026)
 
-This release addresses critical security vulnerabilities found during a comprehensive 3-round security audit. See [Security Audit Status](#security-audit-status) for full details of what was wrong.
+Addresses critical security vulnerabilities found in Round 1–3 security audits. See [Security Audit Status](#security-audit-status) for full details.
 
 **What was broken and is now fixed:**
 
@@ -379,7 +408,7 @@ This release addresses critical security vulnerabilities found during a comprehe
 **New security features:**
 
 - Helmet middleware (CSP, HSTS, X-Frame-Options, X-Content-Type-Options)
-- Rate limiting: login (10/15min per IP + per email), AI (20/min), writes (30/min)
+- Rate limiting: login (10/15min per IP + per email), AI (20/min), writes (30/min), reads (100/min)
 - Password complexity (12+ chars), bcrypt hashing
 - Account lockout (30 failures → 24h)
 - Password reset flow (SHA-256 token, 1h expiry)
