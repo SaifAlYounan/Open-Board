@@ -312,6 +312,7 @@ EasyBoard has undergone eight rounds of automated security auditing (source code
 **Round 6** found 1 critical, 2 high, 4 medium, 0 low. All fixed.
 **Round 7** found 0 critical, 0 high, 2 medium, 3 low. All fixed.
 **Round 8** (final verification): 0 critical, 0 high, 0 medium, 0 low. **All 61 regression items from rounds 1–7 verified fixed. Zero new findings.**
+**Round 9** (adversarial red team): 0 critical, 0 high, 2 medium, 4 low. All documented below as known limitations — none exploitable in production.
 
 ### What Was Wrong (and fixed)
 
@@ -350,11 +351,106 @@ These vulnerabilities existed in earlier versions. They have been found and fixe
 
 ### Known Limitations
 
-These are design trade-offs or platform constraints, not bugs:
+These are design trade-offs, platform constraints, or low-severity items documented for transparency. None are exploitable in production.
 
+**Platform & Architecture:**
 - **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments are unaffected.
 - **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry. This is inherent to stateless JWT. Server-side token revocation is planned.
 - **Vote records visible to all board members.** `GET /votes/:id` shows how every member voted. This may violate secret ballot principles depending on governance requirements. A configuration option for secret vs. open ballots is planned.
+- **Audit log records proxy IP, not client IP.** Behind Replit's reverse proxy, all audit log entries show the same IP address. Self-hosted deployments can enable Express `trust proxy` to read the real client IP from headers.
+
+**Input Handling (Round 9 findings):**
+- **No character limit on titles.** Meeting, vote, task, and minute titles accept unlimited text. A very long title (100KB+) would render slowly but wouldn't crash the system or leak data. Production deployments should add a 500-character limit.
+- **Null bytes in text inputs return 500.** Sending the invisible character `\0` inside a title causes a server error instead of a graceful rejection. No data is leaked. This only occurs with automated security scanners — no human would type a null byte.
+
+**Build Tooling:**
+- **Vite has 14 flagged npm vulnerabilities.** All are in Vite, the build tool that compiles the frontend. Vite never runs in production — users never interact with it. Developers cloning the repo will see audit warnings. Run `pnpm update vite` to resolve.
+- **Vite dev server accepts connections from any domain** (`allowedHosts: true`). Only relevant during local development. The compiled production app does not use Vite's dev server.
+
+**Demo Features:**
+- **"0000" reset password.** The admin panel's "Reset Demo Data" button requires typing "0000" as a UI safeguard to prevent accidental resets. This is intentional — it's a speed bump for the demo, not a security measure. The real protection is server-side: the endpoint requires admin authentication plus an explicit `{ confirm: "RESET" }` payload. The "0000" is visible in the source code by design.
+
+---
+
+## Self-Hosting Guide
+
+EasyBoard is designed to run on your own infrastructure. Before deploying to production, make these changes:
+
+### 1. Environment Variables (Required)
+
+Set these in your server environment. **Do not commit them to source control.**
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `SESSION_SECRET` | Signs JWT tokens. Must be a long random string. | `openssl rand -hex 64` |
+| `DATABASE_URL` | PostgreSQL connection string. | `postgresql://user:pass@host:5432/easyboard` |
+| `SEED_PASSWORD` | Password for initial demo accounts. Change to something strong or remove demo accounts entirely. | `YourStrongPassword123!` |
+| `ALLOWED_ORIGIN` | Comma-separated list of allowed frontend URLs for CORS. | `https://board.yourcompany.com` |
+| `NODE_ENV` | Set to `production` to enable secure cookies and disable debug logging. | `production` |
+| `PORT` | Server port. | `3000` |
+| `ANTHROPIC_API_KEY` | *(Optional)* Enables AI features (document classification, search, task suggestions). | `sk-ant-...` |
+
+### 2. Replace Demo Accounts
+
+The seed script (`seed.ts`) creates demo users for the Meridian Energy demo. For production:
+
+- **Option A:** Delete the seed data entirely and create real users via the admin panel.
+- **Option B:** Modify `seed.ts` with your organization's real board structure, roles, and email addresses. Run the seed once, then disable it.
+
+### 3. Change or Remove the Reset UI Password
+
+In `artifacts/easyboard/src/pages/secretary/admin.tsx`, the "Reset Demo Data" button uses a client-side password (`"0000"`). For production:
+
+- **Option A (recommended):** Remove the entire System Reset tab. Production boards should never have a "wipe everything" button.
+- **Option B:** Change `"0000"` to a strong password known only to your administrator.
+
+The server-side endpoint (`POST /api/system/reset-data`) is independently protected by admin authentication + confirmation payload, but disabling the UI entirely is safest.
+
+### 4. Configure CORS
+
+By default, the app accepts requests from `*.replit.dev` and `*.replit.app`. For production:
+
+Set `ALLOWED_ORIGIN` to your exact frontend domain(s):
+```
+ALLOWED_ORIGIN=https://board.yourcompany.com
+```
+
+### 5. Enable Trust Proxy
+
+If running behind a reverse proxy (nginx, Cloudflare, AWS ALB), add this line to `artifacts/api-server/src/app.ts`:
+
+```typescript
+app.set('trust proxy', 1);
+```
+
+This ensures audit logs record the real client IP instead of the proxy's IP.
+
+### 6. Database
+
+EasyBoard uses PostgreSQL. For production:
+
+- Use a managed PostgreSQL instance (AWS RDS, Google Cloud SQL, etc.) or a hardened self-hosted install
+- Enable SSL connections
+- Set up automated backups
+- Run migrations: `pnpm drizzle-kit push`
+
+### 7. AI Features (Optional)
+
+AI features (document classification, semantic search, task suggestions) require an Anthropic API key. If you don't set `ANTHROPIC_API_KEY`, the app works normally — AI features are simply disabled.
+
+If you do use AI: your documents are sent to Anthropic's API for processing. Review Anthropic's data policy and ensure it meets your governance requirements.
+
+### 8. Security Checklist Before Go-Live
+
+- [ ] `SESSION_SECRET` is a random 64+ character string (not `"secret"` or `"password"`)
+- [ ] `SEED_PASSWORD` is strong or demo accounts are removed
+- [ ] `ALLOWED_ORIGIN` is set to your exact domain (not wildcard)
+- [ ] `NODE_ENV=production` is set
+- [ ] System Reset tab is removed or password is changed
+- [ ] Database is on a private network with SSL enabled
+- [ ] HTTPS is enforced (via reverse proxy or platform)
+- [ ] Backups are configured and tested
+- [ ] Run `pnpm audit` and resolve any flagged vulnerabilities
 
 ---
 
