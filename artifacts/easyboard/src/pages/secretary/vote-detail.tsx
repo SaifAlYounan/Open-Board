@@ -265,6 +265,7 @@ export default function SecretaryVoteDetail() {
   const generateCertificatePDF = (cert: any) => {
     const approvals = cert.voteRecords?.filter((r: any) => r.decision.startsWith('approved')).length || 0;
     const total = cert.voteRecords?.length || 0;
+    const isSecret = cert.secret === true;
     const statusColor = { approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b', open: '#0071e3' }[cert.status as string] || '#86868b';
 
     const html = `<!DOCTYPE html>
@@ -340,6 +341,11 @@ export default function SecretaryVoteDetail() {
 
   <div class="section">
     <div class="section-title">Individual Votes</div>
+    ${isSecret ? `
+    <div style="background:#f5f5f7;border-radius:10px;padding:16px;text-align:center;">
+      <p style="font-size:14px;color:#86868b;font-style:italic;">This was a secret ballot — individual votes are not disclosed.</p>
+    </div>
+    ` : `
     <table>
       <thead><tr><th>Member</th><th>Decision</th><th>Date & Time</th><th>Comment</th></tr></thead>
       <tbody>
@@ -353,6 +359,7 @@ export default function SecretaryVoteDetail() {
         `).join('')}
       </tbody>
     </table>
+    `}
   </div>
 
   ${cert.hash ? `
@@ -432,7 +439,14 @@ export default function SecretaryVoteDetail() {
                 <span className="text-[#e5e5e7]">·</span>
                 <span className="text-xs text-[#86868b] capitalize">{voteData.type}</span>
               </div>
-              <h1 className="text-2xl font-semibold text-[#1d1d1f]">{voteData.title}</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl font-semibold text-[#1d1d1f]">{voteData.title}</h1>
+                {voteData.secret && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-[#1c1c1e] text-[#ff9f0a] border border-[#ff9f0a]/30">
+                    Secret Ballot
+                  </span>
+                )}
+              </div>
             </div>
             <StatusBadge status={voteData.status} />
           </div>

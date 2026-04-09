@@ -272,6 +272,12 @@ async function migrateAddSchemaConstraints() {
   } catch (err) {
     logger.warn({ err }, "migrateAddSchemaConstraints — votes_resolution_number_unique non-fatal");
   }
+  try {
+    await db.execute(sql`ALTER TABLE votes ADD COLUMN IF NOT EXISTS secret boolean DEFAULT false`);
+    logger.info("migrateAddSchemaConstraints — votes.secret OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddSchemaConstraints — votes.secret non-fatal");
+  }
 }
 
 /**

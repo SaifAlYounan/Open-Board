@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean } from "drizzle-orm/pg-core";
 import { boardsTable } from "./boards";
 import { meetingsTable } from "./meetings";
 
@@ -13,6 +13,7 @@ export const votesTable = pgTable("votes", {
   deadline: timestamp("deadline", { withTimezone: true }),
   status: text("status", { enum: ["open", "approved", "rejected", "lapsed", "cancelled"] }).default("open"),
   certificateHash: text("certificate_hash"),
+  secret: boolean("secret").default(false),
   closedAt: timestamp("closed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -147,10 +147,22 @@ export default function BoardRoom() {
                         <div className="flex items-start justify-between mb-3">
                           <div>
                             <div className="text-xs font-mono text-[#86868b] mb-0.5">{vote.resolutionNumber}</div>
-                            <div className="font-semibold text-[#1d1d1f]">{vote.title}</div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="font-semibold text-[#1d1d1f]">{vote.title}</div>
+                              {vote.secret && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#1c1c1e] text-[#ff9f0a] border border-[#ff9f0a]/30">
+                                  Secret Ballot
+                                </span>
+                              )}
+                            </div>
                             {deadlineStr && (
                               <div className="flex items-center gap-1 text-xs text-[#ff9500] mt-1">
                                 <Clock size={12} /> Deadline: {deadlineStr}
+                              </div>
+                            )}
+                            {vote.secret && (
+                              <div className="text-xs text-[#86868b] mt-1 italic">
+                                This is a secret ballot. Individual votes are confidential.
                               </div>
                             )}
                           </div>

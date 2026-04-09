@@ -260,6 +260,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
           resolutionText: resolution_text || (actionData as any).details?.resolution_text || "To be determined",
           type: voteType,
           deadline: deadline ? new Date(deadline) : null,
+          secret: d.secret === true || d.is_secret === true,
         })
         .returning();
 

@@ -42,6 +42,7 @@ export default function SecretaryVotes() {
     deadlineBehavior: 'lapse',
     recusedIds: [] as string[],
     requiredVoterIds: [] as string[],
+    secret: false,
   });
 
   const { data: boardMembers } = useGetBoardMembers(form.boardId, { query: { enabled: !!form.boardId } });
@@ -83,6 +84,7 @@ export default function SecretaryVotes() {
         resolutionText: form.resolutionText,
         type: form.type,
         deadline: form.deadline || undefined,
+        secret: form.secret,
         approvalRule: {
           type: form.ruleType,
           minApprovals: form.customMinApprovals ? parseInt(form.customMinApprovals) : undefined,
@@ -97,7 +99,7 @@ export default function SecretaryVotes() {
         toast({ title: 'Vote created' });
         queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
         setShowCreate(false);
-        setForm({ boardId: '', title: '', resolutionText: '', type: 'circulation', deadline: '', ruleType: 'majority', customMinApprovals: '', customQuorum: '', deadlineBehavior: 'lapse', recusedIds: [], requiredVoterIds: [] });
+        setForm({ boardId: '', title: '', resolutionText: '', type: 'circulation', deadline: '', ruleType: 'majority', customMinApprovals: '', customQuorum: '', deadlineBehavior: 'lapse', recusedIds: [], requiredVoterIds: [], secret: false });
       },
       onError: (err: any) => {
         toast({ title: 'Create failed', description: err.data?.error || 'Please try again.', variant: 'destructive' });
@@ -175,6 +177,18 @@ export default function SecretaryVotes() {
                     className="w-full px-3 py-2.5 bg-[#f5f5f7] rounded-xl text-sm text-[#1d1d1f] border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" data-testid="input-vote-deadline" />
                 </div>
               )}
+
+              <label className="flex items-center gap-2 text-sm text-[#1d1d1f] cursor-pointer select-none" data-testid="label-secret-ballot">
+                <input
+                  type="checkbox"
+                  id="vote-secret"
+                  checked={form.secret}
+                  onChange={(e) => setForm({ ...form, secret: e.target.checked })}
+                  className="rounded"
+                  data-testid="checkbox-secret-ballot"
+                />
+                <span>Secret Ballot — individual votes will only be visible to the Secretary</span>
+              </label>
 
               <div>
                 <div className="text-xs font-medium text-[#1d1d1f] mb-2">Approval Rule</div>
