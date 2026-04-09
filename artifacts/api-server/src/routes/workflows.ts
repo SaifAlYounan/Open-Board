@@ -12,13 +12,29 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 
+const MAX_PAGE_LIMIT = 200;
+
 const router = Router();
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
+
 router.get("/workflows", requireAuth, requireAdmin, async (req, res): Promise<void> => {
-  const workflows = await db
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, MAX_PAGE_LIMIT);
+  const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+
+  const allWorkflows = await db
     .select()
     .from(approvalWorkflowsTable)
     .orderBy(approvalWorkflowsTable.createdAt);
+
+  const workflows = allWorkflows.slice(offset, offset + limit);
 
   const result = await Promise.all(
     workflows.map(async (wf) => {

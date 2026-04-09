@@ -115,6 +115,15 @@ function truncateText(text: string, maxChars = 48000): string {
 
 const router = Router();
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
+
 router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
     if (err) {
@@ -139,12 +148,17 @@ router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => 
   const user = req.user!;
   const { originalname, path: filePath, size, mimetype } = req.file;
 
+  const safeFilename = (originalname || "document")
+    .replace(/[^\w.\-\s]/g, "_")
+    .replace(/\s+/g, "_")
+    .substring(0, 255);
+
   // Store document
   const [doc] = await db
     .insert(documentsTable)
     .values({
-      title: originalname,
-      filename: originalname,
+      title: safeFilename,
+      filename: safeFilename,
       filePath,
       fileSize: size,
       mimeType: mimetype,

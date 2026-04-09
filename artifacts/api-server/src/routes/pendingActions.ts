@@ -195,6 +195,13 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
     case "create_vote": {
       const { boardId, resolution_number, resolution_text, title, type, deadline, board_name, description } = actionData as any;
 
+      const VALID_VOTE_TYPES = ["simple", "resolution", "election", "special"];
+      const voteType = type || "simple";
+      if (!VALID_VOTE_TYPES.includes(voteType)) {
+        res.status(400).json({ error: `Invalid vote type: ${voteType}` });
+        return;
+      }
+
       // Auto-find board by name if needed
       let resolvedBoardId = boardId;
       if (!resolvedBoardId && board_name) {
@@ -227,7 +234,7 @@ async function executeAction(actionType: string, actionData: Record<string, unkn
           resolutionNumber: resNum,
           title: resolvedTitle,
           resolutionText: resolution_text || (actionData as any).details?.resolution_text || "To be determined",
-          type: type || "circulation",
+          type: voteType,
           deadline: deadline ? new Date(deadline) : null,
         })
         .returning();

@@ -158,6 +158,11 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
     res.status(400).json({ error: "roleInBoard required" });
     return;
   }
+  const VALID_BOARD_ROLES = ["chairperson", "vice_chairperson", "member", "secretary", "observer"];
+  if (!VALID_BOARD_ROLES.includes(roleInBoard)) {
+    res.status(400).json({ error: `Invalid roleInBoard. Must be one of: ${VALID_BOARD_ROLES.join(", ")}` });
+    return;
+  }
   await db
     .update(boardMembershipsTable)
     .set({ roleInBoard })
