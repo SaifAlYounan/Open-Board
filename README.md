@@ -71,7 +71,7 @@ Open `http://localhost:3000`. Log in as the Board Secretary:
 
 ```
 Email: a.alrashid@meridian-energy.com
-Password: Meridian2024!
+Password: 0000
 ```
 
 > **Note:** The app works without an Anthropic API key. AI features will show an info banner prompting you to configure it in Settings. All manual features work normally.
@@ -205,7 +205,7 @@ The seed script creates a fictional company (**Meridian Energy Group** — $4.2B
 - Sophie Blanc — s.blanc@meridian-energy.com — Head of ESG
 - Raj Nair — r.nair@meridian-energy.com — CTO
 
-**All passwords:** `Meridian2024!`
+**All passwords:** `0000`
 
 **5 Boards:** Board of Directors (BoD), Finance & Audit Committee (FAC), Strategy & Investment Committee (SIC), Nomination & Remuneration Committee (NRC), Technology & Projects Committee (TPC).
 
