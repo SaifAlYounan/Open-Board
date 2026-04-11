@@ -118,6 +118,7 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 - **Natural Language Commands** — "Schedule a BoD meeting for June 15 with ESG Review on the agenda"
 - **Full Manual Control** — create meetings, votes, minutes, and tasks without AI
 - **Minutes Lifecycle** — Draft → Review → Signing → Signed with paragraph-level comments
+- **Board Intelligence** — searchable knowledge graph across all governance data. Type a project name and see every related vote, meeting, document, task, and person. Project Tracker shows governance status at a glance. Decision Timeline plots every vote chronologically. Quick filters for open votes, overdue tasks, and recent decisions
 - **Custom Approval Rules** — unanimous, majority, two-thirds, quorum, recusals
 
 ### For Board Members
@@ -176,7 +177,13 @@ Full schema in `lib/db/src/schema/`.
 
 ## Demo Credentials
 
-The seed script creates a fictional company (**Meridian Energy Group** — $4.2B renewable energy, Abu Dhabi) with 20 users across 4 roles and 5 boards:
+The seed script creates a fictional company (**Meridian Energy Group** — $4.2B renewable energy, Abu Dhabi) with 20 users across 4 roles and 5 boards, plus rich demo data telling the story of 3 interconnected projects:
+
+- **Project Zephyr** (Kazakhstan 1GW Wind Farm) — devex approval → EPC shortlist → FID at $1.2B → steel cost overrun → revised FID at $1.4B → forensic procurement investigation
+- **Project Aurora** (SolarTech Acquisition) — market scan → LOI → due diligence reveals IP dispute + customer concentration → binding offer at $280M
+- **ESG & Compliance** (Project Lighthouse) — regulator-appointed observer flags emissions data discrepancy → independent audit → CEO bonus reduction → whistleblower policy adopted
+
+20 meetings across 5 committees, 18 votes (including secret ballots and open votes), 28 documents, 25 tasks, and 14 sets of minutes — all cross-linked. The Board Intelligence page visualizes these relationships as a searchable knowledge graph.
 
 **Secretary:**
 - Ahmed Al-Rashid — a.alrashid@meridian-energy.com — Board Secretary
@@ -481,6 +488,15 @@ If you do use AI: your documents are sent to Anthropic's API for processing. Rev
 ---
 
 ## Changelog
+
+### v2.9 — Board Intelligence & Rich Demo Data (April 11, 2026)
+
+- **Board Intelligence page** — new `/secretary/intelligence` route with searchable governance knowledge graph. Default view shows a summary dashboard with stat cards, project tracker, and decision timeline. Search or click a quick filter to see a focused D3.js force-directed graph showing only relevant entities and their connections. Detail sidebar shows all connected entities for any selected node.
+- **Project Tracker** — groups governance entities by project (detected via title keywords). Each project card shows meeting count, vote count, document count, task status, and latest activity. Status indicators: ⚠️ Under Investigation, 🟡 In Progress, 🔧 Remediation Underway.
+- **Decision Timeline** — horizontal chronological view of all board votes, color-coded by outcome (approved, rejected, open), filterable by board.
+- **Quick filters** — one-click filters for Project Zephyr, Project Aurora, ESG & Compliance, Open Votes, Overdue Tasks, Recent Decisions.
+- **Rich demo data** — seed script now creates 3 interconnected project narratives (Kazakhstan wind farm, SolarTech acquisition, ESG compliance investigation) spanning 20 meetings, 18 votes, 28 documents, 25 tasks, and 14 minutes sets across 5 committees. Replaces generic placeholder data.
+- **Test account cleanup** — removed 10 leftover accounts from security testing rounds. Fixed observer role assignment.
 
 ### v2.8 — Partial Security Fixes (April 9, 2026)
 
