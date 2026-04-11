@@ -66,36 +66,58 @@ export async function seedDemoData() {
   const tpc = byAbbr("TPC");
 
   const allPeopleIds = people.map((p) => p.id);
-  const bodMembers = [nadia, sarah, klaus, fatima, james, yuki, maria];
-  const facMembers = [klaus, fatima, yuki, maria];
-  const sicMembers = [sarah, nadia, james, yuki];
-  const nrcMembers = [fatima, klaus, nadia];
-  const tpcMembers = [james, fatima];
 
   const d = (m: number, day: number, h = 10) => new Date(2026, m - 1, day, h, 0, 0);
 
   // ── MEETINGS (20) ──
-  const MEETINGS_DEF = [
-    { board: bod, title: "BoD Q4 2025 Review", date: d(1, 15), status: "concluded" as const, agendaItems: ["FY2025 Annual Results Presentation", "2026 Strategic Plan Approval", "CEO Performance Review", "Dividend Policy Discussion"] },
-    { board: bod, title: "BoD Extraordinary — SolarTech Acquisition", date: d(2, 3), status: "concluded" as const, agendaItems: ["SolarTech LOI Presentation", "Due Diligence Scope Approval", "Conflict of Interest Declarations", "Financing Structure Review"] },
-    { board: bod, title: "BoD Q1 2026 Review", date: d(3, 20), status: "concluded" as const, agendaItems: ["Q1 Financial Performance", "Kazakhstan Wind Project Milestone Update", "Africa Pipeline Review", "Regulatory Compliance Report"] },
-    { board: bod, title: "BoD Extraordinary — Related Party Transaction", date: d(3, 28), status: "concluded" as const, agendaItems: ["Al-Rashid Family Entity Disclosure", "Independent Review Report", "Board Recusal Procedures", "Voting on Related Party Contract"] },
-    { board: bod, title: "BoD Strategy Day", date: d(4, 5), status: "scheduled" as const, agendaItems: ["5-Year Capital Allocation Framework", "Market Entry Priorities — Greece, Spain, Morocco", "Competitive Landscape Analysis", "Technology Roadmap 2026–2030"] },
-    { board: bod, title: "BoD Q2 2026 Review", date: d(4, 15), status: "scheduled" as const, agendaItems: ["Q2 Outlook and Guidance", "SolarTech Integration Plan", "ESG Rating Update", "Board Effectiveness Self-Assessment"] },
-    { board: fac, title: "FAC Annual Audit Planning", date: d(1, 22), status: "concluded" as const, agendaItems: ["2025 Audit Completion Summary", "2026 Audit Plan Approval", "Risk Register Review", "Internal Controls Assessment"] },
-    { board: fac, title: "FAC Q1 Financial Review", date: d(2, 18), status: "concluded" as const, agendaItems: ["Q1 Interim Results", "Impairment Testing — Africa Assets", "Forex Exposure Analysis", "Debt Covenant Compliance"] },
-    { board: fac, title: "FAC External Auditor Assessment", date: d(3, 10), status: "concluded" as const, agendaItems: ["PwC Performance Review", "Auditor Independence Confirmation", "Fee Benchmarking Analysis", "Rotation Policy Discussion"] },
-    { board: fac, title: "FAC Budget Variance Deep Dive", date: d(4, 8), status: "scheduled" as const, agendaItems: ["H1 Budget vs Actual", "Capex Overruns Analysis", "Procurement Savings Report", "Revised Forecast Approval"] },
-    { board: sic, title: "SIC Kazakhstan Wind FID", date: d(1, 28), status: "concluded" as const, agendaItems: ["Final Investment Decision Package", "EPC Contract Review", "PPA Terms and Conditions", "Sovereign Guarantee and Local Content"] },
-    { board: sic, title: "SIC Africa Expansion Review", date: d(2, 25), status: "concluded" as const, agendaItems: ["Kenya 500MW Solar Feasibility", "Ethiopia Grid Connection Study", "DFI Co-Financing Options", "Political Risk Assessment"] },
-    { board: sic, title: "SIC SolarTech Due Diligence", date: d(3, 15), status: "scheduled" as const, agendaItems: ["Technical DD Findings", "IP Portfolio Valuation", "Customer Concentration Risk", "Earn-out Structure Proposal"] },
-    { board: sic, title: "SIC European Portfolio Optimization", date: d(4, 2), status: "scheduled" as const, agendaItems: ["Greece Wind Portfolio Performance", "Spain PV Repowering Plan", "Green Bond Eligibility", "Carbon Credit Monetization"] },
-    { board: nrc, title: "NRC Annual Board Evaluation", date: d(1, 30), status: "concluded" as const, agendaItems: ["Board Skills Matrix Review", "Independence Assessment", "Diversity Metrics Report", "Succession Planning Update"] },
-    { board: nrc, title: "NRC CEO Compensation Review", date: d(2, 28), status: "concluded" as const, agendaItems: ["2025 Bonus Determination", "2026 KPI Framework", "Peer Group Benchmarking", "Long-Term Incentive Plan Proposal"] },
-    { board: nrc, title: "NRC Board Renewal Planning", date: d(3, 25), status: "scheduled" as const, agendaItems: ["Director Term Expiry Tracker", "Candidate Pipeline Review", "Committee Rotation Plan", "Observer Role Assessment"] },
-    { board: tpc, title: "TPC Digital Transformation Kickoff", date: d(2, 10), status: "concluded" as const, agendaItems: ["AI Integration Roadmap Presentation", "EasyBoard Pilot Results", "Cybersecurity Maturity Assessment", "Data Governance Framework"] },
-    { board: tpc, title: "TPC Project Delivery Review", date: d(3, 5), status: "scheduled" as const, agendaItems: ["Kazakhstan EPC Milestone Tracker", "Africa Site Acquisition Status", "SolarTech IT Integration Plan", "SCADA System Upgrades"] },
-    { board: tpc, title: "TPC Innovation Lab Proposals", date: d(4, 12), status: "scheduled" as const, agendaItems: ["Predictive Maintenance AI", "Digital Twin Pilot Proposal", "Drone Inspection Program", "Blockchain for Carbon Credits"] },
+  const MEETINGS_DEF: { board: typeof bod; title: string; date: Date; status: "concluded" | "scheduled"; agendaItems: string[] }[] = [
+    // PROJECT 1: ZEPHYR (Kazakhstan 1GW Wind Farm) — Meetings 1–7
+    { board: sic, title: "SIC — Project Zephyr Devex Approval", date: d(1, 10), status: "concluded",
+      agendaItems: ["Project Zephyr Overview and Strategic Rationale", "Feasibility Study Key Findings", "Land Acquisition and Permitting Status", "Devex Budget Approval — $18M"] },
+    { board: sic, title: "SIC — Project Zephyr EPC Shortlist", date: d(1, 28), status: "concluded",
+      agendaItems: ["EPC Contractor Evaluation Matrix", "Local Content Requirements Review", "Schedule and Penalty Clause Framework", "EPC Shortlist Approval"] },
+    { board: sic, title: "SIC — Project Zephyr FID", date: d(2, 20), status: "concluded",
+      agendaItems: ["Final Investment Decision Package — $1.2B", "PPA Terms with Samruk-Kazyna", "Sovereign Guarantee and Risk Allocation", "25-Year Concession Framework"] },
+    { board: bod, title: "BoD — Project Zephyr FID Ratification", date: d(2, 25), status: "concluded",
+      agendaItems: ["SIC Recommendation on Project Zephyr", "Financing Structure — 40% Equity, 60% Project Finance", "Risk Assessment Summary", "Board Ratification of FID"] },
+    { board: fac, title: "FAC — Project Zephyr Cost Overrun Review", date: d(3, 18), status: "concluded",
+      agendaItems: ["Steel Price Escalation Analysis", "Revised EPC Pricing — $200M Overrun", "Procurement Process Review", "Cost Control Recommendations"] },
+    { board: bod, title: "BoD Extraordinary — Revised FID at $1.4B", date: d(3, 25), status: "concluded",
+      agendaItems: ["Management Briefing on Cost Overrun", "Revised FID Proposal — $1.4B", "Quarterly Cost Cap Reporting Framework", "Management Accountability Measures"] },
+    { board: fac, title: "FAC — Project Zephyr Procurement Investigation", date: d(4, 10), status: "concluded",
+      agendaItems: ["Single-Source Steel Supplier Analysis", "Related Party Concerns — JV Partner Links", "Forensic Review Scope and Terms of Reference", "Investigation Timeline and Reporting"] },
+
+    // PROJECT 2: AURORA (SolarTech Acquisition) — Meetings 8–12
+    { board: sic, title: "SIC — Project Aurora Market Scan", date: d(1, 15), status: "concluded",
+      agendaItems: ["Target Identification and Strategic Rationale", "Indicative Valuation Range — $300-400M", "Market Position and Technology Assessment", "Recommended Next Steps"] },
+    { board: bod, title: "BoD — Project Aurora LOI Authorization", date: d(2, 3), status: "concluded",
+      agendaItems: ["Non-Binding LOI Terms Review", "Exclusivity Period and DD Budget", "Conflict of Interest Declarations", "Financing Structure Review"] },
+    { board: sic, title: "SIC — Project Aurora DD Findings", date: d(3, 12), status: "concluded",
+      agendaItems: ["Technical DD Results — IP Portfolio", "German Patent Dispute Analysis", "Customer Concentration Risk Assessment", "Earn-Out Structure Proposal"] },
+    { board: fac, title: "FAC — Project Aurora Financial DD", date: d(3, 18), status: "concluded",
+      agendaItems: ["Revenue Quality Assessment", "Working Capital Normalization", "Tax Structuring and Contingent Liabilities", "Valuation Adjustment Recommendations"] },
+    { board: bod, title: "BoD — Project Aurora Binding Offer", date: d(4, 5), status: "concluded",
+      agendaItems: ["Revised Valuation — $280M", "Earn-Out Structure — $40M Over 3 Years", "IP Indemnity Terms", "Closing Conditions and Timeline"] },
+
+    // PROJECT 3: LIGHTHOUSE (ESG & Compliance) — Meetings 13–17
+    { board: tpc, title: "TPC — ESG Data Governance Review", date: d(2, 10), status: "concluded",
+      agendaItems: ["D. Park Concerns on Emissions Methodology", "Kenya Site Data Collection Gaps", "Data Governance Framework Assessment", "Remediation Recommendations"] },
+    { board: fac, title: "FAC — ESG Reporting Accuracy Assessment", date: d(2, 28), status: "concluded",
+      agendaItems: ["Emissions Data Discrepancy Analysis", "Carbon Credit Overstatement Risk", "Financial Restatement Assessment", "Interim Reporting Recommendations"] },
+    { board: bod, title: "BoD — ESG Compliance Escalation", date: d(3, 10), status: "concluded",
+      agendaItems: ["Management Response to ESG Findings", "Independent ESG Audit Authorization", "Interim Reporting Suspension", "Investor Communication Strategy"] },
+    { board: nrc, title: "NRC — ESG Impact on Executive Compensation", date: d(3, 20), status: "concluded",
+      agendaItems: ["CEO 2025 Bonus Determination", "ESG Target Achievement Review", "Clawback Provisions Discussion", "Revised 2026 KPI Framework"] },
+    { board: bod, title: "BoD — Independent ESG Audit Results", date: d(4, 8), status: "concluded",
+      agendaItems: ["McKinsey Audit Findings — Methodology Flawed, Not Fraudulent", "Three Corrective Actions", "Revised Carbon Credit Calculation", "Investor Disclosure Requirements"] },
+
+    // CROSS-PROJECT GOVERNANCE — Meetings 18–20
+    { board: bod, title: "BoD Q1 2026 Review", date: d(3, 20), status: "concluded",
+      agendaItems: ["Q1 Financial Performance Summary", "Project Zephyr Cost Update", "Project Aurora DD Status", "ESG Investigation Update", "Dividend Deferral Discussion"] },
+    { board: bod, title: "BoD Strategy Day", date: d(4, 5), status: "concluded",
+      agendaItems: ["5-Year Capital Allocation Framework", "Project Aurora Integration Planning", "ESG Remediation Cost Impact", "Market Entry Priorities — Greece, Spain, Morocco"] },
+    { board: fac, title: "FAC Q1 Financial Consolidation", date: d(4, 12), status: "scheduled",
+      agendaItems: ["Project Zephyr Capex Variance Analysis", "Project Aurora Acquisition Accounting", "ESG-Related Contingent Liabilities", "FY2026 Revised Forecast"] },
   ];
 
   const meetings: (typeof meetingsTable.$inferSelect)[] = [];
@@ -124,28 +146,43 @@ export async function seedDemoData() {
   }
   logger.info("Seeding demo data... all 20 meetings created");
 
-  // ── DOCUMENTS (20) ──
-  const DOCS_DEF = [
-    { title: "FY2025 Audited Financial Statements", filename: "FY2025-Audited-Financial-Statements.pdf", board: bod, classification: "financial_report" },
-    { title: "2026 Annual Budget — Board Pack", filename: "2026-Annual-Budget-Board-Pack.pdf", board: bod, classification: "financial_report" },
-    { title: "SolarTech LOI — Draft v3", filename: "SolarTech-LOI-Draft-v3.pdf", board: bod, classification: "resolution" },
-    { title: "SolarTech Technical DD Report", filename: "SolarTech-Technical-DD-Report.pdf", board: sic, classification: "general" },
-    { title: "SolarTech IP Valuation Summary", filename: "SolarTech-IP-Valuation-Summary.pdf", board: sic, classification: "general" },
-    { title: "CEO Performance Scorecard 2025", filename: "CEO-Performance-Scorecard-2025.pdf", board: bod, classification: "general" },
-    { title: "Kazakhstan Wind FID Package", filename: "Kazakhstan-Wind-FID-Package.pdf", board: sic, classification: "general" },
-    { title: "Kazakhstan EPC Contract Summary", filename: "Kazakhstan-EPC-Contract-Summary.pdf", board: sic, classification: "legal_opinion" },
-    { title: "Kazakhstan PPA Term Sheet", filename: "Kazakhstan-PPA-Term-Sheet.pdf", board: sic, classification: "general" },
-    { title: "Kenya 500MW Feasibility Study", filename: "Kenya-500MW-Feasibility-Study.pdf", board: sic, classification: "general" },
-    { title: "Africa Political Risk Assessment", filename: "Africa-Political-Risk-Assessment.pdf", board: sic, classification: "general" },
-    { title: "PwC Engagement Proposal 2026", filename: "PwC-Engagement-Proposal-2026.pdf", board: fac, classification: "general" },
-    { title: "Risk Appetite Statement 2026", filename: "Risk-Appetite-Statement-2026.pdf", board: fac, classification: "resolution" },
-    { title: "Board Skills Matrix 2026", filename: "Board-Skills-Matrix-2026.pdf", board: nrc, classification: "general" },
-    { title: "Director Independence Assessment", filename: "Director-Independence-Assessment.pdf", board: nrc, classification: "general" },
-    { title: "Remuneration Policy Markup", filename: "Remuneration-Policy-Markup.pdf", board: nrc, classification: "resolution" },
-    { title: "AI Integration Roadmap v2", filename: "AI-Integration-Roadmap-v2.pdf", board: tpc, classification: "general" },
-    { title: "Cybersecurity Maturity Report", filename: "Cybersecurity-Maturity-Report.pdf", board: tpc, classification: "general" },
-    { title: "Related Party Transaction Disclosure", filename: "Related-Party-Transaction-Disclosure.pdf", board: bod, classification: "legal_opinion" },
-    { title: "Q1 2026 Interim Financial Report", filename: "Q1-2026-Interim-Financial-Report.pdf", board: bod, classification: "financial_report" },
+  // ── DOCUMENTS (28) ──
+  const DOCS_DEF: { title: string; filename: string; board: typeof bod; classification: string }[] = [
+    // Zephyr documents (0–9)
+    { title: "Zephyr Devex Proposal — $18M", filename: "Zephyr-Devex-Proposal-18M.pdf", board: sic, classification: "general" },
+    { title: "Zephyr Feasibility Study — Final", filename: "Zephyr-Feasibility-Study-Final.pdf", board: sic, classification: "general" },
+    { title: "Zephyr EPC Evaluation Matrix", filename: "Zephyr-EPC-Evaluation-Matrix.pdf", board: sic, classification: "general" },
+    { title: "Zephyr FID Board Pack", filename: "Zephyr-FID-Board-Pack.pdf", board: sic, classification: "general" },
+    { title: "Zephyr PPA — Samruk Term Sheet", filename: "Zephyr-PPA-Samruk-Term-Sheet.pdf", board: sic, classification: "legal_opinion" },
+    { title: "Zephyr Sovereign Guarantee Summary", filename: "Zephyr-Sovereign-Guarantee-Summary.pdf", board: sic, classification: "legal_opinion" },
+    { title: "Zephyr Cost Overrun Analysis", filename: "Zephyr-Cost-Overrun-Analysis.pdf", board: fac, classification: "financial_report" },
+    { title: "Zephyr Revised EPC Pricing", filename: "Zephyr-Revised-EPC-Pricing.pdf", board: fac, classification: "financial_report" },
+    { title: "Zephyr Steel Procurement Red Flags", filename: "Zephyr-Steel-Procurement-Red-Flags.pdf", board: fac, classification: "general" },
+    { title: "Zephyr Forensic Review — Terms of Reference", filename: "Zephyr-Forensic-Review-ToR.pdf", board: fac, classification: "general" },
+
+    // Aurora documents (10–16)
+    { title: "Aurora Strategic Rationale", filename: "Aurora-Strategic-Rationale.pdf", board: sic, classification: "general" },
+    { title: "Aurora LOI — Draft v3", filename: "Aurora-LOI-Draft-v3.pdf", board: bod, classification: "resolution" },
+    { title: "Aurora Technical DD Report", filename: "Aurora-Technical-DD-Report.pdf", board: sic, classification: "general" },
+    { title: "Aurora IP Portfolio Valuation", filename: "Aurora-IP-Portfolio-Valuation.pdf", board: sic, classification: "general" },
+    { title: "Aurora German Patent Dispute Memo", filename: "Aurora-German-Patent-Dispute-Memo.pdf", board: sic, classification: "legal_opinion" },
+    { title: "Aurora Financial DD Report", filename: "Aurora-Financial-DD-Report.pdf", board: fac, classification: "financial_report" },
+    { title: "Aurora Binding Offer — Term Sheet", filename: "Aurora-Binding-Offer-Term-Sheet.pdf", board: bod, classification: "resolution" },
+
+    // Lighthouse documents (17–23)
+    { title: "Park ESG Concerns Memo", filename: "Park-ESG-Concerns-Memo.pdf", board: tpc, classification: "general" },
+    { title: "Kenya Emissions Data Discrepancy", filename: "Kenya-Emissions-Data-Discrepancy.pdf", board: fac, classification: "financial_report" },
+    { title: "Independent ESG Audit — Terms of Reference", filename: "Independent-ESG-Audit-ToR.pdf", board: bod, classification: "general" },
+    { title: "ESG Audit Final Report — McKinsey", filename: "ESG-Audit-Final-Report-McKinsey.pdf", board: bod, classification: "general" },
+    { title: "CEO Compensation ESG Impact Analysis", filename: "CEO-Compensation-ESG-Impact-Analysis.pdf", board: nrc, classification: "general" },
+    { title: "Revised ESG Methodology Framework", filename: "Revised-ESG-Methodology-Framework.pdf", board: tpc, classification: "general" },
+    { title: "Enhanced Whistleblower Policy — Draft", filename: "Enhanced-Whistleblower-Policy-Draft.pdf", board: bod, classification: "resolution" },
+
+    // Cross-project documents (24–27)
+    { title: "Q1 2026 Consolidated Financial Report", filename: "Q1-2026-Consolidated-Financial-Report.pdf", board: bod, classification: "financial_report" },
+    { title: "FY2026 Revised Budget — Three Projects", filename: "FY2026-Revised-Budget-Three-Projects.pdf", board: fac, classification: "financial_report" },
+    { title: "Dividend Deferral Impact Analysis", filename: "Dividend-Deferral-Impact-Analysis.pdf", board: bod, classification: "financial_report" },
+    { title: "Capital Reallocation Proposal", filename: "Capital-Reallocation-Proposal.pdf", board: bod, classification: "general" },
   ];
 
   const docs: (typeof documentsTable.$inferSelect)[] = [];
@@ -163,30 +200,38 @@ export async function seedDemoData() {
     docs.push(doc);
     await grantAccess("document", doc.id, allPeopleIds);
   }
-  logger.info("Seeding demo data... all 20 documents created");
+  logger.info("Seeding demo data... all 28 documents created");
 
   // ── Link documents to meetings via agenda_documents ──
   const docMeetingLinks: [number, number[]][] = [
-    [0,  [0]],         // Doc 1 → Meeting 1
-    [1,  [0]],         // Doc 2 → Meeting 1
-    [2,  [1, 12]],     // Doc 3 → Meeting 2, 13
-    [3,  [12]],        // Doc 4 → Meeting 13
-    [4,  [12]],        // Doc 5 → Meeting 13
-    [5,  [0, 15]],     // Doc 6 → Meeting 1, 16
-    [6,  [10]],        // Doc 7 → Meeting 11
-    [7,  [10]],        // Doc 8 → Meeting 11
-    [8,  [10]],        // Doc 9 → Meeting 11
-    [9,  [11]],        // Doc 10 → Meeting 12
-    [10, [11]],        // Doc 11 → Meeting 12
-    [11, [8]],         // Doc 12 → Meeting 9
-    [12, [6]],         // Doc 13 → Meeting 7
-    [13, [14]],        // Doc 14 → Meeting 15
-    [14, [14]],        // Doc 15 → Meeting 15
-    [15, [15]],        // Doc 16 → Meeting 16
-    [16, [17]],        // Doc 17 → Meeting 18
-    [17, [17]],        // Doc 18 → Meeting 18
-    [18, [3]],         // Doc 19 → Meeting 4
-    [19, [2, 7]],      // Doc 20 → Meeting 3, 8
+    [0,  [0]],           // Zephyr-Devex-Proposal → Meeting 1
+    [1,  [0]],           // Zephyr-Feasibility → Meeting 1
+    [2,  [1]],           // Zephyr-EPC-Evaluation → Meeting 2
+    [3,  [2, 3]],        // Zephyr-FID-Board-Pack → Meeting 3, 4
+    [4,  [2]],           // Zephyr-PPA-Term-Sheet → Meeting 3
+    [5,  [2]],           // Zephyr-Sovereign-Guarantee → Meeting 3
+    [6,  [4, 5]],        // Zephyr-Cost-Overrun → Meeting 5, 6
+    [7,  [4]],           // Zephyr-Revised-EPC-Pricing → Meeting 5
+    [8,  [6]],           // Zephyr-Steel-Red-Flags → Meeting 7
+    [9,  [6]],           // Zephyr-Forensic-Review-ToR → Meeting 7
+    [10, [7]],           // Aurora-Strategic-Rationale → Meeting 8
+    [11, [8]],           // Aurora-LOI-Draft → Meeting 9
+    [12, [9]],           // Aurora-Technical-DD → Meeting 10
+    [13, [9]],           // Aurora-IP-Portfolio → Meeting 10
+    [14, [9]],           // Aurora-German-Patent → Meeting 10
+    [15, [10]],          // Aurora-Financial-DD → Meeting 11
+    [16, [11]],          // Aurora-Binding-Offer → Meeting 12
+    [17, [12]],          // Park-ESG-Concerns → Meeting 13
+    [18, [13]],          // Kenya-Emissions → Meeting 14
+    [19, [14]],          // ESG-Audit-ToR → Meeting 15
+    [20, [16]],          // ESG-Audit-Final → Meeting 17
+    [21, [15]],          // CEO-Comp-ESG-Impact → Meeting 16
+    [22, [12, 16]],      // Revised-ESG-Methodology → Meeting 13, 17
+    [23, [16]],          // Whistleblower-Policy → Meeting 17
+    [24, [17, 19]],      // Q1-Consolidated → Meeting 18, 20
+    [25, [18, 19]],      // FY2026-Revised-Budget → Meeting 19, 20
+    [26, [17]],          // Dividend-Deferral → Meeting 18
+    [27, [18]],          // Capital-Reallocation → Meeting 19
   ];
 
   for (const [docIdx, meetingIdxs] of docMeetingLinks) {
@@ -223,95 +268,119 @@ export async function seedDemoData() {
     voters: { person: typeof ahmed; decision: string; comment?: string }[];
     docIdxs: number[];
   }[] = [
-    { board: bod, meetingIdx: 0, title: "Approval of FY2025 Audited Financial Statements", resNum: "RES-BOD-2026-001", type: "meeting", ruleType: "unanimous", status: "approved", secret: false,
+    // ── ZEPHYR VOTES (0–5) ──
+    { board: sic, meetingIdx: 0, title: "Project Zephyr — Devex Approval ($18M)", resNum: "RES-SIC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: false,
       voters: [
-        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
-        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
+        { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
+        { person: james, decision: "approved" }, { person: yuki, decision: "approved" },
       ], docIdxs: [0] },
-    { board: bod, meetingIdx: 0, title: "2026 Annual Budget and Capital Allocation Plan", resNum: "RES-BOD-2026-002", type: "meeting", ruleType: "two_thirds", status: "approved", secret: false,
+
+    { board: sic, meetingIdx: 1, title: "Project Zephyr — EPC Shortlist Approval", resNum: "RES-SIC-2026-002", type: "meeting", ruleType: "majority", status: "approved", secret: false,
       voters: [
-        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
-        { person: klaus, decision: "approved_with_comments", comment: "Recommend 10% contingency on Kazakhstan capex" },
-        { person: fatima, decision: "approved" },
-      ], docIdxs: [1] },
-    { board: bod, meetingIdx: 1, title: "SolarTech Ltd — Authorization to Execute Non-Binding LOI", resNum: "RES-BOD-2026-003", type: "circulation", ruleType: "unanimous", status: "approved", secret: false,
-      voters: [
-        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
-        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
+        { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
+        { person: james, decision: "approved" },
+        { person: yuki, decision: "approved_with_comments", comment: "Include penalty clause for schedule delay" },
       ], docIdxs: [2] },
-    { board: bod, meetingIdx: 0, title: "CEO Performance Rating — FY2025", resNum: "RES-BOD-2026-004", type: "meeting", ruleType: "majority", status: "approved", secret: true,
+
+    { board: sic, meetingIdx: 2, title: "Project Zephyr — Final Investment Decision ($1.2B)", resNum: "RES-SIC-2026-003", type: "meeting", ruleType: "two_thirds", status: "approved", secret: false,
       voters: [
-        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
-        { person: klaus, decision: "approved" }, { person: fatima, decision: "not_approved" },
-      ], docIdxs: [5] },
-    { board: bod, meetingIdx: 0, title: "Dividend Distribution — Q4 2025 ($0.35/share)", resNum: "RES-BOD-2026-005", type: "meeting", ruleType: "majority", status: "approved", secret: false,
+        { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
+        { person: james, decision: "approved" }, { person: yuki, decision: "approved" },
+      ], docIdxs: [3] },
+
+    { board: bod, meetingIdx: 3, title: "Project Zephyr — FID Ratification by the Board", resNum: "RES-BOD-2026-001", type: "meeting", ruleType: "unanimous", status: "approved", secret: false,
       voters: [
         { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
         { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
-      ], docIdxs: [] },
-    { board: bod, meetingIdx: 3, title: "Related Party Transaction — Al-Rashid Industrial Services Contract", resNum: "RES-BOD-2026-006", type: "meeting", ruleType: "unanimous", status: "approved", secret: false,
+      ], docIdxs: [3] },
+
+    { board: bod, meetingIdx: 5, title: "Project Zephyr — Revised FID ($1.4B) with Quarterly Cost Cap", resNum: "RES-BOD-2026-002", type: "meeting", ruleType: "two_thirds", status: "approved", secret: false,
       voters: [
         { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
         { person: klaus, decision: "approved" },
-      ], docIdxs: [18] },
-    { board: bod, meetingIdx: null, title: "Board Committee Restructuring — Merge TPC into SIC", resNum: "RES-BOD-2026-007", type: "circulation", ruleType: "two_thirds", status: "open", secret: false,
-      voters: [
-        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
-      ], docIdxs: [] },
-    { board: fac, meetingIdx: 8, title: "Appointment of PwC as External Auditor — 3 Year Term", resNum: "RES-FAC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: false,
-      voters: [
-        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
-        { person: yuki, decision: "approved_with_comments", comment: "Include mid-term performance review clause" },
-        { person: maria, decision: "approved" },
-      ], docIdxs: [11] },
-    { board: fac, meetingIdx: null, title: "Write-off of Receivables > $500K (Africa Operations)", resNum: "RES-FAC-2026-002", type: "circulation", ruleType: "unanimous", status: "rejected", secret: false,
-      voters: [
-        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
-        { person: yuki, decision: "not_approved" }, { person: maria, decision: "not_approved_with_comments", comment: "Insufficient documentation for Kenya receivables" },
-      ], docIdxs: [] },
-    { board: fac, meetingIdx: 6, title: "Revised Risk Appetite Statement — 2026", resNum: "RES-FAC-2026-003", type: "meeting", ruleType: "majority", status: "approved", secret: false,
+        { person: fatima, decision: "approved_with_comments", comment: "Management must present remediation plan within 30 days" },
+      ], docIdxs: [6, 7] },
+
+    { board: fac, meetingIdx: 6, title: "Project Zephyr — Authorize Forensic Review of Steel Procurement", resNum: "RES-FAC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: false,
       voters: [
         { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
         { person: yuki, decision: "approved" }, { person: maria, decision: "approved" },
-      ], docIdxs: [12] },
-    { board: sic, meetingIdx: 10, title: "Kazakhstan 1GW Wind — Final Investment Decision ($1.2B)", resNum: "RES-SIC-2026-001", type: "meeting", ruleType: "two_thirds", status: "approved", secret: false,
+      ], docIdxs: [8, 9] },
+
+    // ── AURORA VOTES (6–9) ──
+    { board: bod, meetingIdx: null, title: "Project Aurora — LOI Authorization ($340M Indicative)", resNum: "RES-BOD-2026-003", type: "circulation", ruleType: "unanimous", status: "approved", secret: false,
       voters: [
-        { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
-        { person: james, decision: "approved" }, { person: yuki, decision: "approved" },
-      ], docIdxs: [6] },
-    { board: sic, meetingIdx: 11, title: "Kenya 500MW Solar — Proceed to Detailed Feasibility", resNum: "RES-SIC-2026-002", type: "meeting", ruleType: "majority", status: "approved", secret: false,
-      voters: [
-        { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
-        { person: james, decision: "approved_with_comments", comment: "Require independent political risk assessment before final commitment" },
-        { person: yuki, decision: "approved" },
-      ], docIdxs: [9] },
-    { board: sic, meetingIdx: null, title: "SolarTech Acquisition — Binding Offer at $340M Enterprise Value", resNum: "RES-SIC-2026-003", type: "circulation", ruleType: "unanimous", status: "open", secret: false,
-      voters: [
-        { person: sarah, decision: "approved" },
-      ], docIdxs: [3] },
-    { board: sic, meetingIdx: 13, title: "Greece Wind Portfolio — Green Bond Refinancing", resNum: "RES-SIC-2026-004", type: "meeting", ruleType: "majority", status: "approved", secret: false,
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
+      ], docIdxs: [10, 11] },
+
+    { board: sic, meetingIdx: 7, title: "Project Aurora — DD Budget Approval ($1.5M)", resNum: "RES-SIC-2026-004", type: "meeting", ruleType: "majority", status: "approved", secret: false,
       voters: [
         { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
         { person: james, decision: "approved" }, { person: yuki, decision: "approved" },
       ], docIdxs: [] },
-    { board: nrc, meetingIdx: 15, title: "CEO 2025 Bonus — 140% of Target", resNum: "RES-NRC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: true,
+
+    { board: bod, meetingIdx: 11, title: "Project Aurora — Binding Offer at $280M + $40M Earn-Out", resNum: "RES-BOD-2026-004", type: "meeting", ruleType: "unanimous", status: "approved", secret: false,
+      voters: [
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+        { person: klaus, decision: "approved_with_comments", comment: "Insist on IP indemnity cap at $50M, not $30M" },
+        { person: fatima, decision: "approved" },
+      ], docIdxs: [15, 16] },
+
+    { board: sic, meetingIdx: null, title: "Project Aurora — Engage Freshfields for German IP Dispute", resNum: "RES-SIC-2026-005", type: "circulation", ruleType: "majority", status: "approved", secret: false,
+      voters: [
+        { person: sarah, decision: "approved" }, { person: nadia, decision: "approved" },
+        { person: james, decision: "approved" }, { person: yuki, decision: "approved" },
+      ], docIdxs: [14] },
+
+    // ── LIGHTHOUSE VOTES (10–14) ──
+    { board: bod, meetingIdx: 14, title: "Authorize Independent ESG Audit (McKinsey Sustainability)", resNum: "RES-BOD-2026-005", type: "meeting", ruleType: "majority", status: "approved", secret: false,
+      voters: [
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
+      ], docIdxs: [17, 19] },
+
+    { board: bod, meetingIdx: null, title: "Suspend ESG-Linked Carbon Credit Claims Pending Audit", resNum: "RES-BOD-2026-006", type: "circulation", ruleType: "majority", status: "approved", secret: false,
+      voters: [
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+        { person: klaus, decision: "approved_with_comments", comment: "Notify investors proactively, do not wait for Q2 report" },
+        { person: fatima, decision: "approved" },
+      ], docIdxs: [18] },
+
+    { board: nrc, meetingIdx: 15, title: "CEO 2025 Bonus — Reduced to 85% of Target (ESG Miss)", resNum: "RES-NRC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: true,
       voters: [
         { person: fatima, decision: "approved" }, { person: klaus, decision: "approved" },
         { person: nadia, decision: "approved" },
-      ], docIdxs: [] },
-    { board: nrc, meetingIdx: 15, title: "Updated Board Remuneration Policy — Effective 2026", resNum: "RES-NRC-2026-002", type: "meeting", ruleType: "majority", status: "approved", secret: false,
-      voters: [
-        { person: fatima, decision: "approved" }, { person: klaus, decision: "approved" },
-        { person: nadia, decision: "not_approved_with_comments", comment: "Variable compensation cap at 150% of base" },
-      ], docIdxs: [15] },
-    { board: tpc, meetingIdx: 17, title: "AI Integration Roadmap — Phase 1 Budget ($2.5M)", resNum: "RES-TPC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: false,
+        { person: sarah, decision: "not_approved_with_comments", comment: "70% more appropriate given restatement severity" },
+      ], docIdxs: [21] },
+
+    { board: tpc, meetingIdx: 12, title: "Approve Revised ESG Reporting Methodology", resNum: "RES-TPC-2026-001", type: "meeting", ruleType: "majority", status: "approved", secret: false,
       voters: [
         { person: james, decision: "approved" }, { person: fatima, decision: "approved" },
-      ], docIdxs: [16] },
-    { board: tpc, meetingIdx: null, title: "Cybersecurity Maturity — Engage CrowdStrike for Assessment", resNum: "RES-TPC-2026-002", type: "circulation", ruleType: "majority", status: "approved", secret: false,
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+      ], docIdxs: [20, 22] },
+
+    { board: bod, meetingIdx: null, title: "Adopt Enhanced Whistleblower Policy for ESG Concerns", resNum: "RES-BOD-2026-007", type: "circulation", ruleType: "majority", status: "approved", secret: false,
       voters: [
-        { person: james, decision: "approved" }, { person: fatima, decision: "approved" },
-      ], docIdxs: [17] },
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+        { person: klaus, decision: "approved" }, { person: fatima, decision: "approved" },
+      ], docIdxs: [23] },
+
+    // ── CROSS-PROJECT VOTES (15–17) ──
+    { board: bod, meetingIdx: 17, title: "Defer Q1 2026 Dividend to Preserve Liquidity (Zephyr + Aurora)", resNum: "RES-BOD-2026-008", type: "meeting", ruleType: "majority", status: "approved", secret: false,
+      voters: [
+        { person: nadia, decision: "approved" }, { person: sarah, decision: "approved" },
+        { person: klaus, decision: "approved" },
+        { person: fatima, decision: "not_approved", comment: "Dividend cut signals weakness to market" },
+      ], docIdxs: [26] },
+
+    { board: bod, meetingIdx: null, title: "Revised 2026 Capital Allocation — Redirect $50M from Africa to Zephyr", resNum: "RES-BOD-2026-009", type: "circulation", ruleType: "two_thirds", status: "open", secret: false,
+      voters: [
+        { person: nadia, decision: "approved" },
+      ], docIdxs: [27] },
+
+    { board: fac, meetingIdx: 19, title: "Approve FY2026 Revised Budget (Incorporating All 3 Project Impacts)", resNum: "RES-FAC-2026-002", type: "meeting", ruleType: "majority", status: "open", secret: false,
+      voters: [], docIdxs: [25] },
   ];
 
   const voteRecords: (typeof votesTable.$inferSelect)[] = [];
@@ -367,23 +436,24 @@ export async function seedDemoData() {
   }
   logger.info("Seeding demo data... all 18 votes created");
 
-  // ── MINUTES (12) ──
+  // ── MINUTES (14) ──
   const minutesDef: { meetingIdx: number; status: "signed" | "review" | "draft" }[] = [
-    { meetingIdx: 0,  status: "signed" },
-    { meetingIdx: 1,  status: "signed" },
-    { meetingIdx: 2,  status: "review" },
-    { meetingIdx: 3,  status: "draft" },
-    { meetingIdx: 6,  status: "signed" },
-    { meetingIdx: 7,  status: "signed" },
-    { meetingIdx: 8,  status: "review" },
-    { meetingIdx: 9,  status: "draft" },
-    { meetingIdx: 10, status: "signed" },
-    { meetingIdx: 11, status: "review" },
-    { meetingIdx: 14, status: "signed" },
-    { meetingIdx: 15, status: "review" },
+    { meetingIdx: 0,  status: "signed" },   // Meeting 1
+    { meetingIdx: 1,  status: "signed" },   // Meeting 2
+    { meetingIdx: 2,  status: "signed" },   // Meeting 3
+    { meetingIdx: 3,  status: "signed" },   // Meeting 4
+    { meetingIdx: 7,  status: "signed" },   // Meeting 8
+    { meetingIdx: 8,  status: "signed" },   // Meeting 9
+    { meetingIdx: 12, status: "signed" },   // Meeting 13
+    { meetingIdx: 13, status: "signed" },   // Meeting 14
+    { meetingIdx: 4,  status: "review" },   // Meeting 5
+    { meetingIdx: 9,  status: "review" },   // Meeting 10
+    { meetingIdx: 14, status: "review" },   // Meeting 15
+    { meetingIdx: 15, status: "review" },   // Meeting 16
+    { meetingIdx: 5,  status: "draft" },    // Meeting 6
+    { meetingIdx: 6,  status: "draft" },    // Meeting 7
   ];
 
-  const minutesRecords: (typeof minutesTable.$inferSelect)[] = [];
   for (const md of minutesDef) {
     const meeting = meetings[md.meetingIdx];
     const content = `<h2>Minutes — ${meeting.title}</h2><p>Meeting held on ${meeting.date?.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })} at Meridian Tower, Abu Dhabi.</p><p>The chairperson called the meeting to order and confirmed quorum was present. The agenda was adopted without amendments.</p><p>Key discussion points were reviewed and resolutions were put to vote as documented in the agenda.</p><p>There being no further business, the meeting was adjourned.</p>`;
@@ -392,7 +462,6 @@ export async function seedDemoData() {
       content,
       status: md.status,
     }).returning();
-    minutesRecords.push(min);
 
     if (md.status === "signed") {
       for (const signer of [ahmed, nadia]) {
@@ -409,35 +478,40 @@ export async function seedDemoData() {
 
     await grantAccess("minutes", min.id, allPeopleIds);
   }
-  logger.info("Seeding demo data... all 12 minutes created");
+  logger.info("Seeding demo data... all 14 minutes created");
 
   // ── TASKS (25) ──
   const TASKS_DEF: { title: string; assignee: typeof ahmed; dueDate: Date; status: string; meetingIdx: number }[] = [
-    { title: "Prepare CEO compensation benchmarking report", assignee: robert, dueDate: d(2, 15), status: "done", meetingIdx: 0 },
-    { title: "Submit revised 2026 capex forecast", assignee: robert, dueDate: d(2, 1), status: "done", meetingIdx: 0 },
-    { title: "Finalize SolarTech NDA with Clifford Chance", assignee: ahmed, dueDate: d(2, 10), status: "done", meetingIdx: 1 },
-    { title: "Obtain conflict of interest declarations for SolarTech", assignee: ahmed, dueDate: d(2, 7), status: "done", meetingIdx: 1 },
-    { title: "Circulate SolarTech DD scope to committee chairs", assignee: nadia, dueDate: d(2, 15), status: "done", meetingIdx: 1 },
-    { title: "Prepare Q1 board presentation pack", assignee: robert, dueDate: d(3, 15), status: "done", meetingIdx: 2 },
-    { title: "Obtain independent valuation for related party transaction", assignee: ahmed, dueDate: d(3, 25), status: "done", meetingIdx: 3 },
-    { title: "Draft board resolution on committee restructuring", assignee: ahmed, dueDate: d(4, 20), status: "todo", meetingIdx: 4 },
-    { title: "Prepare SolarTech integration PMO charter", assignee: robert, dueDate: d(4, 25), status: "todo", meetingIdx: 5 },
-    { title: "Update board effectiveness questionnaire", assignee: ahmed, dueDate: d(4, 30), status: "todo", meetingIdx: 5 },
-    { title: "Coordinate PwC 2026 audit kickoff", assignee: robert, dueDate: d(2, 5), status: "done", meetingIdx: 6 },
-    { title: "Remediate 3 internal control findings", assignee: robert, dueDate: d(3, 31), status: "todo", meetingIdx: 6 },
-    { title: "Prepare impairment testing memo for Africa assets", assignee: robert, dueDate: d(3, 1), status: "done", meetingIdx: 7 },
-    { title: "Benchmark PwC fees against Big 4 peers", assignee: nadia, dueDate: d(3, 20), status: "done", meetingIdx: 8 },
-    { title: "Draft H2 revised budget forecast", assignee: robert, dueDate: d(4, 20), status: "todo", meetingIdx: 9 },
-    { title: "Negotiate EPC milestone payment schedule", assignee: nadia, dueDate: d(2, 15), status: "done", meetingIdx: 10 },
-    { title: "Obtain sovereign guarantee term sheet from Samruk", assignee: nadia, dueDate: d(2, 28), status: "done", meetingIdx: 10 },
-    { title: "Engage IFC for Kenya co-financing", assignee: robert, dueDate: d(3, 15), status: "done", meetingIdx: 11 },
-    { title: "Commission political risk insurance quote", assignee: robert, dueDate: d(3, 30), status: "todo", meetingIdx: 11 },
-    { title: "Complete SolarTech management interviews", assignee: nadia, dueDate: d(4, 1), status: "done", meetingIdx: 12 },
-    { title: "Update board skills matrix with new competency areas", assignee: ahmed, dueDate: d(2, 28), status: "done", meetingIdx: 14 },
-    { title: "Prepare succession planning memo for chair", assignee: ahmed, dueDate: d(3, 31), status: "todo", meetingIdx: 14 },
-    { title: "Finalize 2026 CEO KPIs with compensation consultant", assignee: robert, dueDate: d(3, 15), status: "done", meetingIdx: 15 },
-    { title: "Shortlist AI vendors for Phase 1", assignee: robert, dueDate: d(3, 1), status: "done", meetingIdx: 17 },
-    { title: "Issue CrowdStrike engagement letter", assignee: ahmed, dueDate: d(3, 15), status: "done", meetingIdx: 17 },
+    // Zephyr tasks (0–9)
+    { title: "Complete land acquisition due diligence", assignee: nadia, dueDate: d(1, 25), status: "done", meetingIdx: 0 },
+    { title: "Negotiate local content requirements with Kazakh authorities", assignee: nadia, dueDate: d(2, 10), status: "done", meetingIdx: 0 },
+    { title: "Finalize EPC evaluation report", assignee: robert, dueDate: d(2, 15), status: "done", meetingIdx: 1 },
+    { title: "Obtain EPC penalty clause markup from legal", assignee: ahmed, dueDate: d(2, 18), status: "done", meetingIdx: 1 },
+    { title: "Execute PPA with Samruk-Kazyna", assignee: nadia, dueDate: d(3, 5), status: "done", meetingIdx: 2 },
+    { title: "Arrange project finance syndication", assignee: robert, dueDate: d(3, 15), status: "done", meetingIdx: 3 },
+    { title: "Prepare cost overrun root cause analysis", assignee: robert, dueDate: d(3, 15), status: "done", meetingIdx: 4 },
+    { title: "Implement quarterly cost reporting to FAC", assignee: robert, dueDate: d(3, 30), status: "todo", meetingIdx: 5 },
+    { title: "Present management remediation plan", assignee: robert, dueDate: d(4, 25), status: "todo", meetingIdx: 5 },
+    { title: "Engage Deloitte for forensic procurement review", assignee: ahmed, dueDate: d(4, 15), status: "todo", meetingIdx: 6 },
+
+    // Aurora tasks (10–17)
+    { title: "Prepare SolarTech NDA with Clifford Chance", assignee: ahmed, dueDate: d(1, 20), status: "done", meetingIdx: 7 },
+    { title: "Complete conflict of interest declarations", assignee: ahmed, dueDate: d(2, 5), status: "done", meetingIdx: 8 },
+    { title: "Circulate DD scope to committee chairs", assignee: nadia, dueDate: d(2, 10), status: "done", meetingIdx: 8 },
+    { title: "Complete management interviews at SolarTech", assignee: nadia, dueDate: d(3, 20), status: "done", meetingIdx: 9 },
+    { title: "Obtain Freshfields opinion on German IP dispute", assignee: ahmed, dueDate: d(3, 25), status: "done", meetingIdx: 9 },
+    { title: "Prepare working capital bridge analysis", assignee: robert, dueDate: d(3, 20), status: "done", meetingIdx: 10 },
+    { title: "Finalize earn-out performance metrics", assignee: robert, dueDate: d(4, 10), status: "todo", meetingIdx: 11 },
+    { title: "Prepare SolarTech integration PMO charter", assignee: robert, dueDate: d(4, 25), status: "todo", meetingIdx: 11 },
+
+    // Lighthouse tasks (18–24)
+    { title: "Document Kenya emissions data collection methodology", assignee: robert, dueDate: d(2, 20), status: "done", meetingIdx: 12 },
+    { title: "Quantify carbon credit overstatement exposure", assignee: robert, dueDate: d(3, 5), status: "done", meetingIdx: 13 },
+    { title: "Engage McKinsey Sustainability for ESG audit", assignee: ahmed, dueDate: d(3, 15), status: "done", meetingIdx: 14 },
+    { title: "Prepare investor disclosure on ESG restatement", assignee: robert, dueDate: d(4, 1), status: "done", meetingIdx: 14 },
+    { title: "Implement corrective action plan from ESG audit", assignee: robert, dueDate: d(4, 30), status: "todo", meetingIdx: 16 },
+    { title: "Train site teams on revised emissions methodology", assignee: robert, dueDate: d(5, 15), status: "todo", meetingIdx: 16 },
+    { title: "Roll out enhanced whistleblower portal", assignee: ahmed, dueDate: d(5, 1), status: "todo", meetingIdx: 16 },
   ];
 
   for (let i = 0; i < TASKS_DEF.length; i++) {
@@ -458,13 +532,11 @@ export async function seedDemoData() {
   logger.info("Seeding demo data... all 25 tasks created");
 
   // ── ACCESS CONTROL — Recusals ──
-  // Vote 6 (idx 5): Remove access for Ahmed (conflict of interest)
-  await revokeAccess("vote", voteRecords[5].id, ahmed.id);
-  // Vote 4 (idx 3): Remove access for David Park (observer, personnel matter)
-  await revokeAccess("vote", voteRecords[3].id, david.id);
-  // Doc 19 (idx 18): Remove access for Ahmed
-  await revokeAccess("document", docs[18].id, ahmed.id);
+  // Vote 13 (idx 12): CEO 2025 Bonus — Remove D. Park (observer excluded from personnel matters)
+  await revokeAccess("vote", voteRecords[12].id, david.id);
+  // Document 22 (idx 21): CEO Compensation ESG Impact — Remove D. Park
+  await revokeAccess("document", docs[21].id, david.id);
 
   logger.info("Seeding demo data... access control recusals applied");
-  logger.info("Seeding demo data... COMPLETE — 20 meetings, 18 votes, 20 documents, 12 minutes, 25 tasks");
+  logger.info("Seeding demo data... COMPLETE — 20 meetings, 18 votes, 28 documents, 14 minutes, 25 tasks");
 }

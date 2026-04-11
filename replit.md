@@ -34,8 +34,14 @@ Password is set via the `SEED_PASSWORD` environment secret (check Replit Secrets
 ## Seeded Data
 - 20 people across all roles (format: firstname.lastname@meridian-energy.com)
 - 5 boards: BoD (Board of Directors), FAC (Finance & Audit), SIC (Strategy & Investment), NRC (Nomination & Remuneration), TPC (Technical & Projects)
-- Seed detection: checks for `s.chen@meridian-energy.com` (people) AND for existing meetings; if people missing → clearAll + full seed; if meetings missing → add demo data only
-- Demo data: 3 meetings (BoD Q1 completed, BoD Q2 scheduled, FAC Q1 scheduled), 3 votes (RES-BOD-2026-001 open, RES-BOD-2026-002 approved, RES-FAC-2026-001 open), 4 tasks (TASK-2026-001 through 004, two assigned to CFO Robert Taylor), 2 minutes (review + signing status)
+- Seed detection: checks for `s.chen@meridian-energy.com` (people) AND `SELECT COUNT(*) FROM votes` for demo data; if people missing → clearAll + full seed; if votes missing → seedDemoData()
+- Demo data tells 3 interconnected project narratives (Jan–Apr 2026):
+  - **Project Zephyr** (Kazakhstan 1GW Wind Farm): 7 meetings, 6 votes — devex → EPC shortlist → FID → cost overrun → forensic review
+  - **Project Aurora** (SolarTech Acquisition): 5 meetings, 4 votes — market scan → LOI → DD → binding offer
+  - **Project Lighthouse** (ESG & Compliance): 5 meetings, 5 votes — ESG concerns → audit → CEO bonus cut → methodology revision
+  - Cross-project governance: 3 meetings, 3 votes — dividend deferral, capital reallocation, revised budget
+  - Totals: 20 meetings, 18 votes, 28 documents, 14 minutes, 25 tasks (TASK-2026-001 through TASK-2026-025)
+  - Access control recusals: D. Park excluded from CEO bonus vote and CEO compensation document
 - `people.active` boolean column controls login access (inactive = 403 on login)
 
 ## Role-Based Interfaces
