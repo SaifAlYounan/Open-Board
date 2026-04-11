@@ -24,6 +24,7 @@ import SecretaryDocuments from "@/pages/secretary/documents";
 import SecretaryMembers from "@/pages/secretary/members";
 import SecretarySettings from "@/pages/secretary/settings";
 import SecretaryAdmin from "@/pages/secretary/admin";
+import SecretaryIntelligence from "@/pages/secretary/intelligence";
 import SecretaryWorkflows from "@/pages/secretary/workflows";
 import WorkflowDetail from "@/pages/secretary/workflow-detail";
 
@@ -169,6 +170,11 @@ function Router() {
       <Route path="/secretary/admin">
         <ProtectedRoute roles={['admin']}>
           <SecretaryAdmin />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/secretary/intelligence">
+        <ProtectedRoute roles={['admin']}>
+          <SecretaryIntelligence />
         </ProtectedRoute>
       </Route>
       <Route path="/secretary/settings">

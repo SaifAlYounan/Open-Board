@@ -51,6 +51,7 @@ Password is set via the `SEED_PASSWORD` environment secret (check Replit Secrets
 - Task Detail (/secretary/tasks/:id) — view and edit task details (title, status, assignee, due date)
 - Documents (/secretary/documents) — upload and AI-classify documents (committee_submission now recognized)
 - Members (/secretary/members) — view all people
+- Intelligence (/secretary/intelligence) — interactive D3.js force-directed knowledge graph showing relationships between boards, people, votes, meetings, minutes, documents, and tasks; board filter dropdown; click nodes for detail panel with connections; hover to highlight; drag/zoom/double-click to navigate
 - Admin Panel (/secretary/admin) — manage users (edit/activate/deactivate/create) and board memberships
 - Settings (/secretary/settings) — AI configuration status
 

@@ -14,6 +14,7 @@ import dashboardRouter from "./dashboard";
 import systemRouter from "./system";
 import auditLogRouter from "./auditLog";
 import workflowsRouter from "./workflows";
+import graphRouter from "./graph";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(dashboardRouter);
 router.use(systemRouter);
 router.use(auditLogRouter);
 router.use(workflowsRouter);
+router.use(graphRouter);
 
 export default router;
