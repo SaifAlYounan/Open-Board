@@ -57,7 +57,12 @@ Password is set via the `SEED_PASSWORD` environment secret (check Replit Secrets
 - Task Detail (/secretary/tasks/:id) — view and edit task details (title, status, assignee, due date)
 - Documents (/secretary/documents) — upload and AI-classify documents (committee_submission now recognized)
 - Members (/secretary/members) — view all people
-- Intelligence (/secretary/intelligence) — interactive D3.js force-directed knowledge graph showing relationships between boards, people, votes, meetings, minutes, documents, and tasks; board filter dropdown; click nodes for detail panel with connections; hover to highlight; drag/zoom/double-click to navigate
+- Intelligence (/secretary/intelligence) — query-driven board intelligence dashboard with two states:
+  - **Default (Summary Dashboard)**: stat cards (votes/meetings/docs/tasks/minutes/people counts), project tracker cards (Zephyr/Aurora/Lighthouse with governance trail summaries + "View Trail" links), decision timeline (horizontal chronological vote dots)
+  - **Search State**: focused D3.js force-directed subgraph showing only matching entities (bright) + 1-hop connections (dimmed); results panel below graph with cards grouped by type; detail sidebar on node/card click showing entity info + clickable connections for chain-tracing
+  - Search bar with 300ms debounce, quick filter pills (Project Zephyr, Project Aurora, ESG & Compliance, Open Votes, Overdue Tasks, Recent Decisions), board filter dropdown
+  - Backend: `GET /api/graph/summary` (dashboard stats + project detection + timeline), `GET /api/graph/search?q=...` (keyword search with special handlers for open/overdue/approved/rejected/recent/board-names, 1-hop expansion, board-scoped people, secret vote masking)
+  - "Show Full Graph" button at dashboard bottom loads original full graph via `GET /api/graph`
 - Admin Panel (/secretary/admin) — manage users (edit/activate/deactivate/create) and board memberships
 - Settings (/secretary/settings) — AI configuration status
 
