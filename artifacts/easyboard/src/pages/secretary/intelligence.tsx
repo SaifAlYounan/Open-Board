@@ -356,41 +356,40 @@ function ResultsPanel({ matches, onSelect, selectedId }: {
   const typeOrder = ["vote", "meeting", "document", "task", "minutes", "person"];
 
   return (
-    <div className="border-t border-[#e5e5e7] bg-white p-4 overflow-x-auto">
-      <div className="space-y-4">
-        {typeOrder.filter((t) => grouped[t]?.length).map((type) => {
-          const Icon = TYPE_ICONS[type] || Layers;
-          const color = NODE_COLORS[type];
-          return (
-            <div key={type}>
-              <div className="text-xs font-medium text-[#86868b] mb-2 capitalize flex items-center gap-1.5">
-                <Icon size={12} style={{ color }} />
-                {type === "minutes" ? "Minutes" : type + "s"} ({grouped[type].length})
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {grouped[type].map((node) => (
-                  <button
-                    key={node.id}
-                    onClick={() => onSelect(node)}
-                    className={`flex-shrink-0 text-left p-3 rounded-lg border transition-all min-w-[200px] max-w-[280px] ${
-                      selectedId === node.id
-                        ? "border-[#0071e3] bg-blue-50/50 shadow-sm"
-                        : "border-[#e5e5e7] bg-white hover:border-[#0071e3]/40"
-                    }`}
-                    style={{ borderLeftWidth: 3, borderLeftColor: color }}
-                  >
-                    <div className="text-xs font-medium text-[#1d1d1f] line-clamp-2 mb-1">{node.label}</div>
-                    <div className="flex items-center gap-2">
-                      {node.status && <StatusBadge status={node.status} />}
-                      {node.date && <span className="text-[10px] text-[#86868b]">{formatDate(node.date)}</span>}
-                    </div>
-                  </button>
-                ))}
-              </div>
+    <div className="overflow-y-auto p-4 space-y-4">
+      {typeOrder.filter((t) => grouped[t]?.length).map((type) => {
+        const Icon = TYPE_ICONS[type] || Layers;
+        const color = NODE_COLORS[type];
+        return (
+          <div key={type}>
+            <div className="text-xs font-medium text-[#86868b] mb-2 capitalize flex items-center gap-1.5 sticky top-0 bg-white py-1 z-10">
+              <Icon size={12} style={{ color }} />
+              {type === "minutes" ? "Minutes" : type + "s"} ({grouped[type].length})
             </div>
-          );
-        })}
-      </div>
+            <div className="space-y-1.5">
+              {grouped[type].map((node) => (
+                <button
+                  key={node.id}
+                  id={`result-card-${node.id}`}
+                  onClick={() => onSelect(node)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                    selectedId === node.id
+                      ? "border-[#0071e3] bg-blue-50/50 shadow-sm"
+                      : "border-[#e5e5e7] bg-white hover:border-[#0071e3]/40"
+                  }`}
+                  style={{ borderLeftWidth: 3, borderLeftColor: color }}
+                >
+                  <div className="text-xs font-medium text-[#1d1d1f] line-clamp-2 mb-1">{node.label}</div>
+                  <div className="flex items-center gap-2">
+                    {node.status && <StatusBadge status={node.status} />}
+                    {node.date && <span className="text-[10px] text-[#86868b]">{formatDate(node.date)}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -932,6 +931,16 @@ export default function Intelligence() {
               )}
 
               <div className="flex flex-1 overflow-hidden">
+                {searchResult && searchResult.matches.length > 0 && (
+                  <div className="w-[35%] min-w-[280px] max-w-[420px] border-r border-[#e5e5e7] bg-white flex-shrink-0 overflow-hidden max-lg:hidden">
+                    <ResultsPanel
+                      matches={searchResult.matches}
+                      onSelect={handleNodeClick}
+                      selectedId={selectedNode?.id || null}
+                    />
+                  </div>
+                )}
+
                 {graphData ? (
                   <FocusedGraph
                     data={graphData}
@@ -961,11 +970,13 @@ export default function Intelligence() {
               </div>
 
               {searchResult && searchResult.matches.length > 0 && (
-                <ResultsPanel
-                  matches={searchResult.matches}
-                  onSelect={handleNodeClick}
-                  selectedId={selectedNode?.id || null}
-                />
+                <div className="lg:hidden border-t border-[#e5e5e7] bg-white max-h-[40%] overflow-hidden">
+                  <ResultsPanel
+                    matches={searchResult.matches}
+                    onSelect={handleNodeClick}
+                    selectedId={selectedNode?.id || null}
+                  />
+                </div>
               )}
             </div>
           )}
