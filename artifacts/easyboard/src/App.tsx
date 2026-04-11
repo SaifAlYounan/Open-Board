@@ -279,26 +279,6 @@ function App() {
           <Toaster />
         </TooltipProvider>
       </AuthProvider>
-      <div
-        style={{
-          position: "fixed",
-          top: 16,
-          right: 16,
-          zIndex: 99999,
-          backgroundColor: "#dc2626",
-          color: "#ffffff",
-          fontWeight: 700,
-          fontSize: 13,
-          letterSpacing: "0.05em",
-          padding: "4px 12px",
-          borderRadius: 4,
-          pointerEvents: "none",
-          userSelect: "none",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-        }}
-      >
-        DEMO
-      </div>
     </QueryClientProvider>
   );
 }

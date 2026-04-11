@@ -70,7 +70,7 @@ export default function Login() {
           <div className="mx-auto w-12 h-12 bg-[#0071e3] text-white rounded-xl flex items-center justify-center text-xl font-bold mb-6">
             ✦
           </div>
-          <CardTitle className="text-2xl font-semibold text-[#1d1d1f]">Sign in to EasyBoard</CardTitle>
+          <CardTitle className="text-2xl font-semibold text-[#1d1d1f]">Sign in to EasyBoard <span className="text-red-600">DEMO</span></CardTitle>
           <CardDescription className="text-[#86868b] mt-2">Meridian Energy Group</CardDescription>
         </CardHeader>
         <CardContent className="px-10">
