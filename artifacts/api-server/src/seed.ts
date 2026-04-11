@@ -27,6 +27,7 @@ import {
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
+import { seedDemoData } from "./seedDemoData";
 
 const PASSWORD = process.env.SEED_PASSWORD;
 
@@ -105,6 +106,7 @@ export async function seed() {
     await migrateAddPasswordResetTokensTable();
     await migrateUpdatePasswords();
     await migrateAddSchemaConstraints();
+    await seedDemoData();
     return;
   }
 
@@ -211,6 +213,7 @@ export async function seed() {
   await migrateAddPasswordResetTokensTable();
   await migrateAddSchemaConstraints();
   logger.info({ peopleCount: allPeople.length, boardsCount: allBoards.length }, "Seeding complete — organisation, people, and boards ready");
+  await seedDemoData();
 }
 
 /**
