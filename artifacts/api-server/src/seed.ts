@@ -25,7 +25,7 @@ import {
   approvalRuleWeightsTable,
   voteDocumentsTable,
 } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import { seedDemoData } from "./seedDemoData";
 
@@ -102,6 +102,7 @@ export async function seed() {
 
   if (hasData) {
     logger.info("People already exist — skipping seed");
+    await cleanupTestAccounts();
     await migratePeopleTitles();
     await migrateAddPasswordResetTokensTable();
     await migrateUpdatePasswords();
@@ -284,10 +285,54 @@ async function migrateAddSchemaConstraints() {
   }
 }
 
-/**
- * One-time migration: correct people titles that were wrong in earlier seeds.
- * Safe to run repeatedly — only updates rows where the title still has the old value.
- */
+async function cleanupTestAccounts() {
+  const testEmails = [
+    "hacker@evil.com",
+    "newadmin@test.com",
+    "r7extra@meridian-energy.com",
+    "r7extra2@meridian-energy.com",
+    "r7test@meridian-energy.com",
+    "r8.extra@meridian-energy.com",
+    "r8.test@meridian-energy.com",
+    "testperson5@example.com",
+    "test-r6@test.com",
+    "testr6@meridian-energy.com",
+  ];
+
+  const testPeople = await db.select({ id: peopleTable.id, email: peopleTable.email })
+    .from(peopleTable)
+    .where(inArray(peopleTable.email, testEmails));
+
+  if (testPeople.length === 0) {
+    const [dpark] = await db.select().from(peopleTable).where(eq(peopleTable.email, "d.park@meridian-energy.com"));
+    if (dpark && dpark.role !== "observer") {
+      await db.update(peopleTable).set({ role: "observer" as any }).where(eq(peopleTable.email, "d.park@meridian-energy.com"));
+      logger.info("cleanupTestAccounts — fixed d.park role to observer");
+    }
+    return;
+  }
+
+  const ids = testPeople.map((p) => p.id);
+  logger.info({ count: testPeople.length, emails: testPeople.map((p) => p.email) }, "cleanupTestAccounts — removing test accounts");
+
+  for (const id of ids) {
+    await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.personId, id));
+    await db.delete(accessControlTable).where(eq(accessControlTable.personId, id));
+    await db.delete(voteRecordsTable).where(eq(voteRecordsTable.personId, id));
+    await db.delete(minutesSignaturesTable).where(eq(minutesSignaturesTable.personId, id));
+    await db.delete(attendanceTable).where(eq(attendanceTable.personId, id));
+    await db.execute(sql`DELETE FROM audit_trail WHERE person_id = ${id}`);
+    await db.execute(sql`DELETE FROM minutes_suggestions WHERE person_id = ${id}`);
+    await db.execute(sql`DELETE FROM tasks WHERE assignee_id = ${id}`);
+    await db.execute(sql`DELETE FROM documents WHERE uploaded_by = ${id}`);
+    await db.delete(peopleTable).where(eq(peopleTable.id, id));
+  }
+
+  await db.update(peopleTable).set({ role: "observer" as any }).where(eq(peopleTable.email, "d.park@meridian-energy.com"));
+
+  logger.info({ removed: ids.length }, "cleanupTestAccounts — DONE");
+}
+
 async function migratePeopleTitles() {
   const TITLE_FIXES: Array<{ email: string; oldTitles: string[]; newTitle: string }> = [
     { email: "s.chen@meridian-energy.com",     oldTitles: ["Board Director"],        newTitle: "Independent Director"    },
