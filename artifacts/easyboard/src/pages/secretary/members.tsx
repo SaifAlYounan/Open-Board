@@ -19,7 +19,7 @@ export default function SecretaryMembers() {
         <div className="max-w-4xl mx-auto p-8 space-y-6">
           <div>
             <h1 className="text-2xl font-semibold text-[#1d1d1f]">Members</h1>
-            <p className="text-sm text-[#86868b] mt-1">All people with access to EasyBoard</p>
+            <p className="text-sm text-[#86868b] mt-1">All people with access to Open Board</p>
           </div>
 
           {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading...</div>}

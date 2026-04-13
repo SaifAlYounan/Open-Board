@@ -36,7 +36,7 @@ export function SecretarySidebar() {
               ✦
             </div>
             <div>
-              <div className="text-sm font-semibold text-[#1d1d1f] leading-tight">EasyBoard v2</div>
+              <div className="text-sm font-semibold text-[#1d1d1f] leading-tight">Open Board</div>
               <div className="text-xs text-[#86868b]">Meridian Energy Group</div>
             </div>
           </div>

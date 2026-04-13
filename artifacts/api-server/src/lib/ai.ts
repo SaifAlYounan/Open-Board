@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db, boardsTable, meetingsTable, votesTable, tasksTable, peopleTable, boardMembershipsTable, accessControlTable } from "@workspace/db";
 import { eq, ne, and } from "drizzle-orm";
 
-const AI_BRAIN_PROMPT = `You are the AI brain of EasyBoard, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
+const AI_BRAIN_PROMPT = `You are the AI brain of Open Board, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
 
 ## WHAT YOU ARE
 
@@ -17,7 +17,7 @@ You are a professional board secretary's brain. You know corporate governance:
 
 ## THE SYSTEM YOU CONTROL
 
-EasyBoard has these entities. You can propose creating any of them:
+Open Board has these entities. You can propose creating any of them:
 
 **Meetings** — have a date, location, board, and numbered agenda items. Each agenda item has a type (information/discussion/decision) and can link to documents and votes.
 

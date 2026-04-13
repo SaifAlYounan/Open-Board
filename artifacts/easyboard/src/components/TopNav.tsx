@@ -31,7 +31,7 @@ export function TopNav({ showBoardSelector = true }: TopNavProps) {
         <Link href={user?.role === 'member' ? '/board' : user?.role === 'management' ? '/management' : '/observer'}>
           <div className="flex items-center gap-2 cursor-pointer flex-shrink-0">
             <div className="w-7 h-7 bg-[#0071e3] text-white rounded-lg flex items-center justify-center text-xs font-bold">✦</div>
-            <span className="text-sm font-semibold text-[#1d1d1f]">EasyBoard</span>
+            <span className="text-sm font-semibold text-[#1d1d1f]">Open Board</span>
           </div>
         </Link>
 

@@ -13,7 +13,7 @@ export default function SecretarySettings() {
         <div className="max-w-2xl mx-auto p-8 space-y-8">
           <div>
             <h1 className="text-2xl font-semibold text-[#1d1d1f]">Settings</h1>
-            <p className="text-sm text-[#86868b] mt-1">System configuration for EasyBoard</p>
+            <p className="text-sm text-[#86868b] mt-1">System configuration for Open Board</p>
           </div>
 
           <div className="bg-white rounded-2xl border border-[#e5e5e7] p-6 space-y-4">
@@ -56,7 +56,7 @@ export default function SecretarySettings() {
           </div>
 
           <div className="bg-white rounded-2xl border border-[#e5e5e7] p-6">
-            <h2 className="font-semibold text-[#1d1d1f] mb-3">About EasyBoard</h2>
+            <h2 className="font-semibold text-[#1d1d1f] mb-3">About Open Board</h2>
             <div className="space-y-1 text-sm text-[#86868b]">
               <p>Version: 2.0.0</p>
               <p>License: MIT</p>

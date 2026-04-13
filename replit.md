@@ -1,7 +1,7 @@
-# EasyBoard v2 — AI-Native Board Management Portal
+# Open Board — AI-Native Board Management Portal
 
 ## Overview
-EasyBoard v2 is a complete corporate governance portal for Meridian Energy Group with 4 role-based interfaces, AI document classification, real-time vote tracking, and comprehensive board management workflows.
+Open Board is a complete corporate governance portal for Meridian Energy Group with 4 role-based interfaces, AI document classification, real-time vote tracking, and comprehensive board management workflows.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ EasyBoard v2 is a complete corporate governance portal for Meridian Energy Group
 
 ### Platform Routing
 - `/api/*` → API Server (port 8080)
-- `/*` → EasyBoard frontend (port 25532)
+- `/*` → Open Board frontend (port 25532)
 
 ## Authentication
 - JWT issued as HttpOnly cookie (`token`) on login via `POST /api/auth/login`

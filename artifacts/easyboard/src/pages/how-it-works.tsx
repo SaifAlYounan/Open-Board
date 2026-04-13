@@ -94,7 +94,7 @@ export default function HowItWorks() {
         <Link href="/">
           <button className="flex items-center gap-2 text-[#86868b] hover:text-[#1d1d1f] transition-colors text-sm font-medium">
             <ArrowLeft size={16} />
-            Back to EasyBoard
+            Back to Open Board
           </button>
         </Link>
         <div className="flex items-center gap-2 text-sm text-[#86868b]">
@@ -109,10 +109,10 @@ export default function HowItWorks() {
         <div className="space-y-4">
           <SectionHeader icon={<Bot size={12} />} label="Platform Overview" />
           <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight text-[#1d1d1f]">
-            How EasyBoard Works
+            How Open Board Works
           </h1>
           <p className="text-[#86868b] text-lg leading-relaxed max-w-2xl">
-            EasyBoard is an AI-native board governance platform. An AI model — Claude by default, or a local model
+            Open Board is an AI-native board governance platform. An AI model — Claude by default, or a local model
             of your choice — acts as an intelligent secretary that reads your documents, proposes structured governance
             actions, and executes them the moment you approve. Here is exactly how every part of the system fits together.
           </p>
@@ -124,7 +124,7 @@ export default function HowItWorks() {
             <SectionHeader icon={<Bot size={12} />} label="The AI System" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">The Central AI Pipeline</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Every document uploaded to EasyBoard is processed by an AI model — Claude (claude-opus-4-6) by default,
+              Every document uploaded to Open Board is processed by an AI model — Claude (claude-opus-4-6) by default,
               or a local model of your choice if you prefer to keep all processing on-premises. The AI reads the full
               text, classifies its intent, and proposes zero or more structured governance actions — never executing
               anything automatically. A human Secretary reviews every proposal before anything is created.
@@ -176,7 +176,7 @@ export default function HowItWorks() {
             <SectionHeader icon={<Users size={12} />} label="Role-Based Access" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">Four Roles, Four Interfaces</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Every user in EasyBoard has exactly one role. Role assignment is managed by the Secretary. Each role
+              Every user in Open Board has exactly one role. Role assignment is managed by the Secretary. Each role
               grants a completely separate interface and a precisely scoped set of permissions.
             </p>
           </div>
@@ -395,7 +395,7 @@ export default function HowItWorks() {
             <SectionHeader icon={<Shield size={12} />} label="Security & Integrity" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">Security Architecture</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              EasyBoard is built on standard, auditable cryptographic primitives. No proprietary security claims.
+              Open Board is built on standard, auditable cryptographic primitives. No proprietary security claims.
               Everything here is verifiable in the source code.
             </p>
           </div>
@@ -469,7 +469,7 @@ export default function HowItWorks() {
             <SectionHeader icon={<Clock size={12} />} label="In Practice" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">A Typical Governance Cycle</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Here is what the EasyBoard workflow looks like from document receipt to signed minutes.
+              Here is what the Open Board workflow looks like from document receipt to signed minutes.
             </p>
           </div>
           <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-5">
@@ -489,7 +489,7 @@ export default function HowItWorks() {
           <p className="text-[#86868b] mb-6">Ready to see it in action?</p>
           <Link href="/login">
             <button className="inline-flex items-center gap-2 px-8 py-3.5 bg-[#0071e3] hover:bg-[#0077ed] text-white font-medium rounded-full transition-colors text-sm">
-              Enter EasyBoard
+              Enter Open Board
               <ChevronRight size={16} />
             </button>
           </Link>
