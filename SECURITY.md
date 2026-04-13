@@ -2,7 +2,7 @@
 
 ## Reporting Vulnerabilities
 
-If you find a security vulnerability in EasyBoard, **[open an issue](https://github.com/SaifAlYounan/EasyBoard/issues)**. This is an open-source project — the code is public, the audit results are public, and the known issues are public. There is nothing to hide.
+If you find a security vulnerability in Open Board, **[open an issue](https://github.com/SaifAlYounan/Open Board/issues)**. This is an open-source project — the code is public, the audit results are public, and the known issues are public. There is nothing to hide.
 
 Include:
 - Description of the vulnerability
@@ -59,7 +59,7 @@ Security does not rely on a single layer:
 
 ### Data Sovereignty
 
-EasyBoard is designed to be self-hosted. When you run it on your own infrastructure:
+Open Board is designed to be self-hosted. When you run it on your own infrastructure:
 
 - Your board documents never leave your servers
 - No telemetry, no analytics, no CDN calls
@@ -89,7 +89,7 @@ Vendors like Diligent, Nasdaq Boardvantage, and OnBoard operate as SaaS platform
 
 ### The Open Source Model
 
-EasyBoard takes the opposite approach. The code is public. The vulnerabilities are public. The fixes are public.
+Open Board takes the opposite approach. The code is public. The vulnerabilities are public. The fixes are public.
 
 **What you get:**
 - **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
@@ -120,7 +120,7 @@ See [README.md — Security Audit Status](README.md#security-audit-status) for t
 
 ## Dependencies
 
-EasyBoard's security-relevant dependencies:
+Open Board's security-relevant dependencies:
 
 | Package | Purpose | Notes |
 |---------|---------|-------|
@@ -141,7 +141,7 @@ We monitor dependencies for known vulnerabilities and update promptly.
 
 ### Audit History
 
-EasyBoard has undergone twelve rounds of security auditing using multiple AI models and methodologies:
+Open Board has undergone twelve rounds of security auditing using multiple AI models and methodologies:
 
 **Rounds 1–10** used automated AI agents (MiniMax M2.7 via OpenClaw), three parallel agents per round:
 1. **Security audit** — fresh clone, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)

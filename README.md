@@ -1,7 +1,7 @@
-# EasyBoard
+# Open Board
 
 <p align="center">
-  <h1 align="center">✦ EasyBoard</h1>
+  <h1 align="center">✦ Open Board</h1>
   <p align="center"><strong>The open-source, AI-native board management platform.</strong></p>
   <p align="center">Upload a document. The AI does the rest. You just approve.</p>
 </p>
@@ -21,7 +21,7 @@
 
 ## What Is This?
 
-EasyBoard is a board management platform built by a governance professional, not a software company. It replaces the traditional board portal model — where administrators manually create meetings, circulate documents, and track votes — with an AI-first approach where the system reads your documents and proposes the next actions.
+Open Board is a board management platform built by a governance professional, not a software company. It replaces the traditional board portal model — where administrators manually create meetings, circulate documents, and track votes — with an AI-first approach where the system reads your documents and proposes the next actions.
 
 **The AI is not an add-on. It is the product.**
 
@@ -29,7 +29,7 @@ Upload draft minutes → the AI extracts action items and proposes creating task
 
 Every proposed action goes through the Secretary's approval queue. Nothing executes without human approval. This is [human-in-the-loop governance](https://human-loop-guide.replit.app) by design.
 
-> **⚠️ This is a beta.** It works. It has rough edges. Features are missing. Bugs exist. It's released early because governance tools need to step up their game. [Open an issue](https://github.com/SaifAlYounan/EasyBoard/issues), break things, tell us what's wrong.
+> **⚠️ This is a beta.** It works. It has rough edges. Features are missing. Bugs exist. It's released early because governance tools need to step up their game. [Open an issue](https://github.com/SaifAlYounan/Open Board/issues), break things, tell us what's wrong.
 
 ---
 
@@ -37,7 +37,7 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 
 ### Option 1: Run on Replit
 
-[![Run on Replit](https://replit.com/badge/github/SaifAlYounan/EasyBoard)](https://replit.com/@SaifAlYounan/EasyBoard)
+[![Run on Replit](https://replit.com/badge/github/SaifAlYounan/Open Board)](https://replit.com/@SaifAlYounan/Open Board)
 
 1. Fork the repo on Replit
 2. Add environment variables (see [Deployment](#deployment))
@@ -46,15 +46,15 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 ### Option 2: Self-Hosted
 
 ```bash
-git clone https://github.com/SaifAlYounan/EasyBoard.git
-cd EasyBoard
+git clone https://github.com/SaifAlYounan/Open Board.git
+cd Open Board
 pnpm install
 ```
 
 Set environment variables:
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/easyboard
+DATABASE_URL=postgresql://user:password@localhost:5432/openboard
 SESSION_SECRET=$(openssl rand -hex 32)
 ANTHROPIC_API_KEY=sk-ant-...   # Optional — app works without it
 PORT=3000
@@ -221,7 +221,7 @@ The seed script creates a fictional company (**Meridian Energy Group** — $4.2B
 
 ## Security
 
-EasyBoard is designed for organizations that take data sovereignty seriously.
+Open Board is designed for organizations that take data sovereignty seriously.
 
 - **Self-hosted** — your data stays on your servers, in your jurisdiction
 - **Zero external dependencies at runtime** — fonts bundled locally, no CDN calls, no telemetry
@@ -309,9 +309,9 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Security Audit Status
 
-> ⚠️ **EasyBoard is a working beta.** It demonstrates the AI-native governance pattern and is suitable for evaluation, demos, and feedback. It has not been audited to production security standards. Do not use with real board data without completing the fixes described below and conducting your own security review.
+> ⚠️ **Open Board is a working beta.** It demonstrates the AI-native governance pattern and is suitable for evaluation, demos, and feedback. It has not been audited to production security standards. Do not use with real board data without completing the fixes described below and conducting your own security review.
 
-EasyBoard has undergone twelve rounds of security auditing. Rounds 1–10 used automated AI agents (MiniMax M2.7 via OpenClaw) running three parallel checks per round: static code review, live API security testing, and end-to-end functional testing. Round 11 was a full static audit by Claude Opus 4.6 reading the complete source code, which identified architectural and design-level issues that endpoint-level testing missed.
+Open Board has undergone twelve rounds of security auditing. Rounds 1–10 used automated AI agents (MiniMax M2.7 via OpenClaw) running three parallel checks per round: static code review, live API security testing, and end-to-end functional testing. Round 11 was a full static audit by Claude Opus 4.6 reading the complete source code, which identified architectural and design-level issues that endpoint-level testing missed.
 
 ### Current Posture: BETA (as of April 9, 2026)
 
@@ -407,7 +407,7 @@ Documented for transparency. Items marked **(v2.8)** are under manual verificati
 
 ## Self-Hosting Guide
 
-EasyBoard is designed to run on your own infrastructure. Before deploying to production, make these changes:
+Open Board is designed to run on your own infrastructure. Before deploying to production, make these changes:
 
 ### 1. Environment Variables (Required)
 
@@ -416,7 +416,7 @@ Set these in your server environment. **Do not commit them to source control.**
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `SESSION_SECRET` | Signs JWT tokens. Must be a long random string. | `openssl rand -hex 64` |
-| `DATABASE_URL` | PostgreSQL connection string. | `postgresql://user:pass@host:5432/easyboard` |
+| `DATABASE_URL` | PostgreSQL connection string. | `postgresql://user:pass@host:5432/openboard` |
 | `SEED_PASSWORD` | Password for initial demo accounts. Change to something strong or remove demo accounts entirely. | `YourStrongPassword123!` |
 | `ALLOWED_ORIGIN` | Comma-separated list of allowed frontend URLs for CORS. | `https://board.yourcompany.com` |
 | `NODE_ENV` | Set to `production` to enable secure cookies and disable debug logging. | `production` |
@@ -432,7 +432,7 @@ The seed script (`seed.ts`) creates demo users for the Meridian Energy demo. For
 
 ### 3. Change or Remove the Reset UI Password
 
-In `artifacts/easyboard/src/pages/secretary/admin.tsx`, the "Reset Demo Data" button uses a client-side password (`"0000"`). For production:
+In `artifacts/easyboard/src/pages/secretary/admin.tsx` (directory name kept for compatibility), the "Reset Demo Data" button uses a client-side password (`"0000"`). For production:
 
 - **Option A (recommended):** Remove the entire System Reset tab. Production boards should never have a "wipe everything" button.
 - **Option B:** Change `"0000"` to a strong password known only to your administrator.
@@ -460,7 +460,7 @@ This ensures audit logs record the real client IP instead of the proxy's IP.
 
 ### 6. Database
 
-EasyBoard uses PostgreSQL. For production:
+Open Board uses PostgreSQL. For production:
 
 - Use a managed PostgreSQL instance (AWS RDS, Google Cloud SQL, etc.) or a hardened self-hosted install
 - Enable SSL connections
@@ -698,5 +698,5 @@ MIT License. Use it, fork it, deploy it, sell support for it. Attribution apprec
 
 <p align="center">
   <strong>Built by a governance professional. Shaped by the community.</strong><br>
-  <em>If you work in board governance and want to test this, <a href="https://github.com/SaifAlYounan/EasyBoard/issues">open an issue</a> or reach out.</em>
+  <em>If you work in board governance and want to test this, <a href="https://github.com/SaifAlYounan/Open Board/issues">open an issue</a> or reach out.</em>
 </p>
