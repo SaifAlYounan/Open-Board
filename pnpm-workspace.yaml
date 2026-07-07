@@ -57,11 +57,14 @@ catalog:
 
 autoInstallPeers: false
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - esbuild
-  - msw
-  - unrs-resolver
+# pnpm 11 renamed onlyBuiltDependencies -> allowBuilds (a map of matchers).
+# These native packages need their install/build scripts to run.
+allowBuilds:
+  '@swc/core': true
+  '@tailwindcss/oxide': true
+  esbuild: true
+  msw: true
+  unrs-resolver: true
 
 overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
