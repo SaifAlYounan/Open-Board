@@ -259,6 +259,14 @@ router.post("/tasks/:id/evidence", requireAuth, writeLimiter, upload.single("fil
     return;
   }
 
+  // Object-level authorization: only the task's assignee (or an admin) may
+  // submit evidence. Without this, any authenticated user who knows a task UUID
+  // could attach arbitrary files and feed them into the AI review pipeline.
+  if (user.role !== "admin" && task.assigneeId !== user.id) {
+    res.status(403).json({ error: "Only the assignee can submit evidence for this task" });
+    return;
+  }
+
   // Create evidence record
   const [evidence] = await db
     .insert(taskEvidenceTable)
@@ -352,6 +360,7 @@ router.post("/tasks/:id/evidence/review", requireAuth, requireAdmin, writeLimite
   } else {
     await db.update(tasksTable).set({ status: "in_progress" }).where(eq(tasksTable.id, taskId));
   }
+  await audit(req, "task_evidence_reviewed", "task", taskId, { evidenceId, decision });
 
   const submitter = evidence.submittedBy
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, evidence.submittedBy))

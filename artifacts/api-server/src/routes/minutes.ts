@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
-import { sanitizeRichHtml } from "../lib/sanitize";
+import { sanitizeRichHtml, sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
@@ -127,6 +127,10 @@ router.post("/minutes", requireAuth, requireAdmin, writeLimiter, async (req, res
   const existingList = await db.select().from(minutesTable).where(eq(minutesTable.meetingId, meetingId)).limit(1);
   if (existingList.length) {
     const existing = existingList[0];
+    if (existing.status === "signing" || existing.status === "signed") {
+      res.status(409).json({ error: `Minutes in '${existing.status}' are locked and cannot be edited. Return them to review first.` });
+      return;
+    }
     const [updated] = await db.update(minutesTable).set({ content: cleanContent, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
     const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
     audit(req, "minutes_saved", "minutes", existing.id, { meetingTitle: meeting?.title });
@@ -240,6 +244,19 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
     return;
   }
 
+  // Once minutes enter signing (or are signed), their content is frozen — people
+  // sign a specific text, and each signature hashes that text. Editing afterward
+  // would silently invalidate collected signatures.
+  const [current] = await db.select({ status: minutesTable.status }).from(minutesTable).where(eq(minutesTable.id, id));
+  if (!current) {
+    res.status(404).json({ error: "Minutes not found" });
+    return;
+  }
+  if (current.status === "signing" || current.status === "signed") {
+    res.status(409).json({ error: `Minutes in '${current.status}' are locked and cannot be edited. Return them to review first.` });
+    return;
+  }
+
   const [minutes] = await db
     .update(minutesTable)
     .set({ content: sanitizeRichHtml(content), updatedAt: new Date() })
@@ -257,6 +274,17 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
 
 const VALID_MINUTES_STATUSES = ["draft", "review", "signing", "signed"];
 
+// The minutes lifecycle is a one-way-ish state machine. `signed` is terminal
+// and immutable; `signed` can only be reached from `signing` and only once at
+// least one signature has been collected. Reopening (backward) is allowed up to
+// `signing` so an error can be corrected before anyone signs.
+const ALLOWED_STATUS_TRANSITIONS: Record<string, string[]> = {
+  draft: ["review"],
+  review: ["draft", "signing"],
+  signing: ["review", "signed"],
+  signed: [],
+};
+
 router.patch("/minutes/:id/status", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { status } = req.body;
@@ -270,18 +298,37 @@ router.patch("/minutes/:id/status", requireAuth, requireAdmin, writeLimiter, asy
     return;
   }
 
+  const [current] = await db.select().from(minutesTable).where(eq(minutesTable.id, id));
+  if (!current) {
+    res.status(404).json({ error: "Minutes not found" });
+    return;
+  }
+
+  const currentStatus = current.status ?? "draft";
+  if (status !== currentStatus) {
+    const allowed = ALLOWED_STATUS_TRANSITIONS[currentStatus] ?? [];
+    if (!allowed.includes(status)) {
+      res.status(409).json({ error: `Cannot move minutes from '${currentStatus}' to '${status}'.` });
+      return;
+    }
+    // Minutes may only be marked signed once at least one signature exists —
+    // an admin can't declare unsigned minutes "signed".
+    if (status === "signed") {
+      const sigs = await db.select().from(minutesSignaturesTable).where(eq(minutesSignaturesTable.minutesId, id));
+      if (sigs.length === 0) {
+        res.status(409).json({ error: "Minutes cannot be marked signed before any signatures are collected." });
+        return;
+      }
+    }
+  }
+
   const [minutes] = await db
     .update(minutesTable)
     .set({ status, updatedAt: new Date() })
     .where(eq(minutesTable.id, id))
     .returning();
 
-  if (!minutes) {
-    res.status(404).json({ error: "Minutes not found" });
-    return;
-  }
-
-  audit(req, "minutes_status_changed", "minutes", id, { status });
+  await audit(req, "minutes_status_changed", "minutes", id, { from: current.status, to: status });
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
@@ -293,6 +340,28 @@ router.post("/minutes/:id/sign", requireAuth, writeLimiter, async (req, res): Pr
   if (!minutes || minutes.status !== "signing") {
     res.status(400).json({ error: "Minutes are not in signing status" });
     return;
+  }
+
+  // Object-level authorization: only a member of THIS minutes' board with a
+  // signing-eligible role may sign. Without this, any authenticated user who
+  // knows a minutes UUID could forge a signature on another board's official
+  // minutes. Observers may read but not sign. (Admins always pass.)
+  if (user.role !== "admin") {
+    const [meeting] = minutes.meetingId
+      ? await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId))
+      : [null];
+    if (!meeting?.boardId) {
+      res.status(403).json({ error: "You are not eligible to sign these minutes" });
+      return;
+    }
+    const [membership] = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+    if (!membership || membership.roleInBoard === "observer") {
+      res.status(403).json({ error: "You are not eligible to sign these minutes" });
+      return;
+    }
   }
 
   const timestamp = new Date().toISOString();
@@ -373,6 +442,33 @@ router.post("/minutes/:id/comments", requireAuth, writeLimiter, async (req, res)
     return;
   }
 
+  const [minutes] = await db.select().from(minutesTable).where(eq(minutesTable.id, id));
+  if (!minutes) {
+    res.status(404).json({ error: "Minutes not found" });
+    return;
+  }
+
+  // Object-level authorization: only board members (or admin) may comment on a
+  // board's minutes — mirrors GET /minutes/:id/comments. Without this, any
+  // authenticated user who knows a minutes UUID could inject comments on another
+  // board's governance record.
+  if (user.role !== "admin" && minutes.meetingId) {
+    const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId));
+    if (meeting?.boardId) {
+      const [membership] = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+      if (!membership) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+    }
+  }
+
+  const cleanOriginalText = sanitizeText(originalText);
+  const cleanCommentText = sanitizeText(commentText);
+
   // Assign a color based on person index (deterministic)
   const [existingComments] = [
     await db.select().from(minutesSuggestionsTable).where(eq(minutesSuggestionsTable.minutesId, id)),
@@ -387,9 +483,10 @@ router.post("/minutes/:id/comments", requireAuth, writeLimiter, async (req, res)
 
   const [comment] = await db
     .insert(minutesSuggestionsTable)
-    .values({ minutesId: id, personId: user.id, originalText, commentText, color })
+    .values({ minutesId: id, personId: user.id, originalText: cleanOriginalText, commentText: cleanCommentText, color })
     .returning();
 
+  await audit(req, "minutes_comment_added", "minutes", id, { commentId: comment.id });
   const { passwordHash: _, ...safePerson } = user;
   res.status(201).json({ ...comment, person: safePerson });
 });

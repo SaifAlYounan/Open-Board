@@ -1,5 +1,4 @@
 import { Router } from "express";
-import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
@@ -21,6 +20,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { evaluateByRule, computeCertificateHash } from "../lib/voteTally";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -62,21 +62,6 @@ const upload = multer({
     else cb(new Error("File type not supported"));
   },
 });
-
-function evaluateByRule(
-  rule: { type: string; minApprovals: number | null; quorum: number | null } | null,
-  approvals: number,
-  totalVoters: number
-): "approved" | "rejected" {
-  if (!rule) return approvals > totalVoters / 2 ? "approved" : "rejected";
-  switch (rule.type) {
-    case "unanimous":      return approvals === totalVoters ? "approved" : "rejected";
-    case "two_thirds":     return approvals >= Math.ceil(totalVoters * 2 / 3) ? "approved" : "rejected";
-    case "three_quarters": return approvals >= Math.ceil(totalVoters * 3 / 4) ? "approved" : "rejected";
-    case "custom":         return rule.minApprovals ? (approvals >= rule.minApprovals ? "approved" : "rejected") : (approvals > totalVoters / 2 ? "approved" : "rejected");
-    default:               return approvals > totalVoters / 2 ? "approved" : "rejected";
-  }
-}
 
 function buildApprovalSummary(rule: {
   type: string;
@@ -512,17 +497,13 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
   if (status != null) {
     updates.status = status;
     if (["approved", "rejected", "lapsed", "cancelled"].includes(status)) {
-      updates.closedAt = new Date();
-      // Only generate certificate hash for finalized (non-cancelled) statuses
+      const closedAt = new Date();
+      updates.closedAt = closedAt;
+      // Only generate certificate hash for finalized (non-cancelled) statuses.
+      // Same instant for the hash and the stored column so it stays verifiable.
       if (["approved", "rejected", "lapsed"].includes(status)) {
         const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
-        const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
-        const sortedRecords = [...records].sort((a, b) => a.personId!.localeCompare(b.personId!)).map(r => ({ personId: r.personId, decision: r.decision }));
-        const hash = crypto
-          .createHash("sha256")
-          .update(JSON.stringify({ id, status, approvals, total: records.length, closedAt: new Date().toISOString(), records: sortedRecords }))
-          .digest("hex");
-        updates.certificateHash = hash;
+        updates.certificateHash = computeCertificateHash(id, status, closedAt, records);
       }
     }
   }
@@ -680,19 +661,18 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
           const allRequiredApproved = requiredIds.every((pid) =>
             validRecords.some((r) => r.personId === pid && r.decision.startsWith("approved"))
           );
-          newStatus = allRequiredApproved ? evaluateByRule(rule, approvals, votingMembers.length) : "rejected";
+          newStatus = allRequiredApproved ? evaluateByRule(rule, approvals, votingMembers.length, validRecords.length) : "rejected";
         } else {
-          newStatus = evaluateByRule(rule, approvals, votingMembers.length);
+          newStatus = evaluateByRule(rule, approvals, votingMembers.length, validRecords.length);
         }
 
-        const sortedRecords = [...validRecords].sort((a, b) => a.personId!.localeCompare(b.personId!)).map(r => ({ personId: r.personId, decision: r.decision }));
-        const hash = crypto
-          .createHash("sha256")
-          .update(JSON.stringify({ id, status: newStatus, approvals, total: validRecords.length, closedAt: new Date().toISOString(), records: sortedRecords }))
-          .digest("hex");
+        // One instant for both the stored column and the certificate, so the
+        // certificate hash can be recomputed and verified later.
+        const closedAt = new Date();
+        const hash = computeCertificateHash(id, newStatus, closedAt, allRecords);
         await db
           .update(votesTable)
-          .set({ status: newStatus as any, closedAt: new Date(), certificateHash: hash })
+          .set({ status: newStatus as any, closedAt, certificateHash: hash })
           .where(eq(votesTable.id, id));
         setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
       }
@@ -894,6 +874,36 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     voteRecords: vote.secret && req.user?.role !== "admin"
       ? []
       : recordsWithPeople,
+  });
+});
+
+// Recompute the certificate hash from persisted data and compare it to the
+// stored hash — proves the vote record hasn't been altered since it closed.
+router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  if (!vote) {
+    res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+  if (!await hasAccess(user.id, user.role, "vote", id)) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+  if (!vote.certificateHash || !vote.closedAt) {
+    res.json({ verified: false, reason: "not_finalized" });
+    return;
+  }
+  const closedAt = vote.closedAt;
+
+  const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
+  const recomputed = computeCertificateHash(id, vote.status ?? "", closedAt, records);
+  res.json({
+    verified: recomputed === vote.certificateHash,
+    storedHash: vote.certificateHash,
+    recomputedHash: recomputed,
   });
 });
 
