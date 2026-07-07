@@ -35,52 +35,50 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 
 ## Quick Start
 
-**Requirements:** Node 24+, pnpm, and PostgreSQL 16.
+**Requirements:** Node 24+, pnpm 9+, and PostgreSQL 16 (a one-command Postgres is included via Docker).
 
 ```bash
 git clone https://github.com/SaifAlYounan/Open-Board.git
 cd Open-Board
 pnpm install
+cp .env.example .env      # then set SESSION_SECRET  (openssl rand -hex 32)
 ```
 
-Set environment variables:
+Start PostgreSQL (or point `DATABASE_URL` at your own instance):
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/openboard
-SESSION_SECRET=$(openssl rand -hex 32)   # required — the server refuses to start without it
-ANTHROPIC_API_KEY=sk-ant-...             # optional — app works without it (manual features only)
-PORT=3000
-
-# Optional
-ALLOWED_ORIGIN=https://board.example.com # REQUIRED in production (comma-separated allowlist)
-AI_MODEL=claude-opus-4-8                 # which Claude model the AI uses (default: Claude Opus 4.8)
-AI_DAILY_CALL_LIMIT=1000                 # daily ceiling on AI calls (cost guard)
-AI_INTEGRATIONS_ANTHROPIC_BASE_URL=...   # point at an Anthropic-compatible gateway to self-host the model
-ADMIN_EMAIL=secretary@example.com        # first-boot admin email (non-demo mode)
-ORG_NAME="Your Organization"             # first-boot organization name (non-demo mode)
+docker compose up -d db   # Postgres 16 on localhost:5432 — matches .env.example
 ```
 
-Initialize the database and start:
+Create the schema and start everything:
 
 ```bash
-pnpm run seed    # First boot: creates the org + a single admin (see below)
-pnpm run dev     # Starts the dev server
+pnpm db:push              # create the database tables
+pnpm dev                  # starts the API (auto-seeds on first boot) + the frontend
 ```
+
+- **API** → `http://localhost:3000` (`PORT`)
+- **App** → `http://localhost:5173` (`WEB_PORT`) — **open this one.** The dev server proxies `/api` to the API, so the browser only talks to one origin (no CORS in dev).
+
+Prefer separate terminals? Run `pnpm dev:api` and `pnpm dev:web`.
 
 **First boot creates one admin account** with a **randomly generated one-time password
-printed once to the server log** (`FIRST BOOT — admin account created. One-time password: …`).
-Log in with `ADMIN_EMAIL` (default `admin@openboard.local`) and that password, then change it
-immediately — you'll be prompted to.
+printed once to the API log** (`FIRST BOOT — admin account created. One-time password: …`).
+Sign in with `ADMIN_EMAIL` (default `admin@openboard.local`) and that password; you'll be
+**required to set a new password immediately**.
 
-Open `http://localhost:3000` and sign in.
+> The `.env` file is loaded automatically by both the server and `pnpm db:push`. Every variable
+> is documented in [`.env.example`](.env.example). Real environment variables set by your shell or
+> container always take precedence.
 
 ### Demo dataset (optional)
 
 To explore with the fictional "Meridian Energy Group" board (20 people, 5 committees, sample
-documents), set `DEMO_MODE=true` and `SEED_PASSWORD=<something>` before seeding:
+documents), set these in your `.env` before `pnpm db:push` / `pnpm dev`:
 
 ```bash
-DEMO_MODE=true SEED_PASSWORD=changeme pnpm run seed
+DEMO_MODE=true
+SEED_PASSWORD=YourStrongDemoPassword123!
 ```
 
 All demo users then share `SEED_PASSWORD`. **Never enable `DEMO_MODE` in production** — it seeds
@@ -240,7 +238,7 @@ The demo is a fictional company (**Meridian Energy Group** — $4.2B renewable e
 
 **All demo passwords:** whatever you set as `SEED_PASSWORD` when seeding with `DEMO_MODE=true`.
 
-**5 Boards:** Board of Directors (BoD), Finance & Audit Committee (FAC), Strategy & Investment Committee (SIC), Nomination & Remuneration Committee (NRC), Technology & Projects Committee (TPC).
+**5 Boards:** Board of Directors (BoD), Finance & Audit Committee (FAC), Strategy & Investment Committee (SIC), Nomination & Remuneration Committee (NRC), Technical & Projects Committee (TPC).
 
 ---
 
@@ -450,13 +448,17 @@ Set these in your server environment. **Do not commit them to source control.**
 | `DATABASE_URL` | **Required.** PostgreSQL connection string. | `postgresql://user:pass@host:5432/openboard` |
 | `ALLOWED_ORIGIN` | **Required in production.** Comma-separated allowlist of frontend origins for CORS. | `https://board.yourcompany.com` |
 | `NODE_ENV` | Set to `production` for secure cookies + to require `ALLOWED_ORIGIN`. | `production` |
-| `PORT` | **Required.** Server port. | `3000` |
+| `PORT` | **Required.** API server port. | `3000` |
+| `WEB_PORT` | *(Dev)* Vite dev/preview server port. Defaults to `5173`. | `5173` |
+| `BASE_PATH` | *(Optional)* Sub-path the SPA is served under. Defaults to `/`. | `/` |
 | `ANTHROPIC_API_KEY` | *(Optional)* Enables AI features. App works without it. | `sk-ant-...` |
 | `AI_MODEL` | *(Optional)* Which Claude model the AI uses. | `claude-opus-4-8` (default) |
 | `AI_DAILY_CALL_LIMIT` | *(Optional)* Daily ceiling on AI calls (cost guard). | `1000` (default) |
+| `AI_INTEGRATIONS_ANTHROPIC_API_KEY` | *(Optional)* Preferred key name (takes precedence over `ANTHROPIC_API_KEY`). | `sk-ant-...` |
 | `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` | *(Optional)* Point at an Anthropic-compatible gateway to self-host the model. | `https://…` |
 | `ADMIN_EMAIL` | *(Optional)* Email for the first-boot admin account. | `secretary@example.com` |
 | `ORG_NAME` | *(Optional)* Organization name shown in the UI. | `Your Organization` |
+| `LOG_LEVEL` | *(Optional)* Log verbosity: `trace`\|`debug`\|`info`\|`warn`\|`error`. Defaults to `info`. | `info` |
 | `DEMO_MODE` | *(Optional)* `true` seeds the Meridian demo dataset. **Never `true` in production.** | *(unset)* |
 | `SEED_PASSWORD` | *(Demo only)* Shared password for demo accounts when `DEMO_MODE=true`. | `YourStrongPassword123!` |
 
@@ -493,7 +495,7 @@ Open Board uses PostgreSQL. For production:
 - Use a managed PostgreSQL instance (AWS RDS, Google Cloud SQL, etc.) or a hardened self-hosted install
 - Enable SSL connections
 - Set up automated backups
-- Run migrations: `pnpm drizzle-kit push`
+- Push the schema: `pnpm db:push`
 
 ### 7. AI Features (Optional)
 

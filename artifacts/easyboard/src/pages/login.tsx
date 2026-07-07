@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,6 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
 const loginSchema = z.object({
@@ -16,6 +27,72 @@ const loginSchema = z.object({
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
+
+function ForgotPasswordDialog() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const onSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const body = await res.json().catch(() => ({}));
+      toast({
+        title: "Check with your Board Secretary",
+        description:
+          body.message ||
+          "If that email is registered, a reset link has been generated. Email delivery isn't configured, so your Secretary relays the link.",
+      });
+      setOpen(false);
+      setEmail("");
+    } catch {
+      toast({ title: "Something went wrong", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button type="button" className="text-sm text-[#0071e3] hover:underline" data-testid="button-forgot-password">
+          Forgot password?
+        </button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reset your password</DialogTitle>
+          <DialogDescription>
+            Enter your account email. If it's registered, a single-use reset link is generated.
+            Email delivery isn't configured yet, so your Board Secretary relays the link to you.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="forgot-email">Email</Label>
+          <Input
+            id="forgot-email"
+            type="email"
+            placeholder="name@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            data-testid="input-forgot-email"
+          />
+        </div>
+        <DialogFooter>
+          <Button onClick={onSubmit} disabled={submitting || !email} data-testid="button-forgot-submit">
+            {submitting ? "Sending..." : "Send reset link"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -109,9 +186,7 @@ export default function Login() {
           </Form>
         </CardContent>
         <CardFooter className="flex justify-center pb-10 pt-6">
-          <p className="text-sm text-[#86868b]" data-testid="text-forgot-password">
-            Forgot password? Contact your Board Secretary.
-          </p>
+          <ForgotPasswordDialog />
         </CardFooter>
       </Card>
     </div>

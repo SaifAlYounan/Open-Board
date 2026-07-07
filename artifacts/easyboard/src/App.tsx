@@ -7,6 +7,8 @@ import NotFound from "@/pages/not-found";
 
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
+import ChangePassword from "@/pages/change-password";
+import ResetPassword from "@/pages/reset-password";
 import Whitepaper from "@/pages/whitepaper";
 import HowItWorks from "@/pages/how-it-works";
 
@@ -49,20 +51,28 @@ const queryClient = new QueryClient({
   },
 });
 
+function AuthLoading() {
+  return (
+    <div className="min-h-screen bg-[#f5f5f7] flex items-center justify-center">
+      <div className="text-[#86868b] text-sm">Loading...</div>
+    </div>
+  );
+}
+
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, isLoading } = useAuth();
-  const [location] = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#f5f5f7] flex items-center justify-center">
-        <div className="text-[#86868b] text-sm">Loading...</div>
-      </div>
-    );
+    return <AuthLoading />;
   }
 
   if (!user) {
     return <Redirect to="/login" />;
+  }
+
+  // A one-time / reset-flagged password blocks all app access until it's changed.
+  if (user.mustResetPassword) {
+    return <Redirect to="/change-password" />;
   }
 
   if (roles && !roles.includes(user.role)) {
@@ -78,11 +88,33 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
   return <>{children}</>;
 }
 
+// Requires authentication but skips role and forced-reset gating — used for the
+// change-password screen itself (so the forced-reset redirect can't loop).
+function AuthRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <AuthLoading />;
+  }
+
+  if (!user) {
+    return <Redirect to="/login" />;
+  }
+
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/login" component={Login} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/change-password">
+        <AuthRoute>
+          <ChangePassword />
+        </AuthRoute>
+      </Route>
       <Route path="/whitepaper" component={Whitepaper} />
       <Route path="/how-it-works" component={HowItWorks} />
 

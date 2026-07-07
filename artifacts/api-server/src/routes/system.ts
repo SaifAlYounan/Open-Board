@@ -39,7 +39,7 @@ router.get("/organization", requireAuth, async (_req, res): Promise<void> => {
   const [org] = await db.select().from(organizationsTable).limit(1);
   res.json({
     name: org?.name || "Open Board",
-    version: process.env.APP_VERSION || "2.0.0",
+    version: process.env.APP_VERSION || "3.0.0",
   });
 });
 

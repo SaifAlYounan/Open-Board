@@ -51,6 +51,7 @@ Thumbs.db
 # Secrets & local data — never commit
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.p12

@@ -38,6 +38,7 @@ function PeopleTab() {
   const [editForm, setEditForm] = useState<{ name: string; title: string; role: string }>({ name: "", title: "", role: "member" });
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", email: "", title: "", role: "member", password: "" });
+  const [newCredential, setNewCredential] = useState<{ email: string; password: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   const list = (people as any[]) || [];
@@ -81,23 +82,34 @@ function PeopleTab() {
   }
 
   async function addPerson() {
-    if (!addForm.name || !addForm.email || !addForm.password) {
-      toast({ title: "Name, email, and password required", variant: "destructive" });
+    if (!addForm.name || !addForm.email) {
+      toast({ title: "Name and email required", variant: "destructive" });
       return;
     }
     setSaving(true);
+    // Only send a password if the Secretary typed one; otherwise the server
+    // generates a one-time password and returns it.
+    const { password, ...rest } = addForm;
+    const payload = password ? addForm : rest;
     const res = await fetch(`${API_BASE}/api/people`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(addForm),
+      body: JSON.stringify(payload),
     });
     setSaving(false);
     if (res.ok) {
+      const created = await res.json().catch(() => ({}));
       queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
-      setShowAdd(false);
       setAddForm({ name: "", email: "", title: "", role: "member", password: "" });
-      toast({ title: "Person created" });
+      if (created.oneTimePassword) {
+        // Keep the panel open and show the credential — it is shown only once.
+        setNewCredential({ email: created.email, password: created.oneTimePassword });
+      } else {
+        setShowAdd(false);
+        setNewCredential(null);
+        toast({ title: "Person created", description: "They'll set their own password on first sign-in." });
+      }
     } else {
       const err = await res.json().catch(() => ({}));
       toast({ title: err.error || "Failed to create", variant: "destructive" });
@@ -165,15 +177,42 @@ function PeopleTab() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-[#86868b] mb-1 block">Initial Password *</label>
+              <label className="text-xs text-[#86868b] mb-1 block">Initial Password</label>
               <input
                 type="text"
                 value={addForm.password}
                 onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Leave blank to auto-generate"
                 className="w-full h-9 px-3 rounded-xl border border-[#e5e5e7] text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]"
               />
+              <p className="text-[11px] text-[#86868b] mt-1">
+                Leave blank for a secure one-time password. Either way, the user must set their own on first sign-in.
+              </p>
             </div>
           </div>
+
+          {newCredential && (
+            <div className="rounded-xl border border-[#b3d9ff] bg-[#f0f7ff] p-4 space-y-2" data-testid="new-credential">
+              <p className="text-sm font-semibold text-[#1d1d1f]">One-time password — shown once</p>
+              <p className="text-xs text-[#86868b]">
+                Relay this to <span className="font-medium">{newCredential.email}</span> over a secure channel.
+                They'll be required to change it when they first sign in.
+              </p>
+              <code className="block select-all font-mono text-sm bg-white border border-[#e5e5e7] rounded-lg px-3 py-2">
+                {newCredential.password}
+              </code>
+              <div className="flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setNewCredential(null); setShowAdd(false); }}
+                  className="rounded-xl"
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 justify-end pt-2">
             <Button variant="ghost" size="sm" onClick={() => setShowAdd(false)} className="rounded-xl">Cancel</Button>
             <Button

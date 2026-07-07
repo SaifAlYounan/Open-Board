@@ -1,3 +1,4 @@
+import "./loadEnv"; // must be first — populates process.env before app/config read it
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import app, { originValidator } from "./app";

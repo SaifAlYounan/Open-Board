@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, peopleTable, boardMembershipsTable, boardsTable } from "@workspace/db";
@@ -21,8 +22,8 @@ const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const { email, password, name, role, title, avatarColor } = req.body;
-  if (!email || !password || !name || !role) {
-    res.status(400).json({ error: "Required: email, password, name, role" });
+  if (!email || !name || !role) {
+    res.status(400).json({ error: "Required: email, name, role" });
     return;
   }
 
@@ -36,21 +37,30 @@ router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void
     return;
   }
 
-  if (password.length < 12) {
+  // Password is optional: if the Secretary doesn't set one, generate a strong
+  // one-time password and return it once so it can be relayed to the new user.
+  // Either way the account is flagged to force a reset on first sign-in — the
+  // Secretary never holds a member's permanent credentials.
+  const generated = !password;
+  const initialPassword = generated ? crypto.randomBytes(15).toString("base64url") : password;
+
+  if (typeof initialPassword !== "string" || initialPassword.length < 12) {
     res.status(400).json({ error: "Password must be at least 12 characters" });
     return;
   }
 
   try {
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(initialPassword, 10);
     const [person] = await db
       .insert(peopleTable)
-      .values({ email, passwordHash, name, role, title, avatarColor })
+      .values({ email, passwordHash, name, role, title, avatarColor, mustResetPassword: true })
       .returning();
 
     await audit(req, "person_created", "person", person.id, { email: person.email, role: person.role });
     const { passwordHash: _, ...safe } = person;
-    res.status(201).json(safe);
+    // Only surface the password when we generated it (the Secretary already
+    // knows one they supplied themselves).
+    res.status(201).json(generated ? { ...safe, oneTimePassword: initialPassword } : safe);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("unique") || msg.includes("duplicate")) {

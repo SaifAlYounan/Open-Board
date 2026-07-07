@@ -1,0 +1,29 @@
+# PostgreSQL 16 for Open Board local development.
+#
+#   docker compose up -d db      # start Postgres in the background
+#   cp .env.example .env         # then set SESSION_SECRET
+#   pnpm install
+#   pnpm db:push                 # create the schema
+#   pnpm dev                     # start the API (auto-seeds) + the frontend
+#
+# The default credentials below match DATABASE_URL in .env.example.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openboard
+      POSTGRES_PASSWORD: openboard
+      POSTGRES_DB: openboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - openboard-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  openboard-db:
