@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, unique, index } from "drizzle-orm/pg-core";
 import { boardsTable } from "./boards";
 import { peopleTable } from "./people";
 
@@ -9,6 +9,9 @@ export const boardMembershipsTable = pgTable("board_memberships", {
   roleInBoard: text("role_in_board").default("member"),
 }, (t) => ({
   uniq: unique().on(t.boardId, t.personId),
+  // The (boardId, personId) unique index serves boardId-prefixed lookups;
+  // this covers the frequent "boards for a person" filter.
+  personIdx: index("board_memberships_person_id_idx").on(t.personId),
 }));
 
 export type BoardMembership = typeof boardMembershipsTable.$inferSelect;

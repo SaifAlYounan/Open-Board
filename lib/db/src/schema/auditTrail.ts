@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { peopleTable } from "./people";
 
 export const auditTrailTable = pgTable("audit_trail", {
@@ -12,4 +12,7 @@ export const auditTrailTable = pgTable("audit_trail", {
   // SHA-256 over the previous audit row — tamper-evident hash chain.
   prevHash: text("prev_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  // Every audit write reads the latest row (ORDER BY created_at DESC LIMIT 1).
+  createdAtIdx: index("audit_trail_created_at_idx").on(t.createdAt),
+}));

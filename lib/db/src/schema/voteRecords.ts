@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, unique, index } from "drizzle-orm/pg-core";
 import { votesTable } from "./votes";
 import { peopleTable } from "./people";
 
@@ -12,6 +12,7 @@ export const voteRecordsTable = pgTable("vote_records", {
   votedAt: timestamp("voted_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   uniq: unique().on(t.voteId, t.personId),
+  voteIdx: index("vote_records_vote_id_idx").on(t.voteId),
 }));
 
 export type VoteRecord = typeof voteRecordsTable.$inferSelect;

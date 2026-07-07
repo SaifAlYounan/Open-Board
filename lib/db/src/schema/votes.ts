@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import { boardsTable } from "./boards";
 import { meetingsTable } from "./meetings";
 
@@ -16,6 +16,8 @@ export const votesTable = pgTable("votes", {
   secret: boolean("secret").default(false),
   closedAt: timestamp("closed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  boardIdx: index("votes_board_id_idx").on(t.boardId),
+}));
 
 export type Vote = typeof votesTable.$inferSelect;

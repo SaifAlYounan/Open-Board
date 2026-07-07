@@ -4,6 +4,7 @@ import { StatCard } from '@/components/StatCard';
 import { AiBanner } from '@/components/AiBanner';
 import { useAuth } from '@/lib/auth';
 import { useListTasks, useGetDashboardSummary, useListMinutes } from '@workspace/api-client-react';
+import { QueryState } from '@/components/QueryState';
 import { CheckSquare, AlertTriangle, ArrowRight, Clock, FileText } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, { color: string; label: string }> = {
@@ -18,8 +19,8 @@ const STATUS_COLORS: Record<string, { color: string; label: string }> = {
 export default function ManagementDashboard() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const { data: summary } = useGetDashboardSummary();
-  const { data: tasks } = useListTasks({ assigneeId: user?.id });
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetDashboardSummary();
+  const { data: tasks, isError: tasksError, refetch: refetchTasks } = useListTasks({ assigneeId: user?.id });
   const { data: minutesList } = useListMinutes({});
 
   const s = summary as any;
@@ -38,11 +39,15 @@ export default function ManagementDashboard() {
 
         <AiBanner />
 
-        <div className="grid grid-cols-3 gap-4">
-          <StatCard label="Open Tasks" value={taskList.length} color="#0071e3" testId="stat-open-tasks" />
-          <StatCard label="Overdue" value={overdueTasks.length} color="#ff3b30" testId="stat-overdue" />
-          <StatCard label="Completed" value={(tasks as any[])?.filter((t: any) => t.status === 'done').length || 0} color="#34c759" testId="stat-completed" />
-        </div>
+        {summaryError || tasksError ? (
+          <QueryState isError onRetry={() => { refetchSummary(); refetchTasks(); }} label="your dashboard" />
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <StatCard label="Open Tasks" value={taskList.length} color="#0071e3" testId="stat-open-tasks" />
+            <StatCard label="Overdue" value={overdueTasks.length} color="#ff3b30" testId="stat-overdue" />
+            <StatCard label="Completed" value={(tasks as any[])?.filter((t: any) => t.status === 'done').length || 0} color="#34c759" testId="stat-completed" />
+          </div>
+        )}
 
         {/* My Tasks */}
         <div>

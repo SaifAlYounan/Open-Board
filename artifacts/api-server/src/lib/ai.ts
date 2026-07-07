@@ -176,6 +176,24 @@ export function getCurrentModel(): string {
   return process.env.AI_MODEL || "claude-opus-4-8";
 }
 
+// Cheaper model for the low-stakes modes (dashboard blurbs, prose search,
+// evidence pre-screen). Opus + extended thinking is wasted there.
+function getLightModel(): string {
+  return process.env.AI_LIGHT_MODEL || "claude-haiku-4-5-20251001";
+}
+
+// CLASSIFY and COMMAND drive governance actions and need the strong model with
+// reasoning. The rest are advisory and run on the light model without thinking.
+const HEAVY_MODES = new Set(["CLASSIFY", "COMMAND"]);
+
+function modelForMode(mode: string): string {
+  return HEAVY_MODES.has(mode) ? getCurrentModel() : getLightModel();
+}
+
+function thinkingForMode(mode: string): { type: "adaptive" } | undefined {
+  return HEAVY_MODES.has(mode) ? { type: "adaptive" } : undefined;
+}
+
 function getClient(): Anthropic | null {
   const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
@@ -254,9 +272,9 @@ export async function callAI(
     if (!schema) {
       // SEARCH mode returns prose with inline entity links — no JSON contract.
       const response = await client.messages.create({
-        model: getCurrentModel(),
+        model: modelForMode(mode),
         max_tokens: TOKEN_LIMITS[mode] || 4000,
-        thinking: { type: "adaptive" },
+        ...(thinkingForMode(mode) ? { thinking: thinkingForMode(mode)! } : {}),
         system,
         messages: [{ role: "user", content: userContent }],
       });
@@ -270,9 +288,9 @@ export async function callAI(
     // Structured outputs: the response is schema-validated by the API + SDK —
     // no markdown-fence stripping, no JSON.parse, no malformed shapes.
     const response = await client.messages.parse({
-      model: getCurrentModel(),
+      model: modelForMode(mode),
       max_tokens: TOKEN_LIMITS[mode] || 4000,
-      thinking: { type: "adaptive" },
+      ...(thinkingForMode(mode) ? { thinking: thinkingForMode(mode)! } : {}),
       system,
       messages: [{ role: "user", content: userContent }],
       output_config: { format: zodOutputFormat(schema) },

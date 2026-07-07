@@ -57,10 +57,16 @@ export function DocumentUploadPanel() {
         } else if (attempts >= maxAttempts) {
           stopPolling();
           setClassifying(false);
+          // Don't leave the panel silent — the secretary is told to check
+          // "Pending AI Actions", so say the analysis is still running.
+          setError("The document is still being analyzed. Check the Documents page shortly, or retry classification.");
+          setLastDocId(docId);
         }
       } catch {
         stopPolling();
         setClassifying(false);
+        setError("Couldn't check the analysis status. You can retry classification from the Documents page.");
+        setLastDocId(docId);
       }
     }, 3000);
   };

@@ -263,6 +263,16 @@ export default function SecretaryVoteDetail() {
   };
 
   const generateCertificatePDF = (cert: any) => {
+    // This HTML is written into a new window, so every interpolated string must
+    // be HTML-escaped — a crafted name/comment/title would otherwise render as
+    // live markup in the printed certificate.
+    const esc = (v: unknown): string =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     const records = cert.voteRecords || [];
     const approvals = records.filter((r: any) => r.decision?.startsWith('approved')).length;
     const against = records.filter((r: any) => r.decision?.startsWith('not_approved') || r.decision?.startsWith('rejected')).length;
@@ -307,7 +317,7 @@ export default function SecretaryVoteDetail() {
   <div class="header">
     <div class="logo">Meridian Energy Group</div>
     <h1>Resolution Certificate</h1>
-    <div class="subtitle">${cert.boardName}</div>
+    <div class="subtitle">${esc(cert.boardName)}</div>
     <div class="badge">${cert.status?.toUpperCase()}</div>
   </div>
 
@@ -323,12 +333,12 @@ export default function SecretaryVoteDetail() {
 
   <div class="section">
     <div class="section-title">Resolution Title</div>
-    <p style="font-size:16px;font-weight:600;">${cert.title}</p>
+    <p style="font-size:16px;font-weight:600;">${esc(cert.title)}</p>
   </div>
 
   <div class="section">
     <div class="section-title">Resolution Text</div>
-    <div class="resolution-text">${cert.resolutionText}</div>
+    <div class="resolution-text">${esc(cert.resolutionText)}</div>
   </div>
 
   <div class="section">
@@ -338,7 +348,7 @@ export default function SecretaryVoteDetail() {
       <div class="tally-item"><div class="num" style="color:#ff3b30">${against}</div><div class="lbl">Against</div></div>
       <div class="tally-item"><div class="num">${total}</div><div class="lbl">Votes Cast</div></div>
     </div>
-    ${cert.approvalRule?.summaryText ? `<p style="text-align:center;font-size:13px;color:#86868b;">${cert.approvalRule.summaryText}</p>` : ''}
+    ${cert.approvalRule?.summaryText ? `<p style="text-align:center;font-size:13px;color:#86868b;">${esc(cert.approvalRule.summaryText)}</p>` : ''}
   </div>
 
   <div class="section">
@@ -353,10 +363,10 @@ export default function SecretaryVoteDetail() {
       <tbody>
         ${(cert.voteRecords || []).map((r: any) => `
           <tr>
-            <td>${r.person?.name || 'Unknown'}</td>
-            <td class="${r.decision.startsWith('approved') ? 'approved' : 'rejected'}">${r.decision.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</td>
+            <td>${esc(r.person?.name || 'Unknown')}</td>
+            <td class="${r.decision.startsWith('approved') ? 'approved' : 'rejected'}">${esc(r.decision.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))}</td>
             <td>${r.votedAt ? new Date(r.votedAt).toLocaleString('en-AU') : '—'}</td>
-            <td style="font-style:italic;color:#86868b;">${r.comment || ''}</td>
+            <td style="font-style:italic;color:#86868b;">${esc(r.comment || '')}</td>
           </tr>
         `).join('')}
       </tbody>

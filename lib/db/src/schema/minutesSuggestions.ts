@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, index } from "drizzle-orm/pg-core";
 import { minutesTable } from "./minutes";
 import { peopleTable } from "./people";
 
@@ -12,6 +12,8 @@ export const minutesSuggestionsTable = pgTable("minutes_suggestions", {
   status: text("status", { enum: ["pending", "resolved"] }).default("pending"),
   color: text("color").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  minutesIdx: index("minutes_suggestions_minutes_id_idx").on(t.minutesId),
+}));
 
 export type MinutesSuggestion = typeof minutesSuggestionsTable.$inferSelect;

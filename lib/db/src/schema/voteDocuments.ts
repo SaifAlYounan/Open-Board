@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { votesTable } from "./votes";
 import { peopleTable } from "./people";
 
@@ -12,6 +12,8 @@ export const voteDocumentsTable = pgTable("vote_documents", {
   mimeType: text("mime_type").default("application/pdf"),
   uploadedBy: uuid("uploaded_by").references(() => peopleTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  voteIdx: index("vote_documents_vote_id_idx").on(t.voteId),
+}));
 
 export type VoteDocument = typeof voteDocumentsTable.$inferSelect;

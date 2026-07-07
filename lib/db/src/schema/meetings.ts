@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, index } from "drizzle-orm/pg-core";
 import { boardsTable } from "./boards";
 
 export const meetingsTable = pgTable("meetings", {
@@ -9,6 +9,8 @@ export const meetingsTable = pgTable("meetings", {
   location: text("location"),
   status: text("status", { enum: ["scheduled", "concluded"] }).default("scheduled"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  boardIdx: index("meetings_board_id_idx").on(t.boardId),
+}));
 
 export type Meeting = typeof meetingsTable.$inferSelect;

@@ -1,7 +1,9 @@
-import { useState } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { StatCard } from '@/components/StatCard';
 import { AiBanner } from '@/components/AiBanner';
+import { QueryState } from '@/components/QueryState';
+import { useAuth } from '@/lib/auth';
+import { entityHref } from '@/lib/utils';
 import {
   useGetDashboardSummary, useListBoards, useGetDashboardAiInsights,
 } from '@workspace/api-client-react';
@@ -13,9 +15,10 @@ const INSIGHT_ICONS: Record<string, React.ComponentType<{ size?: number; classNa
 };
 
 export default function BoardMemberDashboard() {
-  const { data: summary } = useGetDashboardSummary();
-  const { data: boards } = useListBoards();
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetDashboardSummary();
+  const { data: boards, isLoading: boardsLoading, isError: boardsError, refetch: refetchBoards } = useListBoards();
   const { data: insights, isLoading: insightsLoading } = useGetDashboardAiInsights();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
   const s = summary as any;
   const boardList = (boards as any[]) || [];
@@ -32,13 +35,17 @@ export default function BoardMemberDashboard() {
 
         <AiBanner />
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-4">
-          <StatCard label="Pending Votes" value={s?.pendingVotesCount ?? 0} color="#ff3b30" testId="stat-pending-votes" />
-          <StatCard label="Minutes to Sign" value={s?.minutesToSignCount ?? 0} color="#0071e3" testId="stat-minutes-sign" />
-          <StatCard label="Minutes in Review" value={s?.minutesInReviewCount ?? 0} color="#ff9500" testId="stat-minutes-review" />
-          <StatCard label="Next Meeting" value={s?.nextMeeting?.title || 'None scheduled'} color="#34c759" testId="stat-next-meeting" />
-        </div>
+        {/* Stats — surface a fetch failure instead of showing zeros that read as "nothing to do" */}
+        {summaryError ? (
+          <QueryState isError onRetry={() => refetchSummary()} label="your dashboard" />
+        ) : (
+          <div className="grid grid-cols-4 gap-4">
+            <StatCard label="Pending Votes" value={s?.pendingVotesCount ?? 0} color="#ff3b30" testId="stat-pending-votes" />
+            <StatCard label="Minutes to Sign" value={s?.minutesToSignCount ?? 0} color="#0071e3" testId="stat-minutes-sign" />
+            <StatCard label="Minutes in Review" value={s?.minutesInReviewCount ?? 0} color="#ff9500" testId="stat-minutes-review" />
+            <StatCard label="Next Meeting" value={s?.nextMeeting?.title || 'None scheduled'} color="#34c759" testId="stat-next-meeting" />
+          </div>
+        )}
 
         {/* AI Insights */}
         {insightsLoading && (
@@ -66,9 +73,12 @@ export default function BoardMemberDashboard() {
                       <div className="text-sm font-medium text-[#1d1d1f]">{insight.title}</div>
                       <div className="text-xs text-[#86868b] mt-0.5">{insight.detail}</div>
                     </div>
-                    {insight.actionLink?.entityId && (
+                    {insight.actionLink?.entityId && entityHref(insight.actionLink.entityType, insight.actionLink.entityId, user?.role) && (
                       <button
-                        onClick={() => setLocation(`/board/${insight.actionLink.entityType}/${insight.actionLink.entityId}`)}
+                        onClick={() => {
+                          const href = entityHref(insight.actionLink.entityType, insight.actionLink.entityId, user?.role);
+                          if (href) setLocation(href);
+                        }}
                         className="text-[#0071e3] flex-shrink-0"
                       >
                         <ArrowRight size={14} />
@@ -84,6 +94,16 @@ export default function BoardMemberDashboard() {
         {/* Board Room Cards */}
         <div>
           <h2 className="font-semibold text-[#1d1d1f] mb-4">My Boards</h2>
+          {(boardsLoading || boardsError) && (
+            <QueryState isLoading={boardsLoading} isError={boardsError} onRetry={() => refetchBoards()} label="your boards" />
+          )}
+          {!boardsLoading && !boardsError && boardList.length === 0 && (
+            <div className="bg-white rounded-2xl border border-[#e5e5e7] p-8 text-center" data-testid="boards-empty">
+              <Users size={20} className="mx-auto mb-3 text-[#86868b]" />
+              <p className="text-sm text-[#1d1d1f] font-medium">You're not on any boards yet.</p>
+              <p className="text-xs text-[#86868b] mt-1">Your Board Secretary adds you to the boards you serve on.</p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             {boardList.map((board: any) => (
               <button

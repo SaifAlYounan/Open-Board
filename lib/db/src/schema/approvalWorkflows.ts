@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { boardsTable } from "./boards";
 import { peopleTable } from "./people";
 import { documentsTable } from "./documents";
@@ -29,7 +29,10 @@ export const workflowStagesTable = pgTable("workflow_stages", {
   status: text("status", { enum: ["pending", "active", "approved", "rejected", "cancelled"] }).notNull().default("pending"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  workflowIdx: index("workflow_stages_workflow_id_idx").on(t.workflowId),
+  voteIdx: index("workflow_stages_vote_id_idx").on(t.voteId),
+}));
 
 export type ApprovalWorkflow = typeof approvalWorkflowsTable.$inferSelect;
 export type WorkflowStage = typeof workflowStagesTable.$inferSelect;

@@ -3,12 +3,13 @@ import { TopNav } from '@/components/TopNav';
 import { StatCard } from '@/components/StatCard';
 import { AiBanner } from '@/components/AiBanner';
 import { useListBoards, useGetDashboardSummary } from '@workspace/api-client-react';
+import { QueryState } from '@/components/QueryState';
 import { ArrowRight } from 'lucide-react';
 
 export default function ObserverDashboard() {
   const [, setLocation] = useLocation();
   const { data: boards } = useListBoards();
-  const { data: summary } = useGetDashboardSummary();
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetDashboardSummary();
   const s = summary as any;
   const boardList = (boards as any[]) || [];
 
@@ -23,11 +24,15 @@ export default function ObserverDashboard() {
 
         <AiBanner />
 
-        <div className="grid grid-cols-3 gap-4">
-          <StatCard label="Minutes in Review" value={s?.minutesInReviewCount ?? 0} color="#ff9500" testId="stat-minutes-review" />
-          <StatCard label="Open Votes" value={s?.openVotesCount ?? 0} color="#0071e3" testId="stat-open-votes" />
-          <StatCard label="Next Meeting" value={s?.nextMeeting?.title || 'None'} color="#34c759" testId="stat-next-meeting" />
-        </div>
+        {summaryError ? (
+          <QueryState isError onRetry={() => refetchSummary()} label="your dashboard" />
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <StatCard label="Minutes in Review" value={s?.minutesInReviewCount ?? 0} color="#ff9500" testId="stat-minutes-review" />
+            <StatCard label="Open Votes" value={s?.openVotesCount ?? 0} color="#0071e3" testId="stat-open-votes" />
+            <StatCard label="Next Meeting" value={s?.nextMeeting?.title || 'None'} color="#34c759" testId="stat-next-meeting" />
+          </div>
+        )}
 
         <div>
           <h2 className="font-semibold text-[#1d1d1f] mb-4">Boards</h2>

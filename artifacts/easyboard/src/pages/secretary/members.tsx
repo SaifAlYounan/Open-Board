@@ -1,6 +1,8 @@
 import { SecretarySidebar } from '@/components/SecretarySidebar';
 import { useListPeople } from '@workspace/api-client-react';
 import { getAvatarInitials } from '@/lib/auth';
+import { useLocation } from 'wouter';
+import { Settings2 } from 'lucide-react';
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   admin: { label: 'Secretary', color: '#5856d6' },
@@ -11,15 +13,25 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 
 export default function SecretaryMembers() {
   const { data: people, isLoading } = useListPeople();
+  const [, setLocation] = useLocation();
 
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
       <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
-          <div>
-            <h1 className="text-2xl font-semibold text-[#1d1d1f]">Members</h1>
-            <p className="text-sm text-[#86868b] mt-1">All people with access to Open Board</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-[#1d1d1f]">Members</h1>
+              <p className="text-sm text-[#86868b] mt-1">All people with access to Open Board. Add people, set roles, and manage board memberships in the Admin Panel.</p>
+            </div>
+            <button
+              onClick={() => setLocation('/secretary/admin')}
+              className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-[#0071e3] hover:bg-[#0077ed] text-white text-sm font-medium rounded-xl"
+              data-testid="button-manage-people"
+            >
+              <Settings2 size={14} /> Manage in Admin Panel
+            </button>
           </div>
 
           {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading...</div>}

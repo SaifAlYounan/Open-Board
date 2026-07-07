@@ -5,10 +5,30 @@ import { db, peopleTable, boardMembershipsTable, boardsTable } from "@workspace/
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { audit } from "../lib/auditLog";
+import { sanitizeText } from "../lib/sanitize";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
+
+router.param("id", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid id format" });
+    return;
+  }
+  next();
+});
+
+// True if `personId` is the ONLY remaining active admin — used to block actions
+// that would lock the organization out of its own administration.
+async function isLastActiveAdmin(personId: string): Promise<boolean> {
+  const admins = await db
+    .select({ id: peopleTable.id })
+    .from(peopleTable)
+    .where(and(eq(peopleTable.role, "admin"), eq(peopleTable.active, true)));
+  return admins.length === 1 && admins[0].id === personId;
+}
 
 router.get("/people", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const { limit, offset } = parsePagination(req.query);
@@ -53,7 +73,7 @@ router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void
     const passwordHash = await bcrypt.hash(initialPassword, 10);
     const [person] = await db
       .insert(peopleTable)
-      .values({ email, passwordHash, name, role, title, avatarColor, mustResetPassword: true })
+      .values({ email, passwordHash, name: sanitizeText(name), role, title: title ? sanitizeText(title) : title, avatarColor, mustResetPassword: true })
       .returning();
 
     await audit(req, "person_created", "person", person.id, { email: person.email, role: person.role });
@@ -115,9 +135,18 @@ router.patch("/people/:id", requireAuth, requireAdmin, async (req, res): Promise
     res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
     return;
   }
+  // Don't let the last active admin be demoted or deactivated — that would lock
+  // the organization out of administration entirely.
+  const demoting = role != null && role !== "admin";
+  const deactivating = active === false;
+  if ((demoting || deactivating) && (await isLastActiveAdmin(id))) {
+    res.status(409).json({ error: "Cannot demote or deactivate the last active administrator." });
+    return;
+  }
+
   const updates: Record<string, unknown> = {};
-  if (name != null) updates.name = name;
-  if (title != null) updates.title = title;
+  if (name != null) updates.name = sanitizeText(name);
+  if (title != null) updates.title = sanitizeText(title);
   if (avatarColor != null) updates.avatarColor = avatarColor;
   if (role != null) updates.role = role;
   if (active != null) {
@@ -138,6 +167,10 @@ router.patch("/people/:id", requireAuth, requireAdmin, async (req, res): Promise
 
 router.delete("/people/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (await isLastActiveAdmin(id)) {
+    res.status(409).json({ error: "Cannot delete the last active administrator." });
+    return;
+  }
   await db.delete(peopleTable).where(eq(peopleTable.id, id));
   await audit(req, "person_deleted", "person", id, {});
   res.sendStatus(204);

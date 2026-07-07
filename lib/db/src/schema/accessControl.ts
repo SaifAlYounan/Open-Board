@@ -10,4 +10,5 @@ export const accessControlTable = pgTable("access_control", {
 }, (t) => ({
   uniq: unique().on(t.entityType, t.entityId, t.personId),
   entityLookup: index("access_control_entity_lookup").on(t.entityType, t.entityId),
+  personIdx: index("access_control_person_id_idx").on(t.personId),
 }));
