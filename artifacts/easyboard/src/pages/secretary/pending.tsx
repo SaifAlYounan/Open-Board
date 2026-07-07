@@ -8,6 +8,7 @@ import {
   useListPeople,
   useListBoards,
   getListPendingActionsQueryKey,
+  getGetDashboardSummaryQueryKey,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -18,6 +19,7 @@ const ACTION_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   create_vote:       { label: 'Create Vote',        color: '#0071e3' },
   create_meeting:    { label: 'Create Meeting',     color: '#34c759' },
   create_task:       { label: 'Create Task',        color: '#ff9500' },
+  create_workflow:   { label: 'Create Workflow',    color: '#5856d6' },
   close_task:        { label: 'Close Task',         color: '#34c759' },
   attach_to_meeting: { label: 'Attach Document',    color: '#86868b' },
   flag_confidential: { label: 'Flag Confidential',  color: '#ff3b30' },
@@ -74,10 +76,12 @@ export default function PendingActions() {
       onSuccess: () => {
         toast({ title: 'Action approved', description: 'The entity has been created.' });
         queryClient.invalidateQueries({ queryKey: getListPendingActionsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
         setEditingId(null);
       },
       onError: (err: any) => {
-        toast({ title: 'Approval failed', description: err.data?.error || 'Please try again.', variant: 'destructive' });
+        // 422 carries a specific reason (unresolved assignee/board, malformed data).
+        toast({ title: 'Approval failed', description: err.data?.error || err.message || 'Please try again.', variant: 'destructive' });
       }
     });
   };
@@ -93,6 +97,7 @@ export default function PendingActions() {
       onSuccess: () => {
         toast({ title: 'Action rejected' });
         queryClient.invalidateQueries({ queryKey: getListPendingActionsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
       }
     });
   };
@@ -233,7 +238,7 @@ export default function PendingActions() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-8 space-y-6">
           <div>
             <h1 className="text-2xl font-semibold text-[#1d1d1f]">Pending AI Actions</h1>
@@ -279,7 +284,14 @@ export default function PendingActions() {
                   {action.documentTitle && (
                     <div className="flex items-center gap-2 text-xs text-[#86868b]">
                       <FileText size={12} />
-                      Source: <span className="font-medium text-[#1d1d1f]">{action.documentTitle}</span>
+                      Source:{' '}
+                      {action.documentId ? (
+                        <a href={`/api/documents/${action.documentId}/download`} target="_blank" rel="noopener noreferrer" className="font-medium text-[#0071e3] hover:underline">
+                          {action.documentTitle}
+                        </a>
+                      ) : (
+                        <span className="font-medium text-[#1d1d1f]">{action.documentTitle}</span>
+                      )}
                     </div>
                   )}
 
@@ -287,6 +299,13 @@ export default function PendingActions() {
                     <span className="font-medium">AI says: </span>
                     {action.aiDescription || 'No description provided'}
                   </div>
+
+                  {action.aiSourceQuote && (
+                    <blockquote className="border-l-2 border-[#0071e3]/40 pl-3 text-sm italic text-[#6e6e73]">
+                      “{action.aiSourceQuote}”
+                      <span className="block not-italic text-xs text-[#86868b] mt-1">— from the source document</span>
+                    </blockquote>
+                  )}
 
                   {/* Minutes meeting picker — always visible for create_minutes */}
                   {isCreateMinutes && !isEditing && (

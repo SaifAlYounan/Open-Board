@@ -83,12 +83,12 @@ function MemberRow({ record, member, isRecused, isRequired }: { record?: any; me
 
   const isApproved = record.decision.startsWith('approved');
   const color = isApproved ? '#34c759' : '#ff3b30';
-  const decisionLabel = {
+  const decisionLabel = ({
     approved: 'Approved',
     approved_with_comments: 'Approved with Comments',
     not_approved: 'Not Approved',
     not_approved_with_comments: 'Not Approved with Comments',
-  }[record.decision] || record.decision;
+  } as Record<string, string>)[record.decision] || record.decision;
 
   return (
     <div className="py-2.5 border-b border-[#f5f5f7] last:border-0">
@@ -126,7 +126,6 @@ export default function SecretaryVoteDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [showClose, setShowClose] = useState(false);
-  const [closeStatus, setCloseStatus] = useState<'approved' | 'rejected' | 'lapsed'>('lapsed');
   const [showExtend, setShowExtend] = useState(false);
   const [newDeadline, setNewDeadline] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -139,11 +138,12 @@ export default function SecretaryVoteDetail() {
   const voteData = vote as any;
 
   const handleClose = () => {
+    // Manual close only lapses the vote — approved/rejected come from the ballot.
     updateVote.mutate(
-      { id, data: { status: closeStatus } },
+      { id, data: { status: 'lapsed' } },
       {
         onSuccess: () => {
-          toast({ title: 'Vote closed', description: `Status set to ${closeStatus}` });
+          toast({ title: 'Vote lapsed', description: 'Closed with no result (deadline passed).' });
           queryClient.invalidateQueries({ queryKey: getGetVoteQueryKey(id) });
           queryClient.invalidateQueries({ queryKey: getListVotesQueryKey() });
           setShowClose(false);
@@ -263,8 +263,10 @@ export default function SecretaryVoteDetail() {
   };
 
   const generateCertificatePDF = (cert: any) => {
-    const approvals = cert.voteRecords?.filter((r: any) => r.decision.startsWith('approved')).length || 0;
-    const total = cert.voteRecords?.length || 0;
+    const records = cert.voteRecords || [];
+    const approvals = records.filter((r: any) => r.decision?.startsWith('approved')).length;
+    const against = records.filter((r: any) => r.decision?.startsWith('not_approved') || r.decision?.startsWith('rejected')).length;
+    const total = records.length;
     const isSecret = cert.secret === true;
     const statusColor = { approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b', open: '#0071e3' }[cert.status as string] || '#86868b';
 
@@ -333,8 +335,8 @@ export default function SecretaryVoteDetail() {
     <div class="section-title">Vote Tally</div>
     <div class="tally">
       <div class="tally-item"><div class="num" style="color:#34c759">${approvals}</div><div class="lbl">For</div></div>
-      <div class="tally-item"><div class="num" style="color:#ff3b30">${total - approvals}</div><div class="lbl">Against</div></div>
-      <div class="tally-item"><div class="num">${total}</div><div class="lbl">Total Votes</div></div>
+      <div class="tally-item"><div class="num" style="color:#ff3b30">${against}</div><div class="lbl">Against</div></div>
+      <div class="tally-item"><div class="num">${total}</div><div class="lbl">Votes Cast</div></div>
     </div>
     ${cert.approvalRule?.summaryText ? `<p style="text-align:center;font-size:13px;color:#86868b;">${cert.approvalRule.summaryText}</p>` : ''}
   </div>
@@ -389,7 +391,7 @@ export default function SecretaryVoteDetail() {
     return (
       <div className="flex h-screen bg-[#f5f5f7]">
         <SecretarySidebar />
-        <main className="flex-1 ml-64 flex items-center justify-center">
+        <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center">
           <p className="text-[#86868b] text-sm">Loading...</p>
         </main>
       </div>
@@ -400,7 +402,7 @@ export default function SecretaryVoteDetail() {
     return (
       <div className="flex h-screen bg-[#f5f5f7]">
         <SecretarySidebar />
-        <main className="flex-1 ml-64 flex items-center justify-center">
+        <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center">
           <p className="text-[#86868b] text-sm">Vote not found.</p>
         </main>
       </div>
@@ -420,7 +422,7 @@ export default function SecretaryVoteDetail() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
 
           {/* Header */}
@@ -543,10 +545,10 @@ export default function SecretaryVoteDetail() {
                 </button>
                 <button
                   onClick={() => setShowClose(!showClose)}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#ff3b30] text-white rounded-xl text-xs font-medium hover:opacity-90 transition-opacity"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[#ff9500] text-white rounded-xl text-xs font-medium hover:opacity-90 transition-opacity"
                   data-testid="btn-close-vote"
                 >
-                  <XCircle size={14} /> Close Vote
+                  <Clock size={14} /> Lapse Vote
                 </button>
               </>
             )}
@@ -611,37 +613,28 @@ export default function SecretaryVoteDetail() {
             </div>
           )}
 
-          {/* Close Vote Panel */}
+          {/* Close Vote Panel — a vote's approved/rejected OUTCOME is determined by the
+              votes cast (auto-evaluated when every eligible member has voted), never set
+              by the Secretary. The only manual close is "lapse" (deadline passed, no result). */}
           {showClose && (
-            <div className="bg-white rounded-2xl border border-[#ff3b30]/30 p-5">
+            <div className="bg-white rounded-2xl border border-[#ff9500]/40 p-5">
               <h3 className="font-semibold text-[#1d1d1f] mb-3 flex items-center gap-2">
-                <XCircle size={16} className="text-[#ff3b30]" /> Close Vote
+                <Clock size={16} className="text-[#ff9500]" /> Lapse Vote
               </h3>
               <p className="text-xs text-[#86868b] mb-3">
-                Force-close this vote and set the final outcome. A SHA-256 certificate hash will be generated.
+                Close this vote with no result because its deadline has passed. A SHA-256 certificate
+                hash will be generated. An <span className="font-medium">approved</span> or
+                <span className="font-medium"> rejected</span> outcome can only come from the votes cast,
+                not set manually.
               </p>
               <div className="flex items-center gap-3 flex-wrap">
-                {(['approved', 'rejected', 'lapsed'] as const).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setCloseStatus(s)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-medium border-2 transition-colors capitalize"
-                    style={{
-                      borderColor: closeStatus === s ? (s === 'approved' ? '#34c759' : s === 'rejected' ? '#ff3b30' : '#86868b') : '#e5e5e7',
-                      backgroundColor: closeStatus === s ? (s === 'approved' ? '#f0fdf4' : s === 'rejected' ? '#fff5f5' : '#f5f5f7') : 'white',
-                      color: closeStatus === s ? (s === 'approved' ? '#34c759' : s === 'rejected' ? '#ff3b30' : '#86868b') : '#86868b',
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
                 <button
                   onClick={handleClose}
                   disabled={updateVote.isPending}
-                  className="px-4 py-2 bg-[#ff3b30] text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  className="px-4 py-2 bg-[#ff9500] text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
                   data-testid="btn-confirm-close"
                 >
-                  {updateVote.isPending ? 'Closing...' : 'Confirm Close'}
+                  {updateVote.isPending ? 'Lapsing...' : 'Lapse This Vote'}
                 </button>
                 <button onClick={() => setShowClose(false)} className="p-2 text-[#86868b] hover:text-[#1d1d1f]">
                   <X size={16} />

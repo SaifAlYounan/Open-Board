@@ -16,15 +16,25 @@ import { sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
 import { pick } from "../lib/pick";
 import { callAI, REVIEW_PROMPT } from "../lib/ai";
+import { extractText, UPLOADS_DIR } from "../lib/extractText";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
 
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
-const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({
+  dest: UPLOADS_DIR,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(file.mimetype) || [".pdf", ".docx", ".txt"].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only PDF, DOCX, and TXT files are allowed"));
+    }
+  },
+});
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
@@ -267,15 +277,14 @@ router.post("/tasks/:id/evidence", requireAuth, writeLimiter, upload.single("fil
   await db.update(tasksTable).set({ status: "evidence_submitted" }).where(eq(tasksTable.id, taskId));
   audit(req, "task_evidence_uploaded", "task", taskId, { filename: originalname, taskTitle: task.title });
 
-  // AI Review (async)
+  // AI Review — evidence goes through real text extraction (PDF/DOCX/TXT),
+  // never a raw-bytes read that feeds the model binary garbage.
   if (process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) {
     try {
-      let evidenceText = "";
-      try {
-        evidenceText = fs.readFileSync(filePath, "utf-8").slice(0, 8000);
-      } catch {
-        evidenceText = `[File: ${originalname}, Size: ${size} bytes]`;
-      }
+      const extraction = await extractText(filePath, req.file.mimetype || "", originalname);
+      const evidenceText = extraction.ok
+        ? extraction.text.slice(0, 12000)
+        : `[Could not read file contents: ${extraction.error} File: ${originalname}, Size: ${size} bytes. Judge only on the metadata available and lean towards rejection with an explanation.]`;
 
       const reviewContent = `TASK_DETAILS:
 Task: ${task.title}

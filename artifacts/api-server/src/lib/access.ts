@@ -1,21 +1,24 @@
 import { db, accessControlTable, boardMembershipsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import type { DbClient } from "./numbering";
 
 /**
  * Grant default access to an entity for all relevant people.
  * Called whenever a new entity is created (meeting, vote, minutes, task, document).
+ * Pass a transaction handle as `dbc` to make the grant atomic with entity creation.
  */
 export async function grantDefaultAccess(
   entityType: string,
   entityId: string,
   boardId: string | null | undefined,
-  additionalPersonIds: string[] = []
+  additionalPersonIds: string[] = [],
+  dbc: DbClient = db
 ): Promise<void> {
   const personIds = new Set<string>(additionalPersonIds);
 
   if (boardId) {
     // Get all board members and observers
-    const members = await db
+    const members = await dbc
       .select()
       .from(boardMembershipsTable)
       .where(eq(boardMembershipsTable.boardId, boardId));
@@ -26,7 +29,7 @@ export async function grantDefaultAccess(
   }
 
   for (const personId of personIds) {
-    await db
+    await dbc
       .insert(accessControlTable)
       .values({ entityType, entityId, personId, hasAccess: true })
       .onConflictDoNothing();

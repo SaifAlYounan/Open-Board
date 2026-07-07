@@ -65,21 +65,21 @@ export default function SecretaryTaskDetail() {
   if (isLoading) return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 flex items-center justify-center text-[#86868b] text-sm">Loading task...</main>
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center text-[#86868b] text-sm">Loading task...</main>
     </div>
   );
 
   if (!t) return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 flex items-center justify-center text-[#86868b] text-sm">Task not found.</main>
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center text-[#86868b] text-sm">Task not found.</main>
     </div>
   );
 
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-2xl mx-auto p-8 space-y-6">
           <button onClick={() => setLocation('/secretary/tasks')}
             className="flex items-center gap-2 text-sm text-[#86868b] hover:text-[#1d1d1f] transition-colors">

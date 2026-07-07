@@ -21,6 +21,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess, hasAccess } from "../lib/access";
@@ -194,24 +195,46 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
     return;
   }
 
-  const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"];
-  if (!VALID_VOTE_TYPES.includes(type)) {
+  const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"] as const;
+  type VoteType = (typeof VALID_VOTE_TYPES)[number];
+  if (!VALID_VOTE_TYPES.includes(type as VoteType)) {
     res.status(400).json({ error: `Invalid vote type. Must be one of: ${VALID_VOTE_TYPES.join(", ")}` });
+    return;
+  }
+
+  // Validate the approval rule shape up front — an unknown rule type otherwise
+  // falls through to the majority default at evaluation time (finding L5).
+  const VALID_RULE_TYPES = ["unanimous", "majority", "two_thirds", "three_quarters", "custom"] as const;
+  type RuleType = (typeof VALID_RULE_TYPES)[number];
+  const VALID_DEADLINE_BEHAVIORS = ["lapse", "extend", "notify"] as const;
+  type DeadlineBehavior = (typeof VALID_DEADLINE_BEHAVIORS)[number];
+  interface ApprovalRuleInput {
+    type?: string;
+    minApprovals?: number;
+    quorum?: number;
+    weighted?: boolean;
+    deadlineBehavior?: string;
+    requiredVoterIds?: string[];
+    recusedIds?: string[];
+  }
+  const rule = approvalRule as ApprovalRuleInput | undefined;
+  if (rule?.type != null && !VALID_RULE_TYPES.includes(rule.type as RuleType)) {
+    res.status(400).json({ error: `Invalid approval rule type. Must be one of: ${VALID_RULE_TYPES.join(", ")}` });
+    return;
+  }
+  if (rule?.deadlineBehavior != null && !VALID_DEADLINE_BEHAVIORS.includes(rule.deadlineBehavior as DeadlineBehavior)) {
+    res.status(400).json({ error: `Invalid deadlineBehavior. Must be one of: ${VALID_DEADLINE_BEHAVIORS.join(", ")}` });
     return;
   }
 
   const cleanTitle = sanitizeText(title);
   const cleanResolutionText = sanitizeText(resolutionText);
 
-  // Generate resolution number server-side if not provided
+  // Generate resolution number server-side if not provided (race-free sequence)
   let resolutionNumber = rawResolutionNumber;
   if (!resolutionNumber) {
     const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, boardId));
-    const abbrev = board?.abbreviation || "GEN";
-    const year = new Date().getFullYear();
-    const existing = await db.select().from(votesTable).where(eq(votesTable.boardId, boardId));
-    const count = existing.length + 1;
-    resolutionNumber = `RES-${abbrev}-${year}-${String(count).padStart(3, "0")}`;
+    resolutionNumber = await nextResolutionNumber(db, board?.abbreviation || "GEN");
   }
 
   const [vote] = await db
@@ -222,33 +245,33 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
       resolutionNumber,
       title: cleanTitle,
       resolutionText: cleanResolutionText,
-      type,
+      type: type as VoteType,
       deadline: deadline ? new Date(deadline) : null,
       secret: secret === true,
     })
     .returning();
 
-  if (approvalRule) {
-    const [rule] = await db
+  if (rule) {
+    const [insertedRule] = await db
       .insert(approvalRulesTable)
       .values({
         voteId: vote.id,
-        type: approvalRule.type || "majority",
-        minApprovals: approvalRule.minApprovals,
-        quorum: approvalRule.quorum,
-        weighted: approvalRule.weighted || false,
-        deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
+        type: (rule.type as RuleType) || "majority",
+        minApprovals: rule.minApprovals,
+        quorum: rule.quorum,
+        weighted: rule.weighted || false,
+        deadlineBehavior: (rule.deadlineBehavior as DeadlineBehavior) || "lapse",
       })
       .returning();
 
-    if (approvalRule.requiredVoterIds?.length) {
+    if (rule.requiredVoterIds?.length) {
       await db.insert(approvalRuleRequiredVotersTable).values(
-        approvalRule.requiredVoterIds.map((pid: string) => ({ ruleId: rule.id, personId: pid }))
+        rule.requiredVoterIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
       );
     }
-    if (approvalRule.recusedIds?.length) {
+    if (rule.recusedIds?.length) {
       await db.insert(approvalRuleRecusalsTable).values(
-        approvalRule.recusedIds.map((pid: string) => ({ ruleId: rule.id, personId: pid }))
+        rule.recusedIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
       );
     }
   }
@@ -462,7 +485,15 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_VOTE_STATUSES.join(", ")}` });
     return;
   }
-  if (status != null && ["approved", "rejected", "lapsed", "cancelled"].includes(status)) {
+  // Governance integrity: "approved"/"rejected" are OUTCOMES — they may only be
+  // set by the vote-evaluation path (all eligible members voted → evaluateByRule),
+  // never forced directly by an admin. An admin may still cancel or lapse an open vote.
+  if (status === "approved" || status === "rejected") {
+    await audit(req, "vote_force_status_blocked", "vote", id, { attemptedStatus: status });
+    res.status(403).json({ error: "A vote's approved/rejected outcome is determined by the votes cast, not set manually. You can cancel or lapse an open vote." });
+    return;
+  }
+  if (status != null && ["lapsed", "cancelled"].includes(status)) {
     const [current] = await db.select({ status: votesTable.status }).from(votesTable).where(eq(votesTable.id, id));
     if (!current) {
       res.status(404).json({ error: "Vote not found" });
@@ -501,6 +532,8 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     res.status(404).json({ error: "Vote not found" });
     return;
   }
+
+  await audit(req, "vote_updated", "vote", id, { changed: Object.keys(updates), status: status ?? undefined });
 
   if (status && ["approved", "rejected"].includes(status)) {
     setImmediate(() => triggerWorkflowNextStage(id, status).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
@@ -785,7 +818,14 @@ router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res)
   }
 
   const [doc] = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
-  if (!doc || !doc.filePath || !fs.existsSync(doc.filePath)) {
+  if (!doc || doc.voteId !== id || !doc.filePath || !fs.existsSync(doc.filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  // Defense in depth: never stream a file that resolved outside the uploads dir.
+  const resolvedPath = path.resolve(doc.filePath);
+  if (!resolvedPath.startsWith(path.resolve(UPLOADS_DIR) + path.sep)) {
     res.status(404).json({ error: "File not found" });
     return;
   }

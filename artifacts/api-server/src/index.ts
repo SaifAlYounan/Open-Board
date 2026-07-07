@@ -4,7 +4,7 @@ import app, { originValidator } from "./app";
 import { logger } from "./lib/logger";
 import { seed } from "./seed";
 import { verifyToken } from "./lib/auth";
-import { db, boardMembershipsTable, accessControlTable } from "@workspace/db";
+import { db, boardMembershipsTable, accessControlTable, peopleTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
 const rawPort = process.env["PORT"];
@@ -26,8 +26,10 @@ export const io = new SocketIOServer(server, {
   cors: { origin: originValidator, methods: ["GET", "POST"], credentials: true },
 });
 
-// Authenticate every Socket.IO connection via HttpOnly cookie
-io.use((socket, next) => {
+// Authenticate every Socket.IO connection via HttpOnly cookie.
+// Role and account state come from the DB, not the token payload — a stale or
+// revoked token (deactivation, password reset) must not open a live socket.
+io.use(async (socket, next) => {
   try {
     const cookieHeader = socket.handshake.headers.cookie || "";
     const cookies = Object.fromEntries(
@@ -40,11 +42,15 @@ io.use((socket, next) => {
     if (!token) {
       return next(new Error("Authentication required"));
     }
-    const user = verifyToken(token);
-    if (!user) {
+    const payload = verifyToken(token);
+    if (!payload) {
       return next(new Error("Invalid token"));
     }
-    socket.data.user = user;
+    const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, payload.userId));
+    if (!person || person.active === false || (payload.tokenVersion ?? 0) !== person.tokenVersion) {
+      return next(new Error("Invalid token"));
+    }
+    socket.data.user = { userId: person.id, email: person.email, role: person.role };
     next();
   } catch {
     next(new Error("Authentication failed"));

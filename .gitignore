@@ -47,3 +47,16 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Secrets & local data — never commit
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Runtime-uploaded documents
+uploads/
+
+# Replit scratch (build prompts, screenshots) — not part of the product
+attached_assets/

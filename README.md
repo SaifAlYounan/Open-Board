@@ -29,7 +29,7 @@ Upload draft minutes → the AI extracts action items and proposes creating task
 
 Every proposed action goes through the Secretary's approval queue. Nothing executes without human approval. This is [human-in-the-loop governance](https://human-loop-guide.replit.app) by design.
 
-> **⚠️ This is a beta.** It works. It has rough edges. Features are missing. Bugs exist. It's released early because governance tools need to step up their game. [Open an issue](https://github.com/SaifAlYounan/Open Board/issues), break things, tell us what's wrong.
+> **⚠️ This is a beta.** It works. It has rough edges. Features are missing. Bugs exist. It's released early because governance tools need to step up their game. [Open an issue](https://github.com/SaifAlYounan/Open-Board/issues), break things, tell us what's wrong.
 
 ---
 
@@ -37,7 +37,7 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 
 ### Option 1: Run on Replit
 
-[![Run on Replit](https://replit.com/badge/github/SaifAlYounan/Open Board)](https://replit.com/@SaifAlYounan/Open Board)
+[![Run on Replit](https://replit.com/badge/github/SaifAlYounan/Open-Board)](https://replit.com/github/SaifAlYounan/Open-Board)
 
 1. Fork the repo on Replit
 2. Add environment variables (see [Deployment](#deployment))
@@ -46,8 +46,8 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 ### Option 2: Self-Hosted
 
 ```bash
-git clone https://github.com/SaifAlYounan/Open Board.git
-cd Open Board
+git clone https://github.com/SaifAlYounan/Open-Board.git
+cd Open-Board
 pnpm install
 ```
 
@@ -55,26 +55,47 @@ Set environment variables:
 
 ```bash
 DATABASE_URL=postgresql://user:password@localhost:5432/openboard
-SESSION_SECRET=$(openssl rand -hex 32)
-ANTHROPIC_API_KEY=sk-ant-...   # Optional — app works without it
+SESSION_SECRET=$(openssl rand -hex 32)   # required — the server refuses to start without it
+ANTHROPIC_API_KEY=sk-ant-...             # optional — app works without it (manual features only)
 PORT=3000
+
+# Optional
+ALLOWED_ORIGIN=https://board.example.com # REQUIRED in production (comma-separated allowlist)
+AI_MODEL=claude-opus-4-8                 # which Claude model the AI uses (default: Claude Opus 4.8)
+AI_DAILY_CALL_LIMIT=1000                 # daily ceiling on AI calls (cost guard)
+AI_INTEGRATIONS_ANTHROPIC_BASE_URL=...   # point at an Anthropic-compatible gateway to self-host the model
+ADMIN_EMAIL=secretary@example.com        # first-boot admin email (non-demo mode)
+ORG_NAME="Your Organization"             # first-boot organization name (non-demo mode)
 ```
 
 Initialize the database and start:
 
 ```bash
-pnpm run seed    # Creates org, boards, demo users
+pnpm run seed    # First boot: creates the org + a single admin (see below)
 pnpm run dev     # Starts the dev server
 ```
 
-Open `http://localhost:3000`. Log in as the Board Secretary:
+**First boot creates one admin account** with a **randomly generated one-time password
+printed once to the server log** (`FIRST BOOT — admin account created. One-time password: …`).
+Log in with `ADMIN_EMAIL` (default `admin@openboard.local`) and that password, then change it
+immediately — you'll be prompted to.
 
-```
-Email: a.alrashid@meridian-energy.com
-Password: 0000
+Open `http://localhost:3000` and sign in.
+
+### Demo dataset (optional)
+
+To explore with the fictional "Meridian Energy Group" board (20 people, 5 committees, sample
+documents), set `DEMO_MODE=true` and `SEED_PASSWORD=<something>` before seeding:
+
+```bash
+DEMO_MODE=true SEED_PASSWORD=changeme pnpm run seed
 ```
 
-> **Note:** The app works without an Anthropic API key. AI features will show an info banner prompting you to configure it in Settings. All manual features work normally.
+All demo users then share `SEED_PASSWORD`. **Never enable `DEMO_MODE` in production** — it seeds
+login-capable accounts (including an admin) with a shared password.
+
+> **Note:** The app works without an Anthropic API key. AI features show an info banner prompting
+> you to configure one in Settings; all manual features work normally.
 
 ---
 
@@ -175,9 +196,21 @@ Full schema in `lib/db/src/schema/`.
 
 ---
 
-## Demo Credentials
+## Accounts
 
-The seed script creates a fictional company (**Meridian Energy Group** — $4.2B renewable energy, Abu Dhabi) with 20 users across 4 roles and 5 boards, plus rich demo data telling the story of 3 interconnected projects:
+**On a real (non-demo) first boot**, the seed creates a **single Board Secretary (admin)** account. Its email is `ADMIN_EMAIL` (default `admin@openboard.local`) and its password is a **random one-time password printed once to the server log**:
+
+```
+FIRST BOOT — admin account created. One-time password: <random> — log in and change it immediately.
+```
+
+Log in with that, and you'll be prompted to set a real password. Create the rest of your board from the Admin panel.
+
+### Demo dataset (opt-in)
+
+Set `DEMO_MODE=true` **and** `SEED_PASSWORD=<something>` before seeding to load the fictional demo below. **Never enable `DEMO_MODE` in production** — it creates login-capable accounts (including an admin) that all share `SEED_PASSWORD`.
+
+The demo is a fictional company (**Meridian Energy Group** — $4.2B renewable energy, Abu Dhabi) with 20 users across 4 roles and 5 boards, plus rich demo data telling the story of 3 interconnected projects:
 
 - **Project Zephyr** (Kazakhstan 1GW Wind Farm) — devex approval → EPC shortlist → FID at $1.2B → steel cost overrun → revised FID at $1.4B → forensic procurement investigation
 - **Project Aurora** (SolarTech Acquisition) — market scan → LOI → due diligence reveals IP dispute + customer concentration → binding offer at $280M
@@ -213,7 +246,7 @@ The seed script creates a fictional company (**Meridian Energy Group** — $4.2B
 - Sophie Blanc — s.blanc@meridian-energy.com — Head of ESG
 - Raj Nair — r.nair@meridian-energy.com — CTO
 
-**All passwords:** `0000`
+**All demo passwords:** whatever you set as `SEED_PASSWORD` when seeding with `DEMO_MODE=true`.
 
 **5 Boards:** Board of Directors (BoD), Finance & Audit Committee (FAC), Strategy & Investment Committee (SIC), Nomination & Remuneration Committee (NRC), Technology & Projects Committee (TPC).
 
@@ -309,11 +342,24 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 
 ## Security Audit Status
 
-> ⚠️ **Open Board is a working beta.** It demonstrates the AI-native governance pattern and is suitable for evaluation, demos, and feedback. It has not been audited to production security standards. Do not use with real board data without completing the fixes described below and conducting your own security review.
+> ⚠️ **Open Board is a working beta.** It demonstrates the AI-native governance pattern and is suitable for evaluation, demos, and feedback. Complete your own security review before using it with real board data.
 
-Open Board has undergone twelve rounds of security auditing. Rounds 1–10 used automated AI agents (MiniMax M2.7 via OpenClaw) running three parallel checks per round: static code review, live API security testing, and end-to-end functional testing. Round 11 was a full static audit by Claude Opus 4.6 reading the complete source code, which identified architectural and design-level issues that endpoint-level testing missed.
+Open Board has undergone thirteen rounds of security auditing. Rounds 1–10 used automated AI agents (MiniMax M2.7 via OpenClaw); Round 11 was a full static audit by Claude Opus 4.6; Round 12 verified those fixes; **Round 13 (Claude Fable 5) was a three-agent audit — backend security, AI pipeline, and product/UX — followed by a full remediation pass**, and is the current state of the codebase.
 
-### Current Posture: BETA (as of April 9, 2026)
+### Round 13 — Multi-agent audit + remediation (Claude Fable 5)
+
+A three-lens audit (security / AI pipeline / UX) followed by fixes. Highlights of what changed:
+
+- **Seeding (critical):** demo users are no longer created in production. Demo data (20 users sharing one password) is gated behind `DEMO_MODE=true`; a real first boot creates a single admin with a random one-time password and forces a reset. The committed `SEED_PASSWORD="0000"` and the `migrateUpdatePasswords` restart-wipe were removed.
+- **Session revocation:** a per-user token version invalidates every outstanding JWT the moment a password is changed or an account is deactivated. Deactivated users lose access immediately (was: valid until 7-day expiry). Sockets re-check role/active from the DB, not the token.
+- **Authorization:** `GET /people/:id` is scoped to the requester's shared boards with trimmed fields (was: any user could enumerate everyone).
+- **AI action validation:** every AI-proposed action is validated against a strict Zod schema **before it is queued and again before it executes**; unknown action types are rejected (closes the mass-assignment sink). Execution is now transactional, resolution/task numbering is race-free (Postgres sequences), and each proposal carries a verbatim source quote for provenance.
+- **Governance integrity:** the pending-action reject endpoint is idempotent; admins can no longer force a vote to approved/rejected (outcomes come from the votes cast); confidentiality flagging is implemented.
+- **Audit trail:** writes are awaited for security-relevant mutations and **hash-chained** (each row carries a SHA-256 of the previous), with the real client IP (`req.ip`) instead of the spoofable `X-Forwarded-For`.
+- **Transport / AI cost:** `ALLOWED_ORIGIN` is required in production (no `*.replit.app` wildcard); a daily AI-call budget cap; input length limits + null-byte stripping.
+- **Engineering:** the entire monorepo now **type-checks, unit-tests (Vitest), and builds** — none of which passed before — with a GitHub Actions CI pipeline (typecheck + spec-drift check + tests + build) and structured outputs on Claude Opus 4.8.
+
+### Prior posture (Rounds 1–12)
 
 **Rounds 1–10** (automated agents, 3 per round): identified and fixed 70+ endpoint-level vulnerabilities including authentication bypasses, access control gaps, input validation failures, and broken workflows. All endpoint-level findings from rounds 1–10 have been fixed and regression-verified.
 
@@ -368,40 +414,34 @@ These vulnerabilities existed in earlier versions. They have been found and fixe
 
 ### Known Limitations & Open Issues
 
-Documented for transparency. Items marked **(v2.8)** are under manual verification and will be fixed if confirmed.
+Documented for transparency.
 
-**Architecture (Round 11 findings — partially addressed in v2.8):**
-- **AI action approval lacks transaction wrapping.** Approving an AI-proposed action can leave partial state if the operation fails midway. Idempotency check added on approve in v2.8, but no transaction wrapping and no audit log on approve/reject.
-- **AI executor trusts action data without schema validation.** Fields from AI classification are passed to database inserts with minimal validation. The core `executeAction` function remains a mass-assignment sink. Fixing this requires a schema validation layer — estimated 1–2 day refactor.
-- **Admin can force vote status via PATCH.** An admin can set a vote to "approved" without any votes being cast. The v2.8 guard only blocks re-transitions on already-closed votes — it does not prevent force-approving open votes. Fix pending.
-- **Reject endpoint has no idempotency check.** An already-approved action can be overwritten to "rejected" status. Fix pending.
-- **Weighted voting, proxy voting, and confidentiality flagging** are in the database schema but not implemented in application logic. They are stubs that silently do nothing.
-- **Account lockout is in-memory.** Server restart resets lockout counters. Combined with the `migrateUpdatePasswords` issue (see v2.8 changelog), a restart in non-production environments resets both lockouts and passwords.
-- **CORS allows any `*.replit.app` subdomain** with credentials. Any Replit-hosted page can make authenticated cross-origin requests to the demo.
+**Fixed in Round 13 (removed from Known Limitations):**
+- ~~AI action approval lacks transaction wrapping~~ → `executeAction` runs in a DB transaction; the approve also writes an audit entry.
+- ~~AI executor trusts action data without schema validation~~ → strict Zod validation at queue time **and** approve time; unknown action types rejected.
+- ~~Admin can force vote status via PATCH~~ → direct admin transitions to approved/rejected are blocked; outcomes come from the votes cast.
+- ~~Reject endpoint has no idempotency check~~ → returns 409 on an already-resolved action.
+- ~~Confidentiality flagging is a silent stub~~ → implemented (marks the document confidential + audit entry).
+- ~~`migrateUpdatePasswords` restart password-wipe + committed `SEED_PASSWORD="0000"`~~ → both removed; demo seeding is gated behind `DEMO_MODE=true`.
+- ~~No server-side JWT invalidation~~ → per-user token version revokes all outstanding JWTs on password change / deactivation.
+- ~~CORS allows any `*.replit.app` subdomain~~ → `ALLOWED_ORIGIN` is required in production; the wildcard is dev-only.
+- ~~Audit log records proxy IP, not client IP~~ → uses `req.ip` (resolved under `trust proxy`), which can't be spoofed via `X-Forwarded-For`.
+- ~~No character limit on titles / null bytes return 500~~ → text inputs are length-capped (500) and control characters stripped.
 
-**Fixed in v2.8 (removed from Known Limitations):**
-- ~~Certificate hash covers summary only~~ → Now includes sorted vote records.
+**Fixed earlier (Rounds 1–12):**
+- ~~Certificate hash covers summary only~~ → includes sorted vote records.
 - ~~Vote cast ignores per-entity access control~~ → `hasAccess()` check added.
-- ~~Login timing reveals email existence~~ → Dummy bcrypt compare added (~400ms both paths).
-- ~~AI search leaks all minutes for users with no access records~~ → Now returns empty results.
-- ~~AI classifier auto-grants board access without approval~~ → Removed; goes through pending actions.
+- ~~Login timing reveals email existence~~ → dummy bcrypt compare (~400ms both paths).
+- ~~AI search leaks all minutes for users with no access records~~ → returns empty results.
+- ~~AI classifier auto-grants board access without approval~~ → removed; goes through pending actions.
 
-**Platform & Deployment:**
-- **Replit proxy strips cookie security flags.** The app correctly sets HttpOnly/Secure/SameSite, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments are unaffected.
-- **No server-side JWT invalidation on logout.** Cookie is cleared but the token remains valid until expiry. Server-side token revocation is planned.
-- **Open ballots are the default.** Votes are visible to all board members unless the Secretary enables "Secret Ballot" on vote creation.
-- **Audit log records proxy IP, not client IP.** Behind Replit's reverse proxy, all audit log entries show the same IP. Self-hosted deployments use `trust proxy`.
-
-**Input Handling (Round 9 findings):**
-- **No character limit on titles.** Meeting, vote, task, and minute titles accept unlimited text. A very long title (100KB+) would render slowly but wouldn't crash the system or leak data. Production deployments should add a 500-character limit.
-- **Null bytes in text inputs return 500.** Sending the invisible character `\0` inside a title causes a server error instead of a graceful rejection. No data is leaked. This only occurs with automated security scanners — no human would type a null byte.
-
-**Build Tooling:**
-- **Vite has 14 flagged npm vulnerabilities.** All are in Vite, the build tool that compiles the frontend. Vite never runs in production — users never interact with it. Developers cloning the repo will see audit warnings. Run `pnpm update vite` to resolve.
-- **Vite dev server accepts connections from any domain** (`allowedHosts: true`). Only relevant during local development. The compiled production app does not use Vite's dev server.
-
-**Demo Features:**
-- **"0000" reset password.** The admin panel's "Reset Demo Data" button requires typing "0000" as a UI safeguard to prevent accidental resets. This is intentional — it's a speed bump for the demo, not a security measure. The real protection is server-side: the endpoint requires admin authentication plus an explicit `{ confirm: "RESET" }` payload. The "0000" is visible in the source code by design.
+**Still open:**
+- **Weighted voting and proxy voting** are in the database schema but not implemented in application logic — they are stubs that silently do nothing.
+- **Password-reset email delivery is not wired in.** The reset-token flow generates single-use, hashed, 1-hour tokens, but there is no mail transport — an operator must relay the token out of band (or an admin creates a fresh account). Wire up email for production.
+- **Account lockout is in-memory.** A server restart resets the per-account lockout counters (the password-wipe that used to compound this is gone).
+- **Replit proxy strips cookie security flags.** The app sets HttpOnly/Secure/SameSite correctly, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments behind your own TLS are unaffected.
+- **Open ballots are the default.** Votes are visible to board members unless the Secretary enables "Secret Ballot" on creation.
+- **Vite has flagged npm audit warnings.** All are in Vite, the build tool — it never runs in production. Run `pnpm update` to resolve.
 
 ---
 
@@ -415,38 +455,35 @@ Set these in your server environment. **Do not commit them to source control.**
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `SESSION_SECRET` | Signs JWT tokens. Must be a long random string. | `openssl rand -hex 64` |
-| `DATABASE_URL` | PostgreSQL connection string. | `postgresql://user:pass@host:5432/openboard` |
-| `SEED_PASSWORD` | Password for initial demo accounts. Change to something strong or remove demo accounts entirely. | `YourStrongPassword123!` |
-| `ALLOWED_ORIGIN` | Comma-separated list of allowed frontend URLs for CORS. | `https://board.yourcompany.com` |
-| `NODE_ENV` | Set to `production` to enable secure cookies and disable debug logging. | `production` |
-| `PORT` | Server port. | `3000` |
-| `ANTHROPIC_API_KEY` | *(Optional)* Enables AI features (document classification, search, task suggestions). | `sk-ant-...` |
+| `SESSION_SECRET` | **Required.** Signs JWT tokens. Server refuses to start without it. | `openssl rand -hex 64` |
+| `DATABASE_URL` | **Required.** PostgreSQL connection string. | `postgresql://user:pass@host:5432/openboard` |
+| `ALLOWED_ORIGIN` | **Required in production.** Comma-separated allowlist of frontend origins for CORS. | `https://board.yourcompany.com` |
+| `NODE_ENV` | Set to `production` for secure cookies + to require `ALLOWED_ORIGIN`. | `production` |
+| `PORT` | **Required.** Server port. | `3000` |
+| `ANTHROPIC_API_KEY` | *(Optional)* Enables AI features. App works without it. | `sk-ant-...` |
+| `AI_MODEL` | *(Optional)* Which Claude model the AI uses. | `claude-opus-4-8` (default) |
+| `AI_DAILY_CALL_LIMIT` | *(Optional)* Daily ceiling on AI calls (cost guard). | `1000` (default) |
+| `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` | *(Optional)* Point at an Anthropic-compatible gateway to self-host the model. | `https://…` |
+| `ADMIN_EMAIL` | *(Optional)* Email for the first-boot admin account. | `secretary@example.com` |
+| `ORG_NAME` | *(Optional)* Organization name shown in the UI. | `Your Organization` |
+| `DEMO_MODE` | *(Optional)* `true` seeds the Meridian demo dataset. **Never `true` in production.** | *(unset)* |
+| `SEED_PASSWORD` | *(Demo only)* Shared password for demo accounts when `DEMO_MODE=true`. | `YourStrongPassword123!` |
 
-### 2. Replace Demo Accounts
+### 2. First-Boot Admin & Real Users
 
-The seed script (`seed.ts`) creates demo users for the Meridian Energy demo. For production:
+On a fresh database with `DEMO_MODE` unset, the first boot creates **one admin** (`ADMIN_EMAIL`) with a random one-time password logged once to the console. Log in, change the password when prompted, then add your real board from the Admin panel. Don't set `DEMO_MODE` in production.
 
-- **Option A:** Delete the seed data entirely and create real users via the admin panel.
-- **Option B:** Modify `seed.ts` with your organization's real board structure, roles, and email addresses. Run the seed once, then disable it.
+### 3. The Data-Reset Tab
 
-### 3. Change or Remove the Reset UI Password
-
-In `artifacts/easyboard/src/pages/secretary/admin.tsx` (directory name kept for compatibility), the "Reset Demo Data" button uses a client-side password (`"0000"`). For production:
-
-- **Option A (recommended):** Remove the entire System Reset tab. Production boards should never have a "wipe everything" button.
-- **Option B:** Change `"0000"` to a strong password known only to your administrator.
-
-The server-side endpoint (`POST /api/system/reset-data`) is independently protected by admin authentication + confirmation payload, but disabling the UI entirely is safest.
+The Admin → System tab has a "Reset All Data" action. The server (`POST /api/system/reset-data`) requires admin authentication **and re-verifies the admin's own password** server-side before wiping transactional data. For production you may still prefer to remove the System Reset tab entirely (`artifacts/easyboard/src/pages/secretary/admin.tsx`) — production boards rarely need a "wipe everything" button.
 
 ### 4. Configure CORS
 
-By default, the app accepts requests from `*.replit.dev` and `*.replit.app`. For production:
-
-Set `ALLOWED_ORIGIN` to your exact frontend domain(s):
+In production, `ALLOWED_ORIGIN` is **required** — set it to your exact frontend origin(s):
 ```
 ALLOWED_ORIGIN=https://board.yourcompany.com
 ```
+Outside production, the app falls back to accepting `localhost` and `*.replit.dev`/`*.replit.app`.
 
 ### 5. Enable Trust Proxy
 
@@ -488,6 +525,29 @@ If you do use AI: your documents are sent to Anthropic's API for processing. Rev
 ---
 
 ## Changelog
+
+### v3.0 — Round 13 audit + remediation (Claude Fable 5)
+
+A three-agent audit (backend security, AI pipeline, product/UX) and a full remediation pass.
+
+**Security**
+- Demo seeding gated behind `DEMO_MODE=true`; real first boot creates one admin with a random one-time password (forced reset). Removed committed `SEED_PASSWORD="0000"` and the `migrateUpdatePasswords` restart-wipe.
+- Per-user token version invalidates all outstanding JWTs on password change / deactivation; deactivated users lose access immediately; sockets re-check role/active from the DB.
+- `GET /people/:id` scoped to shared boards with trimmed fields; board-membership inputs validated.
+- Hash-chained audit trail with real client IP; audit events added on approve/reject, people, and membership changes.
+- `ALLOWED_ORIGIN` required in production; vote-doc download path-containment; generic client error messages; daily AI-call budget cap; input length limits + null-byte stripping.
+
+**AI pipeline**
+- Upgraded to Claude Opus 4.8 (`AI_MODEL`-overridable) with structured outputs; one Zod contract validates every AI action at queue time and approve time (unknown types rejected).
+- Evidence review now uses real text extraction (was reading PDFs as raw bytes); extraction failures surfaced with Retry; source-quote citations on proposals; transactional execution; race-free numbering; adaptive thinking + prompt caching.
+
+**Governance & UX**
+- Reject-endpoint idempotency; admins can no longer force a vote outcome; confidentiality flagging implemented.
+- Fixed the board vote-certificate field bug and the secret-ballot leak in the certificate PDF; corrected the vote tally; timezone-safe dates app-wide.
+- Mobile-responsive secretary sidebar (drawer) and grids; consistent error/loading states; accessible AI-search modal with role-aware source links; destructive-action confirmations; honest AI/marketing copy; de-hardcoded org identity.
+
+**Engineering**
+- The entire monorepo now type-checks, unit-tests (Vitest), and builds — none did before — with a GitHub Actions CI pipeline (typecheck + OpenAPI spec-drift check + tests + build).
 
 ### v2.9 — Board Intelligence & Rich Demo Data (April 11, 2026)
 
@@ -698,5 +758,5 @@ MIT License. Use it, fork it, deploy it, sell support for it. Attribution apprec
 
 <p align="center">
   <strong>Built by a governance professional. Shaped by the community.</strong><br>
-  <em>If you work in board governance and want to test this, <a href="https://github.com/SaifAlYounan/Open Board/issues">open an issue</a> or reach out.</em>
+  <em>If you work in board governance and want to test this, <a href="https://github.com/SaifAlYounan/Open-Board/issues">open an issue</a> or reach out.</em>
 </p>

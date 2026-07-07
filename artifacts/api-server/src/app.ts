@@ -25,6 +25,11 @@ function makeOriginValidator() {
       cb(new Error(`CORS: origin not allowed — ${origin}`));
     };
   }
+  if (process.env.NODE_ENV === "production") {
+    // Anyone can host on *.replit.dev/app, so a shared-suffix wildcard with
+    // credentials is not acceptable in production — require an explicit list.
+    throw new Error("ALLOWED_ORIGIN environment variable is required in production (comma-separated origin allowlist).");
+  }
   return (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
     if (
       !origin ||

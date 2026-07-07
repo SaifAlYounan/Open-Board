@@ -26,15 +26,38 @@ import {
   accessControlTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { peopleTable, organizationsTable } from "@workspace/db";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 
 const router = Router();
 
+// Identity for the UI — replaces hardcoded "Meridian Energy Group" / version strings.
+router.get("/organization", requireAuth, async (_req, res): Promise<void> => {
+  const [org] = await db.select().from(organizationsTable).limit(1);
+  res.json({
+    name: org?.name || "Open Board",
+    version: process.env.APP_VERSION || "2.0.0",
+  });
+});
+
 router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   if (req.body?.confirm !== "RESET") {
     res.status(400).json({ error: "Confirmation required. Send { confirm: 'RESET' } in the request body." });
+    return;
+  }
+  // The admin must re-authenticate with their own password — verified server-side.
+  const password = req.body?.password;
+  if (!password || typeof password !== "string") {
+    res.status(400).json({ error: "Your admin password is required to reset data." });
+    return;
+  }
+  const [adminRow] = await db.select().from(peopleTable).where(eq(peopleTable.id, req.user!.id));
+  if (!adminRow || !(await bcrypt.compare(password, adminRow.passwordHash))) {
+    await audit(req, "data_reset_denied", undefined, undefined, { reason: "bad password" });
+    res.status(403).json({ error: "Password incorrect." });
     return;
   }
   try {
@@ -77,14 +100,14 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
       await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "document"));
     });
 
-    audit(req, "data_reset", undefined, undefined, { clearedBy: req.user?.email });
+    await audit(req, "data_reset", undefined, undefined, { clearedBy: req.user?.email });
     res.json({
       ok: true,
       message: "All transactional data cleared. Company, people, and board rooms are preserved.",
     });
   } catch (err: any) {
     logger.error({ err }, "[system/reset-data] failed");
-    res.status(500).json({ error: err.cause?.message || err.message });
+    res.status(500).json({ error: "Reset failed — see server logs" });
   }
 });
 

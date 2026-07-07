@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
+import { QueryState } from '@/components/QueryState';
 import { useListTasks, useListPeople, useListBoards, useCreateTask, getListTasksQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -16,7 +17,7 @@ const STATUS_COLORS: Record<string, { color: string; label: string }> = {
 };
 
 export default function SecretaryTasks() {
-  const { data: tasks, isLoading } = useListTasks();
+  const { data: tasks, isLoading, isError, refetch } = useListTasks();
   const { data: people } = useListPeople();
   const { data: boards } = useListBoards();
   const [showCreate, setShowCreate] = useState(false);
@@ -50,7 +51,7 @@ export default function SecretaryTasks() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -102,7 +103,7 @@ export default function SecretaryTasks() {
             </div>
           )}
 
-          {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading tasks...</div>}
+          <QueryState isLoading={isLoading} isError={isError} onRetry={refetch} label="tasks" />
 
           <div className="space-y-3">
             {(tasks as any[] || []).map((task: any) => {
@@ -136,7 +137,7 @@ export default function SecretaryTasks() {
                 </button>
               );
             })}
-            {!isLoading && (!tasks || (tasks as any[]).length === 0) && (
+            {!isLoading && !isError && (!tasks || (tasks as any[]).length === 0) && (
               <div className="text-center py-16">
                 <CheckSquare size={40} className="text-[#86868b] mx-auto mb-4" />
                 <div className="text-[#1d1d1f] font-medium">No tasks yet</div>

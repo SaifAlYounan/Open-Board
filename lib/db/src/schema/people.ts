@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 
 export const peopleTable = pgTable("people", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -9,6 +9,9 @@ export const peopleTable = pgTable("people", {
   title: text("title"),
   avatarColor: text("avatar_color"),
   active: boolean("active").notNull().default(true),
+  // Bumped on password reset or deactivation — invalidates all outstanding JWTs for this person.
+  tokenVersion: integer("token_version").notNull().default(0),
+  mustResetPassword: boolean("must_reset_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

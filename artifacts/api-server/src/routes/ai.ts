@@ -17,10 +17,12 @@ import { logger } from "../lib/logger";
 import {
   callAI,
   getDatabaseContext,
+  getCurrentModel,
   COMMAND_PROMPT,
   SEARCH_PROMPT,
   SUGGEST_PROMPT,
 } from "../lib/ai";
+import { validateActionData, type CommandResponse } from "../lib/aiSchemas";
 
 const router = Router();
 
@@ -38,6 +40,7 @@ router.get("/ai/status", requireAuth, async (_req, res): Promise<void> => {
   const configured = hasAI();
   res.json({
     configured,
+    model: configured ? getCurrentModel() : null,
     message: configured ? null : "AI features require configuration. Add your Anthropic API key in Settings.",
   });
 });
@@ -72,31 +75,40 @@ router.post("/ai/command", requireAuth, requireAdmin, aiRateLimit, async (req, r
     return;
   }
 
-  const parsed = result.data as {
-    understood: boolean;
-    interpretation: string;
-    proposed_actions?: Array<{ action_type: string; description: string; details: unknown }>;
-  };
+  const parsed = result.data as CommandResponse;
 
   let pendingActionIds: string[] = [];
+  const skipped: string[] = [];
 
   if (parsed.understood && parsed.proposed_actions?.length) {
-    const actions = await db
-      .insert(pendingActionsTable)
-      .values(
-        parsed.proposed_actions.map((action) => ({
-          actionType: action.action_type as any,
-          actionData: { ...(action.details as object), description: action.description },
-          status: "pending" as const,
-        }))
-      )
-      .returning();
-    pendingActionIds = actions.map((a) => a.id);
+    const rows: Array<{ actionType: string; actionData: Record<string, unknown> }> = [];
+    for (const action of parsed.proposed_actions) {
+      const validation = validateActionData(action.action_type, {
+        ...(action.details ?? {}),
+        description: action.description,
+        source_quote: action.source_quote ?? undefined,
+      });
+      if (validation.ok) {
+        rows.push({ actionType: action.action_type, actionData: validation.data });
+      } else {
+        skipped.push(`${action.action_type}: ${validation.error}`);
+        logger.warn({ actionType: action.action_type, error: validation.error }, "[ai/command] skipped invalid proposed action");
+      }
+    }
+    if (rows.length) {
+      const actions = await db
+        .insert(pendingActionsTable)
+        .values(rows.map((r) => ({ actionType: r.actionType as any, actionData: r.actionData, status: "pending" as const })))
+        .returning();
+      pendingActionIds = actions.map((a) => a.id);
+    }
   }
 
   res.json({
     understood: parsed.understood,
-    interpretation: parsed.interpretation,
+    interpretation: skipped.length
+      ? `${parsed.interpretation} (${skipped.length} proposed action(s) were dropped as malformed)`
+      : parsed.interpretation,
     pendingActionIds,
   });
 });
@@ -236,14 +248,24 @@ router.post("/ai/search", requireAuth, aiRateLimit, async (req, res): Promise<vo
     return;
   }
 
-  // Parse sources from answer text links [entityType:entityId:title]
+  // Parse sources from answer text links [entityType:entityId:title].
+  // Model output is untrusted: entity types are allowlisted, ids must be UUIDs,
+  // and only entities that actually appeared in the search results may be cited.
   const answer = aiResult.data as string;
+  const VALID_LINK_TYPES = new Set(["document", "meeting", "vote", "minutes"]);
+  const knownIds = new Set([
+    ...filteredDocs.map((d) => d.id),
+    ...filteredMeetings.map((m) => m.id),
+    ...filteredVotes.map((v) => v.id),
+    ...filteredMinutes.map((m) => m.id),
+  ]);
   const sources: Array<{ entityType: string; entityId: string; title: string }> = [];
-  const linkRegex = /\[(\w+):([a-f0-9-]+):([^\]]+)\]/g;
-  let match;
+  const linkRegex = /\[(\w+):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([^\]]+)\]/gi;
   const cleanAnswer = typeof answer === "string"
     ? answer.replace(linkRegex, (_, type, id, title) => {
-        sources.push({ entityType: type, entityId: id, title });
+        if (VALID_LINK_TYPES.has(type) && knownIds.has(id)) {
+          sources.push({ entityType: type, entityId: id, title: String(title).slice(0, 200) });
+        }
         return title;
       })
     : String(answer);

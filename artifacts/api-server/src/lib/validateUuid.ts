@@ -9,7 +9,8 @@ export function isUUID(value: string): boolean {
 export function uuidParam(...params: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     for (const param of params) {
-      const value = req.params[param];
+      const raw = req.params[param];
+      const value = Array.isArray(raw) ? raw[0] : raw;
       if (value && !UUID_REGEX.test(value)) {
         res.status(400).json({ error: `Invalid ${param} format` });
         return;

@@ -4,15 +4,18 @@ import { db, peopleTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 
-const JWT_SECRET = process.env.SESSION_SECRET;
-if (!JWT_SECRET) {
+if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required — set it before starting the server.");
 }
+const JWT_SECRET: string = process.env.SESSION_SECRET;
 
 export interface AuthPayload {
   userId: string;
   email: string;
   role: string;
+  // Compared against people.token_version on every request; a mismatch means the
+  // token was issued before a password reset or deactivation and is no longer valid.
+  tokenVersion?: number;
 }
 
 declare global {
@@ -28,7 +31,7 @@ export function signToken(payload: AuthPayload): string {
 }
 
 export function verifyToken(token: string): AuthPayload {
-  return jwt.verify(token, JWT_SECRET) as AuthPayload;
+  return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] }) as unknown as AuthPayload;
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -48,6 +51,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, payload.userId));
     if (!person) {
       res.status(401).json({ error: "User not found" });
+      return;
+    }
+    if (person.active === false) {
+      res.status(401).json({ error: "Account is deactivated" });
+      return;
+    }
+    if ((payload.tokenVersion ?? 0) !== person.tokenVersion) {
+      res.status(401).json({ error: "Session expired — please log in again" });
       return;
     }
     const { passwordHash: _, ...safeUser } = person;

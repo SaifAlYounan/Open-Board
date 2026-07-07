@@ -3,7 +3,7 @@ import { useParams } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
 import {
   useGetMinutes, useUpdateMinutes, useUpdateMinutesStatus, useGetMinutesComments, useResolveMinutesComment,
-  getGetMinutesQueryKey, getGetMinutesCommentsQueryKey,
+  getGetMinutesQueryKey, getGetMinutesCommentsQueryKey, getListMinutesQueryKey,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -59,10 +59,12 @@ export default function MinutesEditor() {
 
   const handleStatusChange = () => {
     if (!m?.status || !STATUS_FLOW[m.status]) return;
-    updateStatus.mutate({ id, data: { status: STATUS_FLOW[m.status].next } }, {
+    updateStatus.mutate({ id, data: { status: STATUS_FLOW[m.status].next as any } }, {
       onSuccess: () => {
         toast({ title: `Status changed to ${STATUS_FLOW[m.status].next}` });
         queryClient.invalidateQueries({ queryKey: getGetMinutesQueryKey(id) });
+        // The Minutes list shows each item's status — keep it fresh too.
+        queryClient.invalidateQueries({ queryKey: getListMinutesQueryKey() });
       }
     });
   };
@@ -79,7 +81,7 @@ export default function MinutesEditor() {
   if (isLoading) return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 flex items-center justify-center">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center">
         <div className="text-[#86868b] text-sm">Loading minutes...</div>
       </main>
     </div>
@@ -91,7 +93,7 @@ export default function MinutesEditor() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-hidden flex">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-hidden flex">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto p-8 space-y-6">
             <div className="flex items-center justify-between">
@@ -172,7 +174,7 @@ export default function MinutesEditor() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => resolveComment.mutate({ id, commentId: comment.id, data: { status: 'dismissed' } }, {
+                      onClick={() => resolveComment.mutate({ id, commentId: comment.id, data: { status: 'dismissed' as any } }, {
                         onSuccess: () => {
                           queryClient.invalidateQueries({ queryKey: getGetMinutesCommentsQueryKey(id) });
                           toast({ title: 'Comment dismissed' });

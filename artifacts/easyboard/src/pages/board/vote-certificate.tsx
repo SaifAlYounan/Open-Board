@@ -97,14 +97,21 @@ export default function VoteCertificate() {
                 )}
               </div>
 
-              {cert.records?.length > 0 && (
+              {cert.secret && (
+                <div className="flex items-center gap-2 text-xs text-[#86868b] bg-[#f5f5f7] rounded-xl px-4 py-3">
+                  <Shield size={14} />
+                  This was a secret ballot — individual votes are not disclosed.
+                </div>
+              )}
+
+              {cert.voteRecords?.length > 0 && (
                 <div>
                   <div className="text-xs font-medium text-[#86868b] uppercase tracking-wide mb-2">Vote Records</div>
                   <div className="space-y-2">
-                    {cert.records.map((r: any) => (
+                    {cert.voteRecords.map((r: any) => (
                       <div key={r.id} className="flex items-center justify-between text-sm">
                         <span className="text-[#1d1d1f]">{r.person?.name || "Unknown"}</span>
-                        <span className="font-medium" style={{ color: r.decision?.startsWith("approved") ? "#34c759" : r.decision === "rejected" ? "#ff3b30" : "#86868b" }}>
+                        <span className="font-medium" style={{ color: r.decision?.startsWith("approved") ? "#34c759" : r.decision?.startsWith("rejected") || r.decision?.startsWith("not_approved") ? "#ff3b30" : "#86868b" }}>
                           {r.decision}
                         </span>
                       </div>

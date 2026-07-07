@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
+import { QueryState } from '@/components/QueryState';
 import {
   useListMinutes, useListMeetings, getListMinutesQueryKey,
 } from '@workspace/api-client-react';
@@ -16,7 +17,7 @@ const STATUS_COLORS: Record<string, { label: string; color: string }> = {
 };
 
 export default function SecretaryMinutesList() {
-  const { data: minutesList, isLoading } = useListMinutes();
+  const { data: minutesList, isLoading, isError, refetch } = useListMinutes();
   const { data: meetings } = useListMeetings();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -62,7 +63,7 @@ export default function SecretaryMinutesList() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -117,9 +118,9 @@ export default function SecretaryMinutesList() {
             </div>
           )}
 
-          {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading...</div>}
+          <QueryState isLoading={isLoading} isError={isError} onRetry={refetch} label="minutes" />
 
-          {!isLoading && (!minutesList || (minutesList as any[]).length === 0) && !showCreate && (
+          {!isLoading && !isError && (!minutesList || (minutesList as any[]).length === 0) && !showCreate && (
             <div className="text-center py-16">
               <FileText size={40} className="text-[#86868b] mx-auto mb-4" />
               <div className="text-[#1d1d1f] font-medium">No minutes yet</div>

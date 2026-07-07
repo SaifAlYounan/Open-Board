@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAiSearch } from "@workspace/api-client-react";
 import { Search, Loader2, Bot, X } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/lib/auth";
+import { entityHref } from "@/lib/utils";
 
 interface AiSearchModalProps {
   onClose: () => void;
@@ -10,6 +12,14 @@ interface AiSearchModalProps {
 export function AiSearchModal({ onClose }: AiSearchModalProps) {
   const [query, setQuery] = useState("");
   const searchMutation = useAiSearch();
+  const { user } = useAuth();
+
+  // Esc-to-close (a11y). Click-outside is handled on the overlay.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,6 +31,9 @@ export function AiSearchModal({ onClose }: AiSearchModalProps) {
     <div
       className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center pt-24 px-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search the board archive"
       data-testid="modal-ai-search"
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
@@ -80,9 +93,16 @@ export function AiSearchModal({ onClose }: AiSearchModalProps) {
                   <div className="text-xs font-medium text-[#86868b] uppercase tracking-wide mb-3">Sources</div>
                   <div className="flex flex-wrap gap-2">
                     {((searchMutation.data as any).sources as any[]).map((source: any, i: number) => {
-                      const href = source.entityType === 'vote' ? `/board/vote/${source.entityId}`
-                        : source.entityType === 'minutes' ? `/board/minutes/${source.entityId}`
-                        : '#';
+                      const href = entityHref(source.entityType, source.entityId, user?.role);
+                      // No accessible detail route for this role → plain text, never a dead "#".
+                      if (!href) {
+                        return (
+                          <span key={i} className="inline-flex items-center px-3 py-1.5 bg-[#f5f5f7] rounded-lg text-sm font-medium text-[#86868b]"
+                            data-testid={`source-text-${source.entityId}`}>
+                            {source.title}
+                          </span>
+                        );
+                      }
                       return (
                         <Link key={i} href={href} onClick={onClose}
                           className="inline-flex items-center px-3 py-1.5 bg-[#f5f5f7] hover:bg-[#ebebed] rounded-lg text-sm font-medium text-[#1d1d1f] transition-colors"

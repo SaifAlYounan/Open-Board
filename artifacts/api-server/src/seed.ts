@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import {
   db,
@@ -97,16 +98,23 @@ async function grantAccess(entityType: string, entityId: string, personIds: stri
 }
 
 export async function seed() {
+  await migrateAddPasswordResetTokensTable();
+  await migrateAddSchemaConstraints();
+
+  // Demo data (20 users sharing SEED_PASSWORD) is strictly opt-in. A real
+  // deployment gets a single bootstrap admin with a generated one-time password.
+  if (process.env.DEMO_MODE !== "true") {
+    await bootstrapAdminIfEmpty();
+    return;
+  }
+
   const sarahChen = await db.select().from(peopleTable).where(eq(peopleTable.email, "s.chen@meridian-energy.com"));
   const hasData = sarahChen.length > 0;
 
   if (hasData) {
-    logger.info("People already exist — skipping seed");
+    logger.info("Demo people already exist — skipping seed");
     await cleanupTestAccounts();
     await migratePeopleTitles();
-    await migrateAddPasswordResetTokensTable();
-    await migrateUpdatePasswords();
-    await migrateAddSchemaConstraints();
     await seedDemoData();
     return;
   }
@@ -114,7 +122,7 @@ export async function seed() {
   await clearAll();
 
   if (!PASSWORD) {
-    throw new Error("SEED_PASSWORD environment variable is required. Set it in Replit Secrets before running seed.");
+    throw new Error("SEED_PASSWORD environment variable is required when DEMO_MODE=true.");
   }
 
   const [org] = await db.insert(organizationsTable).values({ name: "Meridian Energy Group" }).returning();
@@ -211,10 +219,39 @@ export async function seed() {
   }
 
   await migratePeopleTitles();
-  await migrateAddPasswordResetTokensTable();
-  await migrateAddSchemaConstraints();
   logger.info({ peopleCount: allPeople.length, boardsCount: allBoards.length }, "Seeding complete — organisation, people, and boards ready");
   await seedDemoData();
+}
+
+/**
+ * Non-demo bootstrap: on a completely empty database, create the organization
+ * and a single admin with a crypto-random one-time password (printed once to
+ * the server log, flagged must_reset_password). Never touches existing data.
+ */
+async function bootstrapAdminIfEmpty() {
+  const existing = await db.select({ id: peopleTable.id }).from(peopleTable).limit(1);
+  if (existing.length > 0) return;
+
+  const orgName = process.env.ORG_NAME || "My Organization";
+  const adminEmail = process.env.ADMIN_EMAIL || "admin@openboard.local";
+  const oneTimePassword = crypto.randomBytes(12).toString("base64url");
+  const passwordHash = await bcrypt.hash(oneTimePassword, 10);
+
+  await db.insert(organizationsTable).values({ name: orgName }).onConflictDoNothing();
+  await db.insert(peopleTable).values({
+    email: adminEmail,
+    passwordHash,
+    name: "Board Secretary",
+    role: "admin",
+    title: "Board Secretary",
+    mustResetPassword: true,
+  });
+
+  // Intentionally logged: this is the only place the bootstrap credential exists.
+  logger.warn(
+    { adminEmail },
+    `FIRST BOOT — admin account created. One-time password: ${oneTimePassword} — log in and change it immediately.`
+  );
 }
 
 /**
@@ -236,23 +273,6 @@ async function migrateAddPasswordResetTokensTable() {
     logger.info("migrateAddPasswordResetTokensTable — OK");
   } catch (err) {
     logger.warn({ err }, "migrateAddPasswordResetTokensTable — non-fatal");
-  }
-}
-
-/**
- * Idempotent migration: if SEED_PASSWORD is set, update all people's password hashes to match.
- * Runs on every startup — allows password resets across environments without manual DB access.
- */
-async function migrateUpdatePasswords() {
-  if (process.env.NODE_ENV === "production") return;
-  const pass = process.env.SEED_PASSWORD;
-  if (!pass) return;
-  try {
-    const hash = await bcrypt.hash(pass, 10);
-    const result = await db.execute(sql`UPDATE people SET password_hash = ${hash}`);
-    logger.info({ rowCount: (result as any).rowCount ?? "?" }, "migrateUpdatePasswords — passwords synced to SEED_PASSWORD");
-  } catch (err) {
-    logger.warn({ err }, "migrateUpdatePasswords — non-fatal");
   }
 }
 
@@ -282,6 +302,30 @@ async function migrateAddSchemaConstraints() {
     logger.info("migrateAddSchemaConstraints — votes.secret OK");
   } catch (err) {
     logger.warn({ err }, "migrateAddSchemaConstraints — votes.secret non-fatal");
+  }
+  try {
+    await db.execute(sql`ALTER TABLE people ADD COLUMN IF NOT EXISTS token_version integer NOT NULL DEFAULT 0`);
+    await db.execute(sql`ALTER TABLE people ADD COLUMN IF NOT EXISTS must_reset_password boolean NOT NULL DEFAULT false`);
+    logger.info("migrateAddSchemaConstraints — people.token_version/must_reset_password OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddSchemaConstraints — people token columns non-fatal");
+  }
+  try {
+    await db.execute(sql`ALTER TABLE audit_trail ADD COLUMN IF NOT EXISTS prev_hash text`);
+    await db.execute(sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS confidential boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS confidential_note text`);
+    logger.info("migrateAddSchemaConstraints — audit_trail.prev_hash + documents.confidential OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddSchemaConstraints — audit/documents migration non-fatal");
+  }
+  try {
+    // Race-free numbering: sequences never fall behind existing count-derived numbers.
+    await db.execute(sql`CREATE SEQUENCE IF NOT EXISTS resolution_seq START 1`);
+    await db.execute(sql`SELECT setval('task_seq', GREATEST((SELECT COUNT(*) FROM tasks), (SELECT last_value FROM task_seq)))`);
+    await db.execute(sql`SELECT setval('resolution_seq', GREATEST((SELECT COUNT(*) FROM votes), (SELECT last_value FROM resolution_seq)))`);
+    logger.info("migrateAddSchemaConstraints — numbering sequences OK");
+  } catch (err) {
+    logger.warn({ err }, "migrateAddSchemaConstraints — sequence migration non-fatal");
   }
 }
 

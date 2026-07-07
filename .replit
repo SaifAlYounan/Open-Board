@@ -4,7 +4,7 @@ modules = ["nodejs-24", "postgresql-16"]
 id = "artifacts/api-server"
 
 [[artifacts]]
-id = "artifacts/mockup-sandbox"
+id = "artifacts/easyboard"
 
 [deployment]
 router = "application"
@@ -42,5 +42,7 @@ externalPort = 80
 
 [userenv]
 
+# Secrets (SEED_PASSWORD for demo mode, SESSION_SECRET, ANTHROPIC_API_KEY) are
+# never committed — set them in Replit Secrets or the environment.
+# DEMO_MODE=true opts into seeding the Meridian demo dataset.
 [userenv.shared]
-SEED_PASSWORD (set in Replit Secrets)

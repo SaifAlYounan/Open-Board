@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+
+  .card {
+    width: 1200px;
+    height: 630px;
+    position: relative;
+    overflow: hidden;
+    /* Open Board: clean, Apple-inspired light theme (its real UI ink is #1d1d1f) */
+    background:
+      radial-gradient(1000px 680px at 86% -16%, rgba(31,143,95,0.10), transparent 60%),
+      radial-gradient(820px 560px at 0% 112%, rgba(29,29,31,0.05), transparent 55%),
+      linear-gradient(165deg, #faf8f4 0%, #f3f1ea 60%, #ece9e0 100%);
+    color: #1d1d1f;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 60px 72px;
+  }
+
+  /* faint document-rule grid — the board-papers motif */
+  .grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(29,29,31,0.035) 1px, transparent 1px);
+    background-size: 100% 52px;
+    background-position: 0 90px;
+    mask-image: linear-gradient(180deg, transparent 0%, #000 20%, #000 80%, transparent 100%);
+    pointer-events: none;
+  }
+  .accent-edge {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+    background: linear-gradient(180deg, #34c281, #1f8f5f 50%, #15724b);
+  }
+
+  .top { display: flex; align-items: center; justify-content: space-between; z-index: 2; }
+  .brandwrap { display: flex; align-items: center; gap: 14px; }
+  .brandmark {
+    width: 36px; height: 36px; border-radius: 9px;
+    background: linear-gradient(145deg, #34c281, #168a57);
+    display: flex; align-items: center; justify-content: center;
+    color: #ffffff; font-size: 20px; font-weight: 700;
+    box-shadow: 0 4px 16px rgba(31,143,95,0.30);
+  }
+  .brand {
+    font-size: 15px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: #6b6b70; font-weight: 600;
+  }
+  .repo {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 14px; color: #8a8a90; letter-spacing: 0.01em;
+  }
+
+  .mid { z-index: 2; }
+  .kicker {
+    font-size: 18px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: #1f8f5f; font-weight: 700; margin-bottom: 16px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 100px;
+    line-height: 0.94;
+    letter-spacing: -0.015em;
+    color: #161618;
+  }
+  h1 .star { color: #1f8f5f; font-size: 64px; vertical-align: 0.10em; margin-right: 6px; }
+  .lede {
+    margin-top: 22px;
+    font-size: 25px;
+    line-height: 1.42;
+    color: #45454b;
+    max-width: 900px;
+    font-weight: 400;
+  }
+  .lede b { color: #1d1d1f; font-weight: 600; }
+
+  .bottom { display: flex; align-items: flex-end; justify-content: space-between; z-index: 2; }
+  .chips { display: flex; gap: 12px; flex-wrap: wrap; max-width: 800px; }
+  .chip {
+    font-size: 16px; font-weight: 500;
+    padding: 9px 16px; border-radius: 999px;
+    background: rgba(255,255,255,0.6);
+    border: 1px solid rgba(29,29,31,0.14);
+    color: #3a3a40;
+  }
+  /* approval seal — echoes the "nothing executes without a human" model */
+  .stamp {
+    flex-shrink: 0;
+    width: 132px; height: 132px;
+    border: 2px solid rgba(31,143,95,0.5);
+    border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transform: rotate(-10deg);
+    color: #1f8f5f;
+    background: rgba(31,143,95,0.05);
+    box-shadow: inset 0 0 0 6px rgba(31,143,95,0.06);
+  }
+  .stamp .tick { font-size: 42px; line-height: 1; margin-bottom: 4px; }
+  .stamp .lbl { font-size: 13px; letter-spacing: 0.16em; font-weight: 700; text-transform: uppercase; }
+  .stamp .sub { font-size: 10px; letter-spacing: 0.10em; color: rgba(31,143,95,0.7); margin-top:2px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="grid"></div>
+    <div class="accent-edge"></div>
+
+    <div class="top">
+      <div class="brandwrap">
+        <div class="brandmark">✦</div>
+        <div class="brand">Open Source · MIT</div>
+      </div>
+      <div class="repo">github.com/SaifAlYounan/Open-Board</div>
+    </div>
+
+    <div class="mid">
+      <div class="kicker">AI-Native Board Governance</div>
+      <h1><span class="star">✦</span>Open Board</h1>
+      <div class="lede">
+        Upload a document. The AI reads it and proposes the next action &mdash; a task, a vote,
+        a meeting. <b>The Board Secretary approves. Nothing executes without a human.</b>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <div class="chips">
+        <div class="chip">The AI is the product</div>
+        <div class="chip">Human-in-the-loop approval</div>
+        <div class="chip">Self-hostable</div>
+        <div class="chip">Built by a governance pro</div>
+      </div>
+      <div class="stamp">
+        <div class="tick">✓</div>
+        <div class="lbl">Approved</div>
+        <div class="sub">by Secretary</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

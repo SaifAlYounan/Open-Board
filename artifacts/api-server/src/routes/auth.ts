@@ -3,7 +3,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { db, peopleTable, passwordResetTokensTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { signToken, requireAuth } from "../lib/auth";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
@@ -72,7 +72,7 @@ router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): 
 
   loginAttempts.delete(email);
 
-  const token = signToken({ userId: person.id, email: person.email, role: person.role });
+  const token = signToken({ userId: person.id, email: person.email, role: person.role, tokenVersion: person.tokenVersion });
   const { passwordHash: _, ...safeUser } = person;
 
   const isProd = process.env.NODE_ENV === "production";
@@ -96,7 +96,7 @@ router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
 
 router.get("/auth/refresh", requireAuth, async (req, res): Promise<void> => {
   const person = req.user!;
-  const token = signToken({ userId: person.id, email: person.email, role: person.role });
+  const token = signToken({ userId: person.id, email: person.email, role: person.role, tokenVersion: person.tokenVersion });
 
   const isProd = process.env.NODE_ENV === "production";
   res.cookie("token", token, {
@@ -161,7 +161,11 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await db.update(peopleTable).set({ passwordHash }).where(eq(peopleTable.id, row.personId));
+  // Bumping tokenVersion invalidates every JWT issued before this reset.
+  await db
+    .update(peopleTable)
+    .set({ passwordHash, mustResetPassword: false, tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
+    .where(eq(peopleTable.id, row.personId));
   await db
     .update(passwordResetTokensTable)
     .set({ usedAt: new Date() })
@@ -169,6 +173,50 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 
   audit(req, "password_reset_completed", "person", row.personId, {});
   res.json({ message: "Password reset successfully. You can now log in." });
+});
+
+router.post("/auth/change-password", requireAuth, async (req, res): Promise<void> => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: "currentPassword and newPassword required" });
+    return;
+  }
+  if (typeof newPassword !== "string" || newPassword.length < 12) {
+    res.status(400).json({ error: "Password must be at least 12 characters" });
+    return;
+  }
+
+  const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, req.user!.id));
+  if (!person) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const valid = await bcrypt.compare(currentPassword, person.passwordHash);
+  if (!valid) {
+    res.status(401).json({ error: "Current password is incorrect" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  const [updated] = await db
+    .update(peopleTable)
+    .set({ passwordHash, mustResetPassword: false, tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
+    .where(eq(peopleTable.id, person.id))
+    .returning();
+
+  // Old tokens are now invalid — issue a fresh one so this session continues.
+  const token = signToken({ userId: updated.id, email: updated.email, role: updated.role, tokenVersion: updated.tokenVersion });
+  const isProd = process.env.NODE_ENV === "production";
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+
+  await audit(req, "password_changed", "person", person.id, { email: person.email });
+  res.json({ message: "Password changed successfully" });
 });
 
 router.post("/auth/logout", async (_req, res): Promise<void> => {

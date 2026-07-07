@@ -112,9 +112,9 @@ export default function HowItWorks() {
             How Open Board Works
           </h1>
           <p className="text-[#86868b] text-lg leading-relaxed max-w-2xl">
-            Open Board is an AI-native board governance platform. An AI model — Claude by default, or a local model
-            of your choice — acts as an intelligent secretary that reads your documents, proposes structured governance
-            actions, and executes them the moment you approve. Here is exactly how every part of the system fits together.
+            Open Board is an AI-native board governance platform. Claude acts as an intelligent secretary that reads
+            your documents, proposes structured governance actions, and executes them the moment you approve. Here is
+            exactly how every part of the system fits together.
           </p>
         </div>
 
@@ -124,17 +124,18 @@ export default function HowItWorks() {
             <SectionHeader icon={<Bot size={12} />} label="The AI System" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">The Central AI Pipeline</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Every document uploaded to Open Board is processed by an AI model — Claude (claude-opus-4-6) by default,
-              or a local model of your choice if you prefer to keep all processing on-premises. The AI reads the full
-              text, classifies its intent, and proposes zero or more structured governance actions — never executing
-              anything automatically. A human Secretary reviews every proposal before anything is created.
+              Every document uploaded to Open Board is processed by Claude via the Anthropic API (Claude Opus 4.8 by
+              default; set the <code className="font-mono text-xs">AI_MODEL</code> environment variable to choose a
+              different Claude model). The AI reads the full text, classifies its intent, and proposes zero or more
+              structured governance actions — never executing anything automatically. A human Secretary reviews every
+              proposal before anything is created.
             </p>
           </div>
 
           <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-3">
             <FlowStep icon={<FileText size={15} />} label="Document uploaded by Secretary" sub="PDF, DOCX, XLSX, PPTX, TXT, image" />
             <FlowArrow />
-            <FlowStep icon={<Bot size={15} />} label="AI model reads and classifies the document" sub="Claude by default, or a local model of your choice · Confidence score + action type proposed" accent />
+            <FlowStep icon={<Bot size={15} />} label="Claude reads and classifies the document" sub="Confidence score + action type proposed, each grounded in a quote from the source" accent />
             <FlowArrow />
             <FlowStep icon={<GitBranch size={15} />} label="Pending Action queued for Secretary review" sub="create_meeting · create_vote · create_minutes · create_task · flag_confidential" />
             <FlowArrow />
@@ -274,7 +275,7 @@ export default function HowItWorks() {
                 <p><span className="text-[#1d1d1f] font-medium">Recused Members — </span>Members with a conflict of interest are excluded from the eligible voter pool and cannot vote on that resolution.</p>
                 <p><span className="text-[#1d1d1f] font-medium">Key Approvers — </span>Specific members whose personal approval is required for the resolution to pass, regardless of whether the majority threshold is met.</p>
                 <p><span className="text-[#1d1d1f] font-medium">Auto-close — </span>Once every eligible member has voted, the system automatically evaluates the result, closes the vote, and generates a SHA-256 certificate hash.</p>
-                <p><span className="text-[#1d1d1f] font-medium">Deadline behaviour — </span>Configurable per vote: lapse (no result), extend 7 days, or notify Secretary.</p>
+                <p><span className="text-[#1d1d1f] font-medium">Deadline behaviour — </span>Recorded per vote as the intended policy (lapse, extend, or notify) for the Secretary to apply when a circulation deadline passes.</p>
               </div>
             </div>
           </div>
@@ -423,7 +424,7 @@ export default function HowItWorks() {
               },
               {
                 title: "Self-Hosted & Open Source",
-                detail: "Your data never leaves your infrastructure. The API server and database run entirely under your control. With Claude, the only outbound request is to Anthropic's API using your own key. Swap in a local model and there are zero outbound requests — the system runs fully air-gapped.",
+                detail: "Your data stays on your infrastructure. The API server and database run entirely under your control. The only outbound request is to the Anthropic API, using your own key — and Anthropic does not train on API data. Point AI_INTEGRATIONS_ANTHROPIC_BASE_URL at a self-hosted, Anthropic-compatible gateway to keep even that on-premises.",
               },
             ].map(({ title, detail }) => (
               <div key={title} className="border-b border-[#e5e5e7] last:border-0 pb-5 last:pb-0">
@@ -452,7 +453,7 @@ export default function HowItWorks() {
               { layer: "Frontend", stack: "React 18 + Vite + TypeScript", detail: "Role-based single-page app. TanStack Query for server state. Wouter for routing. Tailwind CSS for styling." },
               { layer: "API Server", stack: "Node.js + Express + TypeScript", detail: "REST API compiled with esbuild. JWT middleware on every protected route. Multer for secure file uploads." },
               { layer: "Database", stack: "PostgreSQL + Drizzle ORM", detail: "Fully relational schema with foreign-key constraints, UUIDs for all primary keys, and timestamped audit rows." },
-              { layer: "AI Layer", stack: "Pluggable AI model", detail: "Ships with Claude (claude-opus-4-6) via Anthropic's API. Swap in any OpenAI-compatible local model — Ollama, LM Studio, vLLM — to keep all processing on-premises. Structured JSON output with confidence scores. No training on your data." },
+              { layer: "AI Layer", stack: "Claude via Anthropic API", detail: "Runs on Claude (Opus 4.8 by default; set AI_MODEL to pick another Claude model). Structured, schema-validated JSON output with confidence scores and source quotes. Point the base URL at an Anthropic-compatible gateway to self-host. Anthropic does not train on your data." },
             ].map(({ layer, stack, detail }) => (
               <div key={layer} className="bg-white border border-[#e5e5e7] rounded-xl p-5">
                 <div className="text-xs font-semibold text-[#0071e3] uppercase tracking-widest mb-1">{layer}</div>

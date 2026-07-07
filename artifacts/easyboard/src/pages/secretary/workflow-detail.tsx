@@ -83,7 +83,7 @@ export default function WorkflowDetail() {
     return (
       <div className="flex min-h-screen bg-[#f5f5f7]">
         <SecretarySidebar />
-        <main className="flex-1 ml-64 p-8 text-[#86868b] text-sm">Loading…</main>
+        <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 p-8 text-[#86868b] text-sm">Loading…</main>
       </div>
     );
   }
@@ -92,7 +92,7 @@ export default function WorkflowDetail() {
     return (
       <div className="flex min-h-screen bg-[#f5f5f7]">
         <SecretarySidebar />
-        <main className="flex-1 ml-64 p-8 text-[#86868b] text-sm">Workflow not found.</main>
+        <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 p-8 text-[#86868b] text-sm">Workflow not found.</main>
       </div>
     );
   }
@@ -103,7 +103,7 @@ export default function WorkflowDetail() {
   return (
     <div className="flex min-h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 p-8">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 p-8">
         <div className="max-w-3xl">
           <Link href="/secretary/workflows">
             <button className="flex items-center gap-1.5 text-sm text-[#86868b] hover:text-[#1d1d1f] mb-6 transition-colors">

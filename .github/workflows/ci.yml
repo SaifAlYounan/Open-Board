@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    # Throwaway Postgres for the integration tests. Unit tests don't need it, but
+    # the *.integration.test.ts suites read DATABASE_URL and run when it's set.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: openboard
+          POSTGRES_PASSWORD: openboard
+          POSTGRES_DB: openboard_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://openboard:openboard@localhost:5432/openboard_test
+      SESSION_SECRET: ci-test-secret-not-for-production
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (all packages)
+        run: pnpm run typecheck
+
+      - name: Check generated API client is in sync with the OpenAPI spec
+        run: |
+          pnpm --filter @workspace/api-spec run codegen
+          if ! git diff --quiet -- lib/api-zod/src/generated lib/api-client-react/src/generated; then
+            echo "::error::Generated API code is out of sync with openapi.yaml. Run 'pnpm --filter @workspace/api-spec run codegen' and commit the result."
+            git --no-pager diff --stat -- lib/api-zod/src/generated lib/api-client-react/src/generated
+            exit 1
+          fi
+
+      - name: Push schema to the test database
+        run: pnpm --filter @workspace/db run push-force
+
+      - name: Test (unit + integration)
+        run: pnpm -r --if-present run test
+
+      - name: Build
+        run: pnpm -r --if-present run build

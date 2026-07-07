@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useLocation } from 'wouter';
+import { useQueryClient } from '@tanstack/react-query';
+import { getListMeetingsQueryKey } from '@workspace/api-client-react';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Plus, Trash2, Calendar, MapPin, Users } from 'lucide-react';
@@ -47,6 +49,11 @@ export default function SecretaryMeetingDetail() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const apiFetch = useCustomFetch();
+  const queryClient = useQueryClient();
+  // This page uses raw fetch + local state, so mutations here must explicitly
+  // invalidate the react-query-backed meetings list or it goes stale on return.
+  const invalidateList = () => queryClient.invalidateQueries({ queryKey: getListMeetingsQueryKey() });
+  const [pendingDeleteAgenda, setPendingDeleteAgenda] = useState<string | null>(null);
 
   const [meeting, setMeeting] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +83,7 @@ export default function SecretaryMeetingDetail() {
         body: JSON.stringify({ status }),
       });
       await refetch();
+      invalidateList();
       toast({ title: 'Status updated' });
     } catch {
       toast({ title: 'Update failed', variant: 'destructive' });
@@ -93,6 +101,7 @@ export default function SecretaryMeetingDetail() {
         body: JSON.stringify(newAgendaItem),
       });
       await refetch();
+      invalidateList();
       setNewAgendaItem({ title: '', type: 'information', description: '' });
       setShowAddAgenda(false);
       toast({ title: 'Agenda item added' });
@@ -107,9 +116,12 @@ export default function SecretaryMeetingDetail() {
     try {
       await apiFetch(`/api/meetings/${id}/agenda/${itemId}`, { method: 'DELETE' });
       await refetch();
+      invalidateList();
       toast({ title: 'Agenda item removed' });
     } catch {
       toast({ title: 'Failed to remove', variant: 'destructive' });
+    } finally {
+      setPendingDeleteAgenda(null);
     }
   };
 
@@ -129,7 +141,7 @@ export default function SecretaryMeetingDetail() {
     return (
       <div className="flex h-screen bg-[#f5f5f7]">
         <SecretarySidebar />
-        <main className="flex-1 ml-64 flex items-center justify-center">
+        <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center">
           <div className="text-[#86868b] text-sm">Loading...</div>
         </main>
       </div>
@@ -140,7 +152,7 @@ export default function SecretaryMeetingDetail() {
     return (
       <div className="flex h-screen bg-[#f5f5f7]">
         <SecretarySidebar />
-        <main className="flex-1 ml-64 flex items-center justify-center">
+        <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 flex items-center justify-center">
           <div className="text-center">
             <div className="text-[#1d1d1f] font-medium mb-2">Meeting not found</div>
             <button onClick={() => setLocation('/secretary/meetings')} className="text-[#0071e3] text-sm hover:underline">
@@ -159,7 +171,7 @@ export default function SecretaryMeetingDetail() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
 
           {/* Back + header */}
@@ -247,10 +259,20 @@ export default function SecretaryMeetingDetail() {
                         <p className="text-xs text-[#86868b] ml-0.5">{item.description}</p>
                       )}
                     </div>
-                    <button onClick={() => handleDeleteAgenda(item.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 text-[#86868b] hover:text-[#ff3b30] transition-all rounded-lg hover:bg-[#ff3b30]/10">
-                      <Trash2 size={14} />
-                    </button>
+                    {pendingDeleteAgenda === item.id ? (
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => handleDeleteAgenda(item.id)}
+                          className="px-2 py-1 text-xs font-medium text-white bg-[#ff3b30] rounded-lg">Delete</button>
+                        <button onClick={() => setPendingDeleteAgenda(null)}
+                          className="px-2 py-1 text-xs font-medium text-[#1d1d1f] bg-white border border-[#e5e5e7] rounded-lg">Cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setPendingDeleteAgenda(item.id)}
+                        aria-label="Remove agenda item"
+                        className="opacity-0 group-hover:opacity-100 p-1.5 text-[#86868b] hover:text-[#ff3b30] transition-all rounded-lg hover:bg-[#ff3b30]/10">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 );
               })}

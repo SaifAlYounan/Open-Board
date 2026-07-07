@@ -9,5 +9,7 @@ export const auditTrailTable = pgTable("audit_trail", {
   entityId: uuid("entity_id"),
   details: jsonb("details"),
   ipAddress: text("ip_address"),
+  // SHA-256 over the previous audit row — tamper-evident hash chain.
+  prevHash: text("prev_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, boardsTable, boardMembershipsTable, peopleTable, organizationsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { audit } from "../lib/auditLog";
 import { sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
 import { sql } from "drizzle-orm";
@@ -134,11 +135,22 @@ router.get("/boards/:id/members", requireAuth, async (req, res): Promise<void> =
   res.json(members);
 });
 
+const VALID_BOARD_ROLES = ["chairperson", "vice_chairperson", "member", "secretary", "observer"];
+
 router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { personId, roleInBoard } = req.body;
-  if (!personId) {
-    res.status(400).json({ error: "personId required" });
+  if (!personId || typeof personId !== "string" || !/^[0-9a-f-]{36}$/i.test(personId)) {
+    res.status(400).json({ error: "personId must be a valid UUID" });
+    return;
+  }
+  if (roleInBoard != null && !VALID_BOARD_ROLES.includes(roleInBoard)) {
+    res.status(400).json({ error: `Invalid roleInBoard. Must be one of: ${VALID_BOARD_ROLES.join(", ")}` });
+    return;
+  }
+  const [person] = await db.select({ id: peopleTable.id }).from(peopleTable).where(eq(peopleTable.id, personId));
+  if (!person) {
+    res.status(404).json({ error: "Person not found" });
     return;
   }
 
@@ -147,6 +159,7 @@ router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): 
     .values({ boardId, personId, roleInBoard: roleInBoard || "member" })
     .onConflictDoNothing();
 
+  await audit(req, "board_member_added", "board", boardId, { personId, roleInBoard: roleInBoard || "member" });
   res.status(201).json({ ok: true });
 });
 
@@ -158,7 +171,6 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
     res.status(400).json({ error: "roleInBoard required" });
     return;
   }
-  const VALID_BOARD_ROLES = ["chairperson", "vice_chairperson", "member", "secretary", "observer"];
   if (!VALID_BOARD_ROLES.includes(roleInBoard)) {
     res.status(400).json({ error: `Invalid roleInBoard. Must be one of: ${VALID_BOARD_ROLES.join(", ")}` });
     return;
@@ -172,6 +184,7 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
         eq(boardMembershipsTable.personId, personId)
       )
     );
+  await audit(req, "board_member_role_changed", "board", boardId, { personId, roleInBoard });
   res.json({ ok: true });
 });
 
@@ -186,6 +199,7 @@ router.delete("/boards/:id/members/:personId", requireAuth, requireAdmin, async 
         eq(boardMembershipsTable.personId, personId)
       )
     );
+  await audit(req, "board_member_removed", "board", boardId, { personId });
   res.sendStatus(204);
 });
 

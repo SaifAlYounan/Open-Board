@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
+import { QueryState } from '@/components/QueryState';
 import { useListMeetings, useCreateMeeting, useListBoards, getListMeetingsQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -15,7 +16,7 @@ const AGENDA_TYPES = [
 interface AgendaItem { title: string; type: string; description: string; }
 
 export default function SecretaryMeetings() {
-  const { data: meetings, isLoading } = useListMeetings();
+  const { data: meetings, isLoading, isError, refetch } = useListMeetings();
   const { data: boards } = useListBoards();
   const [showCreate, setShowCreate] = useState(false);
   const queryClient = useQueryClient();
@@ -54,7 +55,7 @@ export default function SecretaryMeetings() {
         description: a.description || undefined,
       })),
     };
-    createMeeting.mutate({ data: payload }, {
+    createMeeting.mutate({ data: payload as any }, {
       onSuccess: () => {
         toast({ title: 'Meeting created' });
         queryClient.invalidateQueries({ queryKey: getListMeetingsQueryKey() });
@@ -73,7 +74,7 @@ export default function SecretaryMeetings() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -190,7 +191,7 @@ export default function SecretaryMeetings() {
             </div>
           )}
 
-          {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading meetings...</div>}
+          <QueryState isLoading={isLoading} isError={isError} onRetry={refetch} label="meetings" />
 
           <div className="space-y-3">
             {(meetings as any[] || []).map((meeting: any) => (
@@ -226,7 +227,7 @@ export default function SecretaryMeetings() {
                 </div>
               </button>
             ))}
-            {!isLoading && (!meetings || (meetings as any[]).length === 0) && (
+            {!isLoading && !isError && (!meetings || (meetings as any[]).length === 0) && (
               <div className="text-center py-16 text-[#86868b] text-sm">No meetings yet. Create one to get started.</div>
             )}
           </div>

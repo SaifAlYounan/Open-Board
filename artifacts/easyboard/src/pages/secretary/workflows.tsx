@@ -60,7 +60,7 @@ export default function SecretaryWorkflows() {
   return (
     <div className="flex min-h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 p-8">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 p-8">
         <div className="max-w-4xl">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 bg-[#0071e3]/10 rounded-xl flex items-center justify-center">

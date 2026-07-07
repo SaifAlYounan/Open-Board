@@ -19,6 +19,8 @@ import { audit } from "../lib/auditLog";
 import { writeLimiter } from "../lib/rateLimiters";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const AGENDA_TYPES = ["information", "discussion", "decision"] as const;
+type AgendaType = (typeof AGENDA_TYPES)[number];
 const router = Router();
 
 router.param("id", (_req, res, next, id) => {
@@ -119,7 +121,7 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
 
 router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const body = pick(req.body, ["boardId", "title", "date", "location", "agendaItems"] as (keyof typeof req.body)[]);
-  const { boardId, title, date, location, agendaItems } = body as { boardId?: string; title?: string; date?: string; location?: string; agendaItems?: { position: number; title: string; type: string; description?: string }[] };
+  const { boardId, title, date, location, agendaItems } = body as { boardId?: string; title?: string; date?: string; location?: string; agendaItems?: { position: number; title: string; type: AgendaType; description?: string }[] };
   if (!boardId || !title || !date) {
     res.status(400).json({ error: "Required: boardId, title, date" });
     return;
@@ -133,14 +135,14 @@ router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, re
     .values({ boardId, title: cleanTitle, date: new Date(date), location: cleanLocation })
     .returning();
 
-  // Create agenda items
+  // Create agenda items — coerce unknown types to a safe default rather than crashing on insert
   if (agendaItems?.length) {
     await db.insert(agendaItemsTable).values(
       agendaItems.map((item) => ({
         meetingId: meeting.id,
         position: item.position,
         title: sanitizeText(item.title),
-        type: item.type,
+        type: (AGENDA_TYPES.includes(item.type) ? item.type : "information") as AgendaType,
         description: item.description ? sanitizeText(item.description) : undefined,
       }))
     );
@@ -250,7 +252,7 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
     return;
   }
 
-  const VALID_AGENDA_TYPES = ["discussion", "decision", "information", "approval", "other"];
+  const VALID_AGENDA_TYPES = ["information", "discussion", "decision"];
   if (!VALID_AGENDA_TYPES.includes(type)) {
     res.status(400).json({ error: `Invalid agenda item type. Must be one of: ${VALID_AGENDA_TYPES.join(", ")}` });
     return;
@@ -261,7 +263,7 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
 
   const [item] = await db
     .insert(agendaItemsTable)
-    .values({ meetingId: id, position, title: sanitizeText(title), type, description: description ? sanitizeText(description) : undefined })
+    .values({ meetingId: id, position, title: sanitizeText(title), type: type as AgendaType, description: description ? sanitizeText(description) : undefined })
     .returning();
 
   res.status(201).json(item);

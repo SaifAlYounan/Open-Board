@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, jsonb, boolean } from "drizzle-orm/pg-core";
 import { boardsTable } from "./boards";
 import { peopleTable } from "./people";
 
@@ -11,6 +11,8 @@ export const documentsTable = pgTable("documents", {
   fileSize: integer("file_size"),
   mimeType: text("mime_type").default("application/pdf"),
   aiClassification: jsonb("ai_classification"),
+  confidential: boolean("confidential").notNull().default(false),
+  confidentialNote: text("confidential_note"),
   uploadedBy: uuid("uploaded_by").references(() => peopleTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

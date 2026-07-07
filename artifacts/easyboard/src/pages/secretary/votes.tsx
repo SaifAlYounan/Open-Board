@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { SecretarySidebar } from '@/components/SecretarySidebar';
+import { QueryState } from '@/components/QueryState';
 import {
   useListVotes,
   useCreateVote,
@@ -22,7 +23,7 @@ const RULE_PRESETS = [
 ];
 
 export default function SecretaryVotes() {
-  const { data: votes, isLoading } = useListVotes();
+  const { data: votes, isLoading, isError, refetch } = useListVotes();
   const { data: boards } = useListBoards();
   const [showCreate, setShowCreate] = useState(false);
   const [, setLocation] = useLocation();
@@ -45,7 +46,7 @@ export default function SecretaryVotes() {
     secret: false,
   });
 
-  const { data: boardMembers } = useGetBoardMembers(form.boardId, { query: { enabled: !!form.boardId } });
+  const { data: boardMembers } = useGetBoardMembers(form.boardId, { query: { enabled: !!form.boardId } as any });
 
   const toggleRecusal = (personId: string) => {
     setForm((prev) => ({
@@ -86,14 +87,14 @@ export default function SecretaryVotes() {
         deadline: form.deadline || undefined,
         secret: form.secret,
         approvalRule: {
-          type: form.ruleType,
+          type: form.ruleType as any,
           minApprovals: form.customMinApprovals ? parseInt(form.customMinApprovals) : undefined,
           quorum: form.customQuorum ? parseInt(form.customQuorum) : undefined,
-          deadlineBehavior: form.deadlineBehavior,
+          deadlineBehavior: form.deadlineBehavior as any,
           recusedIds: form.recusedIds.length > 0 ? form.recusedIds : undefined,
           requiredVoterIds: form.requiredVoterIds.length > 0 ? form.requiredVoterIds : undefined,
         }
-      }
+      } as any
     }, {
       onSuccess: () => {
         toast({ title: 'Vote created' });
@@ -114,7 +115,7 @@ export default function SecretaryVotes() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -319,14 +320,17 @@ export default function SecretaryVotes() {
             </div>
           )}
 
-          {isLoading && <div className="text-center py-16 text-[#86868b] text-sm">Loading votes...</div>}
+          <QueryState isLoading={isLoading} isError={isError} onRetry={refetch} label="votes" />
 
           <div className="space-y-3">
-            {(votes as any[] || []).map((vote: any) => (
+            {!isError && (votes as any[] || []).map((vote: any) => (
               <div
                 key={vote.id}
-                className="bg-white rounded-2xl border border-[#e5e5e7] p-5 cursor-pointer hover:border-[#0071e3]/30 hover:shadow-sm transition-all"
+                role="button"
+                tabIndex={0}
+                className="bg-white rounded-2xl border border-[#e5e5e7] p-5 cursor-pointer hover:border-[#0071e3]/30 hover:shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-[#0071e3]/40"
                 onClick={() => setLocation(`/secretary/votes/${vote.id}`)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLocation(`/secretary/votes/${vote.id}`); } }}
                 data-testid={`vote-card-${vote.id}`}
               >
                 <div className="flex items-start justify-between mb-3">

@@ -2,14 +2,14 @@
 
 ## Reporting Vulnerabilities
 
-If you find a security vulnerability in Open Board, **[open an issue](https://github.com/SaifAlYounan/Open Board/issues)**. This is an open-source project — the code is public, the audit results are public, and the known issues are public. There is nothing to hide.
+**For private disclosure, [open a GitHub Security Advisory](https://github.com/SaifAlYounan/Open-Board/security/advisories/new)** ("Report a vulnerability"). This keeps the report confidential until a fix is released and lets us collaborate on it privately.
+
+For non-sensitive issues, you may instead **[open a public issue](https://github.com/SaifAlYounan/Open-Board/issues)** — this is an open-source project, and the code, audit results, and known issues are all public.
 
 Include:
 - Description of the vulnerability
 - Steps to reproduce (or the affected file/line)
 - Impact assessment (what an attacker could do)
-
-If you prefer private disclosure, email: **[redacted]**
 
 **Response time:** We aim to acknowledge within 48 hours and provide a fix timeline within 7 days. All disclosures are credited in the changelog (unless you prefer to remain anonymous).
 
@@ -17,7 +17,7 @@ If you prefer private disclosure, email: **[redacted]**
 
 ## Disclosure Policy
 
-1. **Reporter opens an issue** (or emails if they prefer private disclosure)
+1. **Reporter opens a private security advisory** (or a public issue for non-sensitive matters)
 2. **We acknowledge** within 48 hours
 3. **We assess severity** and agree on a fix timeline
 4. **We develop and test** the fix
@@ -54,8 +54,35 @@ Security does not rely on a single layer:
 | Authorization | Per-entity access control with DB-level uniqueness constraints |
 | Input | sanitize-html (backend), DOMPurify (frontend), Zod schemas, UUID validation |
 | Rate Limiting | Per-IP + per-email on auth, per-user on writes and AI |
-| Data | Full audit trail, SHA-256 integrity hashes on votes and minutes |
+| Data | Hash-chained audit trail (each row carries a SHA-256 of the previous row), SHA-256 integrity hashes on votes and minutes |
+| Sessions | Token versioning — a password change or account deactivation invalidates every outstanding JWT immediately |
+| AI | Every AI-proposed action is validated against a strict Zod schema before it is queued *and* again before it executes; unknown action types are rejected |
 | Infrastructure | No debug endpoints, no source maps, no stack traces in responses |
+
+### Tenancy model
+
+Open Board is **single-organization per deployment**. Each install serves one board
+secretariat; the security boundary within it is **per-board membership** plus the
+per-entity access-control table, enforced on every route. There is no cross-tenant
+isolation because there are no tenants — run a separate deployment (separate database)
+per organization.
+
+### Demo mode
+
+Demo data (20 shared-password users, including an admin) is **only** seeded when
+`DEMO_MODE=true`. A real deployment seeds a single admin with a random one-time password
+printed once to the server log and flagged for immediate reset. Never set `DEMO_MODE=true`
+in production.
+
+### Known residuals (accepted)
+
+- **No password-reset email delivery.** The reset-token flow generates single-use, hashed,
+  1-hour tokens, but there is no mail transport wired in — an operator must relay the token
+  out of band (or an admin can create a new account). Wire up email for a production deploy.
+- **Operator responsibilities.** Application-level controls are defense-in-depth. The
+  durable perimeter for a self-hosted deployment is yours to set: TLS termination, a
+  firewall / reverse-proxy access policy, database credentials and network isolation,
+  and setting `ALLOWED_ORIGIN` to your real front-end origin in production.
 
 ### Data Sovereignty
 

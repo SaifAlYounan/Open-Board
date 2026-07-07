@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { grantDefaultAccess } from "./access";
+import { nextResolutionNumber } from "./numbering";
 
 /**
  * Called after a vote status changes to "approved" or "rejected".
@@ -99,18 +100,12 @@ export async function triggerWorkflowNextStage(voteId: string, newStatus: string
     .from(approvalWorkflowsTable)
     .where(eq(approvalWorkflowsTable.id, stage.workflowId));
 
-  const allVotes = await db.select().from(votesTable);
-  let seqBase = allVotes.length;
-
   for (const nextStage of nextGroupStages) {
-    seqBase += 1;
     const abbrev = nextStage.boardId
       ? (await db.select().from(boardsTable).where(eq(boardsTable.id, nextStage.boardId)))[0]?.abbreviation || "GEN"
       : "GEN";
 
-    const year = new Date().getFullYear();
-    const seq = seqBase.toString().padStart(3, "0");
-    const resNum = `RES-${abbrev}-${year}-${seq}`;
+    const resNum = await nextResolutionNumber(db, abbrev);
 
     const [newVote] = await db
       .insert(votesTable)

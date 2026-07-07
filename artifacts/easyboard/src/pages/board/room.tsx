@@ -71,7 +71,7 @@ export default function BoardRoom() {
   };
 
   const submitVote = (voteId: string, decision: string, comment: string) => {
-    castVote.mutate({ id: voteId, data: { decision, comment } }, {
+    castVote.mutate({ id: voteId, data: { decision: decision as any, comment } }, {
       onSuccess: () => {
         toast({ title: 'Vote cast', description: `Your vote: ${decision.replace(/_/g, ' ')}` });
         setSubmittedVotes((prev) => ({ ...prev, [voteId]: { decision, votedAt: new Date().toISOString(), comment: comment || undefined } }));

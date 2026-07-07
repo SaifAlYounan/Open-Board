@@ -26,7 +26,7 @@ export default function MinutesSigning() {
   const hasSigned = m?.hasSigned || !!myExistingSig || !!justSigned;
 
   const handleSign = () => {
-    signMinutes.mutate({ id, data: {} }, {
+    signMinutes.mutate({ id }, {
       onSuccess: (res: any) => {
         toast({ title: 'Minutes signed', description: 'Your signature has been recorded.' });
         setJustSigned({ hash: res.signatureHash, signedAt: res.signedAt || new Date().toISOString() });

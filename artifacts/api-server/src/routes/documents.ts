@@ -2,8 +2,6 @@ import { Router } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { execFile } from "child_process";
-import { promisify } from "util";
 import {
   db,
   documentsTable,
@@ -15,15 +13,12 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
+import { validateActionData, type ClassifyResponse } from "../lib/aiSchemas";
+import { extractText, truncateText, UPLOADS_DIR } from "../lib/extractText";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
-
-const execFileAsync = promisify(execFile);
-
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const upload = multer({
   dest: UPLOADS_DIR,
@@ -39,79 +34,79 @@ const upload = multer({
   },
 });
 
-async function extractTextFromPdf(filePath: string): Promise<string> {
-  // Validate the file path is within the uploads directory (L3)
-  const resolvedPath = path.resolve(filePath);
-  const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
-  if (!resolvedPath.startsWith(resolvedUploadsDir + path.sep) && resolvedPath !== resolvedUploadsDir) {
-    throw new Error("Invalid file path: outside uploads directory");
+/**
+ * Extract → classify → store classification → queue validated pending actions.
+ * Every failure path writes a structured error into aiClassification so the
+ * frontend polling can show the real state (never a silent timeout).
+ */
+async function classifyDocument(docId: string, filePath: string, mimeType: string, originalName: string, userId: string, role: string): Promise<void> {
+  const extraction = await extractText(filePath, mimeType, originalName);
+  if (!extraction.ok) {
+    await db
+      .update(documentsTable)
+      .set({ aiClassification: { error: "extraction_failed", message: extraction.error } })
+      .where(eq(documentsTable.id, docId));
+    return;
   }
 
-  // Primary: pdftotext (available in development / Linux environments with poppler)
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      "pdftotext",
-      ["-layout", "-enc", "UTF-8", filePath, "-"],
-      { maxBuffer: 50 * 1024 * 1024 }
+  const { text: truncated, truncated: wasTruncated } = truncateText(extraction.text);
+  const dbContext = await getDatabaseContext(userId, role);
+  const userContent = `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`;
+
+  const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, userContent);
+
+  if (!result.success || !result.data) {
+    await db
+      .update(documentsTable)
+      .set({ aiClassification: { error: result.error || "unknown", message: result.message || "Classification failed." } })
+      .where(eq(documentsTable.id, docId));
+    return;
+  }
+
+  const classified = result.data as ClassifyResponse;
+  const validActions: Array<{ actionType: string; actionData: Record<string, unknown> }> = [];
+  const skipped: string[] = [];
+
+  for (const action of classified.proposed_actions ?? []) {
+    const actionData = {
+      ...(action.details ?? {}),
+      description: action.description,
+      source_quote: action.source_quote ?? undefined,
+      confidence: classified.confidence,
+    };
+    const validation = validateActionData(action.action_type, actionData);
+    if (validation.ok) {
+      validActions.push({ actionType: action.action_type, actionData: validation.data });
+    } else {
+      skipped.push(`${action.action_type}: ${validation.error}`);
+      logger.warn({ docId, actionType: action.action_type, error: validation.error }, "[ai] skipped invalid proposed action");
+    }
+  }
+
+  await db
+    .update(documentsTable)
+    .set({
+      aiClassification: {
+        ...classified,
+        truncated: wasTruncated || undefined,
+        skipped_actions: skipped.length ? skipped : undefined,
+      } as any,
+    })
+    .where(eq(documentsTable.id, docId));
+
+  if (validActions.length) {
+    await db.insert(pendingActionsTable).values(
+      validActions.map((a) => ({
+        documentId: docId,
+        actionType: a.actionType as any,
+        actionData: a.actionData,
+        status: "pending" as const,
+      }))
     );
-    if (stderr) logger.warn({ stderr: stderr.slice(0, 200) }, "[pdf] pdftotext stderr");
-    const extracted = stdout?.trim() ?? "";
-    if (extracted.length > 0) {
-      logger.info({ chars: extracted.length }, "[pdf] pdftotext extracted text");
-      return stdout;
-    }
-  } catch (err) {
-    const msg = (err as NodeJS.ErrnoException).code === "ENOENT"
-      ? "pdftotext not found in PATH — using pdf-parse fallback"
-      : `pdftotext failed: ${(err as Error).message}`;
-    logger.warn(`[pdf] ${msg}`);
   }
 
-  // Fallback: pdf-parse v1 (pure JS, works in any Node.js environment)
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfParse = (globalThis as any).require("pdf-parse") as (buf: Buffer, opts?: Record<string, unknown>) => Promise<{ text: string }>;
-    const buffer = fs.readFileSync(filePath);
-    const data = await pdfParse(buffer, { max: 0 });
-    const extracted = data.text?.trim() ?? "";
-    if (extracted.length > 0) {
-      logger.info({ chars: extracted.length }, "[pdf] pdf-parse extracted text");
-      return data.text;
-    }
-    logger.warn("[pdf] pdf-parse returned empty — PDF may be image-only or encrypted");
-  } catch (err) {
-    logger.error({ err }, "[pdf] pdf-parse failed");
-  }
-
-  return "";
-}
-
-async function extractText(filePath: string, mimeType: string, originalName: string): Promise<string> {
-  const ext = path.extname(originalName).toLowerCase();
-  try {
-    if (ext === ".txt" || mimeType === "text/plain") {
-      return fs.readFileSync(filePath, "utf-8");
-    }
-    if (ext === ".pdf" || mimeType === "application/pdf") {
-      const text = await extractTextFromPdf(filePath);
-      if (text) return text;
-      return "Could not extract text from this PDF. The file may be scanned/image-only or encrypted.";
-    }
-    if (ext === ".docx") {
-      const mammoth = await import("mammoth");
-      const result = await mammoth.extractRawText({ path: filePath });
-      if (result.value) return result.value;
-    }
-  } catch (err) {
-    logger.error({ err }, "[extractText] unexpected error");
-  }
-  return "Could not extract text from document.";
-}
-
-function truncateText(text: string, maxChars = 48000): string {
-  if (text.length <= maxChars) return text;
-  const half = maxChars / 2;
-  return text.slice(0, half) + "\n...[truncated]...\n" + text.slice(-half);
+  // Board assignment happens when Secretary approves AI-proposed actions.
+  // No automatic access grant here — prevents prompt injection via document content.
 }
 
 const router = Router();
@@ -177,46 +172,20 @@ router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => 
   res.json({ document: doc, classifying: !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) });
   audit(req, "document_uploaded", "document", doc.id, { filename: originalname, fileSize: size });
 
-  // AI Classification runs in background (fire-and-forget)
+  // AI Classification runs in background; classifyDocument records every
+  // failure into aiClassification so the client polling sees the real state.
   const hasAI = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
   if (hasAI) {
     setImmediate(async () => {
       try {
-        const text = await extractText(filePath, mimetype, originalname);
-        const truncated = truncateText(text);
-        const dbContext = await getDatabaseContext(user.id, user.role);
-        const userContent = `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`;
-
-        const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, userContent);
-
-        if (result.success && result.data) {
-          await db
-            .update(documentsTable)
-            .set({ aiClassification: result.data as any })
-            .where(eq(documentsTable.id, doc.id));
-
-          const classified = result.data as {
-            proposed_actions?: Array<{ action_type: string; description: string; details: unknown }>;
-            confidence?: number;
-          };
-          if (classified.proposed_actions?.length) {
-            await db
-              .insert(pendingActionsTable)
-              .values(
-                classified.proposed_actions.map((action) => ({
-                  documentId: doc.id,
-                  actionType: action.action_type as any,
-                  actionData: { ...(action.details as object), description: action.description, confidence: classified.confidence },
-                  status: "pending" as const,
-                }))
-              );
-          }
-
-          // Board assignment happens when Secretary approves AI-proposed actions.
-          // No automatic access grant here — prevents prompt injection via document content.
-        }
+        await classifyDocument(doc.id, filePath, mimetype, originalname, user.id, user.role);
       } catch (err: any) {
-        logger.warn({ err: err?.message }, "[ai] background classification failed — document already stored");
+        logger.error({ err: err?.message, docId: doc.id }, "[ai] background classification crashed");
+        await db
+          .update(documentsTable)
+          .set({ aiClassification: { error: "unknown", message: "Classification failed unexpectedly. Use Retry Classification." } })
+          .where(eq(documentsTable.id, doc.id))
+          .catch(() => {});
       }
     });
   }
@@ -457,22 +426,22 @@ router.post("/documents/:id/reclassify", requireAuth, requireAdmin, writeLimiter
     return;
   }
 
-  const text = await extractText(doc.filePath, doc.mimeType || "text/plain", doc.filename);
-  const truncated = truncateText(text);
   const reclassifyUser = req.user!;
-  const dbContext = await getDatabaseContext(reclassifyUser.id, reclassifyUser.role);
-  const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`);
-
-  if (result.success && result.data) {
-    const [updatedDoc] = await db
-      .update(documentsTable)
-      .set({ aiClassification: result.data as any })
-      .where(eq(documentsTable.id, id))
-      .returning();
-    res.json(updatedDoc);
-  } else {
-    res.json({ ...doc, classificationError: result.message });
+  try {
+    await classifyDocument(id, doc.filePath, doc.mimeType || "text/plain", doc.filename, reclassifyUser.id, reclassifyUser.role);
+  } catch (err: any) {
+    logger.error({ err: err?.message, docId: id }, "[ai] reclassification crashed");
+    res.status(500).json({ error: "Reclassification failed — see server logs" });
+    return;
   }
+
+  const [updatedDoc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
+  const classification = updatedDoc?.aiClassification as { error?: string; message?: string } | null;
+  if (classification?.error) {
+    res.json({ ...updatedDoc, classificationError: classification.message });
+    return;
+  }
+  res.json(updatedDoc);
 });
 
 export default router;

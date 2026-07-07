@@ -97,7 +97,7 @@ export default function SecretaryDocuments() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-8">
           <div>
             <h1 className="text-2xl font-semibold text-[#1d1d1f]">Documents</h1>

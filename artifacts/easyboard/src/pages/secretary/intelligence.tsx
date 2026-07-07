@@ -680,7 +680,7 @@ export default function Intelligence() {
   const [showFullGraph, setShowFullGraph] = useState(false);
   const [fullGraphData, setFullGraphData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/boards?limit=100`, { credentials: "include" })
@@ -771,7 +771,7 @@ export default function Intelligence() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-hidden flex flex-col">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-hidden flex flex-col">
         <div className="px-8 py-5 border-b border-[#e5e5e7] bg-white">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">

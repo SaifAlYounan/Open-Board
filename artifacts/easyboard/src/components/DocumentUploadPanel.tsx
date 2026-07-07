@@ -12,6 +12,8 @@ export function DocumentUploadPanel() {
   const [error, setError] = useState<string | null>(null);
   const [classifying, setClassifying] = useState(false);
   const [classification, setClassification] = useState<any>(null);
+  const [lastDocId, setLastDocId] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -41,7 +43,14 @@ export function DocumentUploadPanel() {
         if (doc.aiClassification) {
           stopPolling();
           setClassifying(false);
-          setClassification(doc.aiClassification);
+          // The classifier writes {error, message} on failure — surface it, don't
+          // treat it as a successful classification.
+          if (doc.aiClassification.error) {
+            setError(doc.aiClassification.message || 'Classification failed. You can retry from the Documents page.');
+            setLastDocId(doc.id);
+          } else {
+            setClassification(doc.aiClassification);
+          }
           // Refresh pending actions count after AI creates them
           queryClient.invalidateQueries({ queryKey: getListPendingActionsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
@@ -192,6 +201,39 @@ export function DocumentUploadPanel() {
               </span>
               <input ref={fileInputRef} type="file" className="hidden" onChange={onFileChange} accept=".pdf,.docx,.txt" data-testid="input-file-upload" />
             </label>
+          </div>
+        )}
+
+        {error && lastDocId && (
+          <div className="mt-4">
+            <Button
+              variant="outline"
+              disabled={retrying}
+              onClick={async () => {
+                setRetrying(true);
+                setError(null);
+                try {
+                  const r = await fetch(`/api/documents/${lastDocId}/reclassify`, { method: "POST", credentials: "include" });
+                  const doc = await r.json();
+                  if (doc.classificationError) {
+                    setError(doc.classificationError);
+                  } else if (doc.aiClassification && !doc.aiClassification.error) {
+                    setClassification(doc.aiClassification);
+                    setLastDocId(null);
+                    queryClient.invalidateQueries({ queryKey: getListPendingActionsQueryKey() });
+                    queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+                  } else {
+                    setError(doc.aiClassification?.message || "Classification failed again.");
+                  }
+                } catch {
+                  setError("Retry failed — please try again.");
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+            >
+              {retrying ? "Retrying…" : "Retry Classification"}
+            </Button>
           </div>
         )}
 

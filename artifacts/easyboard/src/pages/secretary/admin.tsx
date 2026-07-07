@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { SecretarySidebar } from "@/components/SecretarySidebar";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { useListPeople, useListBoards, useGetBoard } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPeopleQueryKey, getListBoardsQueryKey, getGetBoardQueryKey } from "@workspace/api-client-react";
@@ -310,20 +311,28 @@ function PeopleTab() {
                           >
                             <Pencil size={14} />
                           </button>
-                          <button
-                            onClick={() => toggleActive(person)}
-                            className={cn(
-                              "p-1.5 rounded-lg transition-colors",
-                              isActive
-                                ? "text-[#ff3b30] hover:bg-[#ff3b3015]"
-                                : "text-[#34c759] hover:bg-[#34c75915]"
-                            )}
-                            title={isActive ? "Deactivate" : "Activate"}
-                            aria-label={isActive ? "Deactivate person" : "Activate person"}
-                            data-testid={`toggle-active-${person.id}`}
-                          >
-                            {isActive ? <UserX size={14} /> : <UserCheck size={14} />}
-                          </button>
+                          {isActive ? (
+                            <ConfirmButton
+                              onConfirm={() => toggleActive(person)}
+                              title="Deactivate this account?"
+                              description={`${person.name} will be signed out immediately and won't be able to log in until reactivated.`}
+                              confirmLabel="Deactivate"
+                              ariaLabel="Deactivate person"
+                              className="p-1.5 rounded-lg transition-colors text-[#ff3b30] hover:bg-[#ff3b3015]"
+                            >
+                              <UserX size={14} />
+                            </ConfirmButton>
+                          ) : (
+                            <button
+                              onClick={() => toggleActive(person)}
+                              className="p-1.5 rounded-lg transition-colors text-[#34c759] hover:bg-[#34c75915]"
+                              title="Activate"
+                              aria-label="Activate person"
+                              data-testid={`toggle-active-${person.id}`}
+                            >
+                              <UserCheck size={14} />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
@@ -354,7 +363,7 @@ function BoardMembersTab() {
   const selectedBoard = boardList.find((b: any) => b.id === selectedBoardId);
 
   const { data: boardDetail, isLoading: membersLoading } = useGetBoard(selectedBoardId || "", {
-    query: { enabled: !!selectedBoardId },
+    query: { enabled: !!selectedBoardId } as any,
   });
 
   const members = (boardDetail as any)?.members || [];
@@ -547,14 +556,16 @@ function BoardMembersTab() {
                             </span>
                           </td>
                           <td className="px-6 py-3 text-right">
-                            <button
-                              onClick={() => removeMember(m.personId)}
+                            <ConfirmButton
+                              onConfirm={() => removeMember(m.personId)}
+                              title="Remove from board?"
+                              description="This person will lose access to this board's meetings, votes, and documents. You can re-add them later."
+                              confirmLabel="Remove"
+                              ariaLabel="Remove from board"
                               className="p-1.5 rounded-lg text-[#ff3b30] hover:bg-[#ff3b3015] transition-colors"
-                              title="Remove from board"
-                              aria-label="Remove from board"
                             >
                               <Trash2 size={13} />
-                            </button>
+                            </ConfirmButton>
                           </td>
                         </tr>
                       );
@@ -770,7 +781,7 @@ function AuditTab() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
-                          <Icon size={12} style={{ color: actionMeta.color }} />
+                          <span style={{ color: actionMeta.color }}><Icon size={12} /></span>
                           <span className="text-xs font-medium text-[#1d1d1f]">{row.actionLabel || row.action}</span>
                         </div>
                       </td>
@@ -796,7 +807,8 @@ function SystemTab() {
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [password, setPassword] = useState("");
-  const passwordCorrect = password === "0000";
+  // The server verifies the admin's real password — the client only requires a non-empty entry.
+  const canSubmit = password.length > 0;
 
   async function handleReset() {
     setLoading(true);
@@ -805,13 +817,14 @@ function SystemTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ confirm: "RESET" }),
+        body: JSON.stringify({ confirm: "RESET", password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Reset failed");
       await queryClient.invalidateQueries();
       toast({ title: "Data reset", description: "All transactional data has been cleared." });
       setConfirming(false);
+      setPassword("");
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -875,14 +888,14 @@ function SystemTab() {
                   placeholder="Admin password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && passwordCorrect && !loading && handleReset()}
+                  onKeyDown={e => e.key === "Enter" && canSubmit && !loading && handleReset()}
                   className="w-48 px-3 py-2 text-sm border border-[#e5e5e7] rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#ff3b30]/30"
                   autoFocus
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={handleReset}
-                    disabled={loading || !passwordCorrect}
+                    disabled={loading || !canSubmit}
                     className="flex items-center gap-2 px-4 py-2 bg-[#ff3b30] text-white text-sm font-medium rounded-xl hover:bg-[#d93025] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {loading ? "Resetting..." : "Yes, Reset Everything"}
@@ -919,7 +932,7 @@ export default function SecretaryAdmin() {
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
       <SecretarySidebar />
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className="flex-1 lg:ml-64 pt-14 lg:pt-0 overflow-y-auto">
         <div className="max-w-5xl mx-auto p-8 space-y-6">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-[#5856d6] text-white rounded-xl flex items-center justify-center">

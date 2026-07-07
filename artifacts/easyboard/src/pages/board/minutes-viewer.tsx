@@ -103,7 +103,7 @@ export default function MinutesViewer() {
   };
 
   const handleDismissComment = (commentId: string) => {
-    resolveComment.mutate({ id, commentId, data: { status: 'dismissed' } }, {
+    resolveComment.mutate({ id, commentId, data: { status: 'dismissed' as any } }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetMinutesCommentsQueryKey(id) });
         toast({ title: 'Comment dismissed' });

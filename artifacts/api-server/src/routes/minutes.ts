@@ -251,6 +251,7 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
     return;
   }
 
+  await audit(req, "minutes_content_updated", "minutes", id, { contentLength: String(content).length });
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
