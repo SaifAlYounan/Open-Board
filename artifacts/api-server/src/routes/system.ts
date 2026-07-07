@@ -24,6 +24,9 @@ import {
   meetingsTable,
   documentsTable,
   accessControlTable,
+  boardsTable,
+  boardMembershipsTable,
+  auditTrailTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -41,6 +44,44 @@ router.get("/organization", requireAuth, async (_req, res): Promise<void> => {
     name: org?.name || "Open Board",
     version: process.env.APP_VERSION || "3.0.0",
   });
+});
+
+// Full governance-data export — a board must be able to take its records with it.
+// Admin-only; returns a single JSON bundle (people are included without password
+// hashes). Downloaded as an attachment.
+router.get("/system/export", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const [org] = await db.select().from(organizationsTable).limit(1);
+  const people = (await db.select().from(peopleTable)).map(({ passwordHash: _p, ...rest }) => rest);
+
+  const bundle = {
+    exportedAt: new Date().toISOString(),
+    schemaVersion: process.env.APP_VERSION || "3.0.0",
+    organization: org ?? null,
+    people,
+    boards: await db.select().from(boardsTable),
+    boardMemberships: await db.select().from(boardMembershipsTable),
+    meetings: await db.select().from(meetingsTable),
+    agendaItems: await db.select().from(agendaItemsTable),
+    attendance: await db.select().from(attendanceTable),
+    votes: await db.select().from(votesTable),
+    voteRecords: await db.select().from(voteRecordsTable),
+    approvalRules: await db.select().from(approvalRulesTable),
+    minutes: await db.select().from(minutesTable),
+    minutesSignatures: await db.select().from(minutesSignaturesTable),
+    minutesComments: await db.select().from(minutesSuggestionsTable),
+    tasks: await db.select().from(tasksTable),
+    taskEvidence: await db.select().from(taskEvidenceTable),
+    documents: await db.select().from(documentsTable),
+    workflows: await db.select().from(approvalWorkflowsTable),
+    workflowStages: await db.select().from(workflowStagesTable),
+    auditTrail: await db.select().from(auditTrailTable),
+  };
+
+  await audit(req, "data_exported", undefined, undefined, { by: req.user?.email });
+  const filename = `open-board-export-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(JSON.stringify(bundle, null, 2));
 });
 
 router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): Promise<void> => {

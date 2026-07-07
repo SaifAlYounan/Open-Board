@@ -2,7 +2,13 @@
 
 ## Reporting Vulnerabilities
 
+The canonical repository is **[github.com/SaifAlYounan/Open-Board](https://github.com/SaifAlYounan/Open-Board)**.
+
 **For private disclosure, [open a GitHub Security Advisory](https://github.com/SaifAlYounan/Open-Board/security/advisories/new)** ("Report a vulnerability"). This keeps the report confidential until a fix is released and lets us collaborate on it privately.
+
+If the advisory form is unavailable to you, reach the maintainer privately through their
+[GitHub profile](https://github.com/SaifAlYounan) (start a private conversation / DM) rather than
+filing a public issue.
 
 For non-sensitive issues, you may instead **[open a public issue](https://github.com/SaifAlYounan/Open-Board/issues)** — this is an open-source project, and the code, audit results, and known issues are all public.
 
