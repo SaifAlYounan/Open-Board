@@ -27,7 +27,7 @@ Open Board is a board management platform built by a governance professional, no
 
 Upload draft minutes → the AI extracts action items and proposes creating tasks with assignees and deadlines. Upload a board resolution → the AI proposes a circulation vote with the correct board and quorum rules. The Board Secretary reviews and approves. Everything else follows.
 
-Every proposed action goes through the Secretary's approval queue. Nothing executes without human approval. This is [human-in-the-loop governance](https://human-loop-guide.replit.app) by design.
+Every proposed action goes through the Secretary's approval queue. Nothing executes without human approval. This is human-in-the-loop governance by design.
 
 > **⚠️ This is a beta.** It works. It has rough edges. Features are missing. Bugs exist. It's released early because governance tools need to step up their game. [Open an issue](https://github.com/SaifAlYounan/Open-Board/issues), break things, tell us what's wrong.
 
@@ -35,15 +35,7 @@ Every proposed action goes through the Secretary's approval queue. Nothing execu
 
 ## Quick Start
 
-### Option 1: Run on Replit
-
-[![Run on Replit](https://replit.com/badge/github/SaifAlYounan/Open-Board)](https://replit.com/github/SaifAlYounan/Open-Board)
-
-1. Fork the repo on Replit
-2. Add environment variables (see [Deployment](#deployment))
-3. Click Run
-
-### Option 2: Self-Hosted
+**Requirements:** Node 24+, pnpm, and PostgreSQL 16.
 
 ```bash
 git clone https://github.com/SaifAlYounan/Open-Board.git
@@ -262,7 +254,7 @@ Open Board is designed for organizations that take data sovereignty seriously.
 - **Mandatory JWT secret** — app refuses to start without `SESSION_SECRET`; no hardcoded fallbacks
 
 ### Authentication & Sessions
-- **HttpOnly JWT cookies** — tokens stored exclusively in HttpOnly secure cookies, never in localStorage. **Note:** When deployed on Replit, Replit's platform proxy may rename and strip cookie security flags. The app code sets the flags correctly; this is a Replit platform limitation. Self-hosted deployments are unaffected.
+- **HttpOnly JWT cookies** — tokens stored exclusively in HttpOnly secure cookies, never in localStorage. `Secure` and `SameSite=Strict` are set in production; terminate TLS at your reverse proxy.
 - API accepts `Authorization: Bearer <token>` header for programmatic access
 - JWT refresh endpoint (`/api/auth/refresh`) for session renewal without re-authentication
 - Session restoration endpoint (`/api/auth/me`) for cookie-based session lookups
@@ -310,7 +302,7 @@ Open Board is designed for organizations that take data sovereignty seriously.
 ### Data Integrity
 - **Full audit trail** — every login, logout, password action, document event, and data reset logged with actor ID, entity, timestamp, and client IP
 - **SHA-256 integrity hashes** — checksums on vote results and minutes for change detection
-- **CORS protection** — strict origin validation. Defaults to `*.replit.dev`, `*.replit.app`, and `localhost` (for the Replit template). **For self-hosted or production deployments, set `ALLOWED_ORIGIN` to your actual domain** (e.g., `ALLOWED_ORIGIN=https://board.yourcompany.com`). The Replit defaults do not apply when `ALLOWED_ORIGIN` is set.
+- **CORS protection** — strict origin validation. In development it accepts `localhost` only; in production `ALLOWED_ORIGIN` is **required** (comma-separated allowlist, e.g. `ALLOWED_ORIGIN=https://board.yourcompany.com`) and there is no wildcard fallback.
 - **System reset** requires admin + `{ confirm: "RESET" }` in request body + wrapped in a database transaction (FK-safe delete order)
 - **No CLOUD Act exposure** — when self-hosted, no foreign government can compel a vendor to produce your board documents
 
@@ -325,7 +317,7 @@ For a detailed comparison of open-source vs. proprietary board portal security, 
 - `DATABASE_URL` (required) — PostgreSQL connection string
 - `SESSION_SECRET` (required) — Random 64-character hex string for JWT signing. App refuses to start without it.
 - `ANTHROPIC_API_KEY` (optional) — Enables AI features. App works without it.
-- `ALLOWED_ORIGIN` (optional) — CORS origin whitelist (comma-separated). Defaults to `*.replit.dev`, `*.replit.app`, `localhost`.
+- `ALLOWED_ORIGIN` — CORS origin allowlist (comma-separated). **Required in production**; development defaults to `localhost`.
 - `SEED_PASSWORD` (optional) — Override default demo password.
 - `PORT` (optional) — Default: 3000
 
@@ -356,7 +348,7 @@ A three-lens audit (security / AI pipeline / UX) followed by fixes. Highlights o
 - **AI action validation:** every AI-proposed action is validated against a strict Zod schema **before it is queued and again before it executes**; unknown action types are rejected (closes the mass-assignment sink). Execution is now transactional, resolution/task numbering is race-free (Postgres sequences), and each proposal carries a verbatim source quote for provenance.
 - **Governance integrity:** the pending-action reject endpoint is idempotent; admins can no longer force a vote to approved/rejected (outcomes come from the votes cast); confidentiality flagging is implemented.
 - **Audit trail:** writes are awaited for security-relevant mutations and **hash-chained** (each row carries a SHA-256 of the previous), with the real client IP (`req.ip`) instead of the spoofable `X-Forwarded-For`.
-- **Transport / AI cost:** `ALLOWED_ORIGIN` is required in production (no `*.replit.app` wildcard); a daily AI-call budget cap; input length limits + null-byte stripping.
+- **Transport / AI cost:** `ALLOWED_ORIGIN` is required in production (dev default is localhost-only, no wildcard); a daily AI-call budget cap; input length limits + null-byte stripping.
 - **Engineering:** the entire monorepo now **type-checks, unit-tests (Vitest), and builds** — none of which passed before — with a GitHub Actions CI pipeline (typecheck + spec-drift check + tests + build) and structured outputs on Claude Opus 4.8.
 
 ### Prior posture (Rounds 1–12)
@@ -424,7 +416,7 @@ Documented for transparency.
 - ~~Confidentiality flagging is a silent stub~~ → implemented (marks the document confidential + audit entry).
 - ~~`migrateUpdatePasswords` restart password-wipe + committed `SEED_PASSWORD="0000"`~~ → both removed; demo seeding is gated behind `DEMO_MODE=true`.
 - ~~No server-side JWT invalidation~~ → per-user token version revokes all outstanding JWTs on password change / deactivation.
-- ~~CORS allows any `*.replit.app` subdomain~~ → `ALLOWED_ORIGIN` is required in production; the wildcard is dev-only.
+- ~~CORS allows any `*.replit.app` subdomain~~ → the shared-suffix wildcard fallback was removed; `ALLOWED_ORIGIN` is required in production and dev accepts localhost only.
 - ~~Audit log records proxy IP, not client IP~~ → uses `req.ip` (resolved under `trust proxy`), which can't be spoofed via `X-Forwarded-For`.
 - ~~No character limit on titles / null bytes return 500~~ → text inputs are length-capped (500) and control characters stripped.
 
@@ -439,7 +431,6 @@ Documented for transparency.
 - **Weighted voting and proxy voting** are in the database schema but not implemented in application logic — they are stubs that silently do nothing.
 - **Password-reset email delivery is not wired in.** The reset-token flow generates single-use, hashed, 1-hour tokens, but there is no mail transport — an operator must relay the token out of band (or an admin creates a fresh account). Wire up email for production.
 - **Account lockout is in-memory.** A server restart resets the per-account lockout counters (the password-wipe that used to compound this is gone).
-- **Replit proxy strips cookie security flags.** The app sets HttpOnly/Secure/SameSite correctly, but Replit's platform proxy renames the cookie and strips these flags. Self-hosted deployments behind your own TLS are unaffected.
 - **Open ballots are the default.** Votes are visible to board members unless the Secretary enables "Secret Ballot" on creation.
 - **Vite has flagged npm audit warnings.** All are in Vite, the build tool — it never runs in production. Run `pnpm update` to resolve.
 
@@ -483,7 +474,7 @@ In production, `ALLOWED_ORIGIN` is **required** — set it to your exact fronten
 ```
 ALLOWED_ORIGIN=https://board.yourcompany.com
 ```
-Outside production, the app falls back to accepting `localhost` and `*.replit.dev`/`*.replit.app`.
+Outside production, the app accepts `localhost` only.
 
 ### 5. Enable Trust Proxy
 

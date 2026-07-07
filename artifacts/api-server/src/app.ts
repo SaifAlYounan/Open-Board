@@ -11,9 +11,8 @@ import { readLimiter } from "./lib/rateLimiters";
  * Resolves the allowed origin(s) for CORS.
  *
  * Priority:
- *   1. ALLOWED_ORIGIN env var — explicit list, comma-separated
- *   2. Any *.replit.dev or *.replit.app origin (Replit-hosted only)
- *   3. localhost (development)
+ *   1. ALLOWED_ORIGIN env var — explicit list, comma-separated (required in production)
+ *   2. localhost (development only)
  *
  * External sites are rejected.
  */
@@ -26,17 +25,12 @@ function makeOriginValidator() {
     };
   }
   if (process.env.NODE_ENV === "production") {
-    // Anyone can host on *.replit.dev/app, so a shared-suffix wildcard with
-    // credentials is not acceptable in production — require an explicit list.
+    // In production an explicit origin allowlist is mandatory — no wildcard fallback.
     throw new Error("ALLOWED_ORIGIN environment variable is required in production (comma-separated origin allowlist).");
   }
+  // Development default: localhost only.
   return (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-    if (
-      !origin ||
-      /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
-      /\.replit\.dev$/.test(origin) ||
-      /\.replit\.app$/.test(origin)
-    ) {
+    if (!origin || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
       return cb(null, true);
     }
     cb(new Error(`CORS: origin not allowed — ${origin}`));
@@ -47,8 +41,8 @@ const originValidator = makeOriginValidator();
 
 const app: Express = express();
 
-// Trust exactly one proxy hop — Replit's reverse proxy in production.
-// Assumption: the app always sits directly behind a single load-balancer/proxy.
+// Trust exactly one proxy hop — the app is assumed to sit directly behind a
+// single reverse proxy / load balancer (nginx, Cloudflare, an ALB, etc.).
 // If the deployment topology changes (e.g., multi-hop CDN), update this value.
 // Without this, express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
 // and falls back to incorrect IP identification for all clients.
