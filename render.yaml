@@ -1,0 +1,36 @@
+# Render Blueprint — one-click deploy of Open Board (web service + managed Postgres).
+# https://render.com/docs/blueprint-spec
+#
+# Deploy: push this repo to your GitHub, then in Render → "New" → "Blueprint",
+# pick the repo. Render builds the Dockerfile, provisions Postgres, wires the
+# env, and serves it over HTTPS. Optionally set ANTHROPIC_API_KEY to enable AI.
+services:
+  - type: web
+    name: open-board
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render injects PORT and RENDER_EXTERNAL_URL automatically; the container
+      # entrypoint derives ALLOWED_ORIGIN from RENDER_EXTERNAL_URL.
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: open-board-db
+          property: connectionString
+      - key: ADMIN_EMAIL
+        value: admin@openboard.local
+      - key: ORG_NAME
+        value: My Organization
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+databases:
+  - name: open-board-db
+    databaseName: openboard
+    plan: starter

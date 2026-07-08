@@ -162,12 +162,11 @@ A pnpm monorepo (Node 24, PostgreSQL 16). Seven workspaces:
 | `@workspace/api-client-react` | `lib/api-client-react` | Generated TanStack-Query client. |
 | `@workspace/scripts` | `scripts` | Workspace tooling. |
 
-**Dev topology.** The API (Express, port `PORT`) and the frontend (Vite, port `WEB_PORT`) run as two
-processes; the Vite dev server proxies `/api` and `/socket.io` to the API, so the browser sees one
-origin. **In production the API is API-only — it does not serve the built SPA.** Build the frontend
-(`pnpm --filter @workspace/easyboard build` → `dist/public`) and serve it from a static host or
-reverse proxy that also forwards `/api` to the API server. (Single-process static serving is on the
-[Roadmap](#roadmap), issue [#9](https://github.com/SaifAlYounan/Open-Board/issues/9).)
+**Topology.** In dev, the API (Express, port `PORT`) and the frontend (Vite, port `WEB_PORT`) run as
+two processes; the Vite dev server proxies `/api` and `/socket.io` to the API, so the browser sees one
+origin. **In production a single image serves both** — the API serves the built SPA when `STATIC_DIR`
+points at it (the Docker image sets this), so `docker compose up` needs no separate static host. See
+**[DEPLOY.md](DEPLOY.md)** for the turnkey Docker + automatic-HTTPS path.
 
 **Tech stack.**
 - **Backend:** Node.js, Express 5, PostgreSQL + Drizzle ORM, `@anthropic-ai/sdk`, JWT (HttpOnly
@@ -226,13 +225,23 @@ shipping undocumented.
 | `DEMO_MODE` | No | off | `true` seeds the Meridian demo. **Never in production.** |
 | `SEED_PASSWORD` | Demo only | — | Shared password for demo accounts (required when `DEMO_MODE=true`). |
 
-### Production notes
-- Terminate **TLS at your reverse proxy** and enable **SSL on your PostgreSQL connection** — the app
-  does not do TLS or at-rest encryption itself (at-rest encryption is issue
-  [#16](https://github.com/SaifAlYounan/Open-Board/issues/16)).
-- Use a **managed PostgreSQL** instance and configure backups.
-- Replace local `uploads/` with S3-compatible object storage for durability.
-- Set `ALLOWED_ORIGIN` to your exact frontend origin(s).
+### Deployment
+
+The quickest path — one command, your domain, automatic HTTPS:
+
+```bash
+cp .env.example .env   # set SESSION_SECRET, DOMAIN, ACME_EMAIL, NODE_ENV=production
+docker compose --profile production up -d
+```
+
+That runs PostgreSQL, the app (which serves the SPA + API), and Caddy (auto Let's Encrypt cert). Or run
+`docker compose up -d` locally for `http://localhost:3000`, or one-click deploy on Render. Full guide,
+including the one-click button and "bring your own proxy", in **[DEPLOY.md](DEPLOY.md)**.
+
+Notes: TLS is terminated at the proxy (Caddy, or your own); enable **SSL on PostgreSQL** and use a
+**managed instance with backups** in production; the app has no at-rest encryption itself (issue
+[#16](https://github.com/SaifAlYounan/Open-Board/issues/16)); `uploads/` persists in a Docker volume —
+swap in S3-compatible storage for scale.
 
 ---
 
@@ -275,7 +284,7 @@ Honest list of what's stubbed or unbuilt, each tracked as an issue:
 | [#6](https://github.com/SaifAlYounan/Open-Board/issues/6) | Password-reset email | Token generated; no mail transport |
 | [#7](https://github.com/SaifAlYounan/Open-Board/issues/7) | Account lockout | In-memory only (per-process) |
 | [#8](https://github.com/SaifAlYounan/Open-Board/issues/8) | Frontend real-time | Socket.IO server exists; SPA doesn't subscribe |
-| [#9](https://github.com/SaifAlYounan/Open-Board/issues/9) | Production static serving | API doesn't serve the SPA |
+| ~~[#9](https://github.com/SaifAlYounan/Open-Board/issues/9)~~ | ~~Production static serving~~ | ✅ Shipped — single image serves the SPA; see [DEPLOY.md](DEPLOY.md) |
 | [#10](https://github.com/SaifAlYounan/Open-Board/issues/10) | `GET /meetings` N+1 | Not yet SQL-pushed/batched |
 | [#11](https://github.com/SaifAlYounan/Open-Board/issues/11) | True soft-delete + restore | Only a retention snapshot exists |
 | [#12](https://github.com/SaifAlYounan/Open-Board/issues/12) | Full OpenAPI coverage | ~25 routes undocumented (orval barrel blocker) |

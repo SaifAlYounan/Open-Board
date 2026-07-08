@@ -1,0 +1,10 @@
+# Caddy automatically obtains and renews a Let's Encrypt certificate for {$DOMAIN}
+# and reverse-proxies to the app container. Used by the `production` compose profile.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

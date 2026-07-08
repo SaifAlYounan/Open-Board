@@ -1,0 +1,23 @@
+# Build fresh inside the image — don't ship host artifacts into the build context.
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+
+.git
+.github
+.claude
+
+# Secrets & local data
+.env
+.env.*
+!.env.example
+uploads
+*.pem
+*.key
+
+# Local scratch (not part of the product)
+attached_assets
+*.log
+.DS_Store

@@ -1,29 +1,96 @@
-# PostgreSQL 16 for Open Board local development.
+# Open Board — turnkey deployment.
 #
-#   docker compose up -d db      # start Postgres in the background
-#   cp .env.example .env         # then set SESSION_SECRET
-#   pnpm install
-#   pnpm db:push                 # create the schema
-#   pnpm dev                     # start the API (auto-seeds) + the frontend
+#   Local (http on a port):
+#     cp .env.example .env   # set SESSION_SECRET (openssl rand -hex 32)
+#     docker compose up -d           # → http://localhost:3000
 #
-# The default credentials below match DATABASE_URL in .env.example.
+#   Production (automatic HTTPS for your domain):
+#     in .env set: SESSION_SECRET, NODE_ENV=production, DOMAIN=board.example.com,
+#                  ACME_EMAIL=you@example.com, ALLOWED_ORIGIN=https://board.example.com
+#     docker compose --profile production up -d   # → https://board.example.com
+#
+#   Dev database only (for `pnpm dev`):
+#     docker compose up -d db
+name: open-board
+
 services:
   db:
     image: postgres:16
     restart: unless-stopped
     environment:
       POSTGRES_USER: openboard
-      POSTGRES_PASSWORD: openboard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openboard}
       POSTGRES_DB: openboard
-    ports:
-      - "5432:5432"
     volumes:
-      - openboard-db:/var/lib/postgresql/data
+      - db-data:/var/lib/postgresql/data
+    # Published for the `pnpm dev` flow; harmless for the containerized app.
+    ports:
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openboard"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  app:
+    build: .
+    image: open-board:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://openboard:${POSTGRES_PASSWORD:-openboard}@db:5432/openboard
+      PORT: "3000"
+      # Defaults to development so a local `docker compose up` boots on http with
+      # no extra config. Set NODE_ENV=production (+ ALLOWED_ORIGIN) in .env for the
+      # production profile.
+      NODE_ENV: ${NODE_ENV:-development}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env  (openssl rand -hex 32)}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@openboard.local}
+      ORG_NAME: ${ORG_NAME:-My Organization}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_INTEGRATIONS_ANTHROPIC_API_KEY: ${AI_INTEGRATIONS_ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-claude-opus-4-8}
+      AI_LIGHT_MODEL: ${AI_LIGHT_MODEL:-claude-haiku-4-5-20251001}
+      DEMO_MODE: ${DEMO_MODE:-}
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:3000/api/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # Reverse proxy with automatic HTTPS. Only runs with `--profile production`.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    profiles: ["production"]
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to use the production profile}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
-  openboard-db:
+  db-data:
+  uploads:
+  caddy-data:
+  caddy-config:

@@ -3,6 +3,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
+import path from "path";
+import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { readLimiter } from "./lib/rateLimiters";
@@ -81,6 +83,29 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 app.use("/api", readLimiter);
 app.use("/api", router);
+
+// Optionally serve the built frontend from the API (single-image deployment).
+// When STATIC_DIR points at the SPA build, the API serves its assets and returns
+// index.html for client-side routes, so `docker compose up` needs no separate
+// static host. Unset in dev — the Vite dev server serves the SPA and proxies /api.
+const staticDir = process.env.STATIC_DIR;
+if (staticDir && fs.existsSync(path.join(staticDir, "index.html"))) {
+  // Read index.html once at startup. We serve it with res.send (not res.sendFile)
+  // so it keeps the Content-Security-Policy that helmet set — Express's file
+  // sender otherwise downgrades the CSP to `default-src 'none'`, which would block
+  // the SPA's own scripts/styles.
+  const indexHtml = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
+  app.use(express.static(staticDir, { index: false }));
+  // SPA fallback: a GET that isn't an /api or /socket.io request and doesn't map
+  // to a static file returns index.html, so client-side routing works on deep
+  // links and refreshes. Express 5 rejects the "*" route pattern, hence a guard.
+  app.use((req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    if (req.path.startsWith("/api") || req.path.startsWith("/socket.io")) return next();
+    res.type("html").send(indexHtml);
+  });
+  logger.info({ staticDir }, "Serving frontend static build");
+}
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err?.message?.startsWith("CORS:")) {
