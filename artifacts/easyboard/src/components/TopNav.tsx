@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useAuth, getAvatarInitials } from '@/lib/auth';
 import { useListBoards, useGetAiStatus } from '@workspace/api-client-react';
@@ -17,6 +17,22 @@ export function TopNav({ showBoardSelector = true }: TopNavProps) {
   const [, setLocation] = useLocation();
   const { data: boards } = useListBoards();
   const { data: aiStatus } = useGetAiStatus();
+  const boardMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the board dropdown on outside-click or Escape.
+  useEffect(() => {
+    if (!boardDropdown) return;
+    const onDown = (e: MouseEvent) => {
+      if (boardMenuRef.current && !boardMenuRef.current.contains(e.target as Node)) setBoardDropdown(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setBoardDropdown(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [boardDropdown]);
 
   const handleBoardSelect = (boardId: string) => {
     if (user?.role === 'member') setLocation(`/board/room/${boardId}`);
@@ -36,9 +52,11 @@ export function TopNav({ showBoardSelector = true }: TopNavProps) {
         </Link>
 
         {showBoardSelector && boards && Array.isArray(boards) && boards.length > 0 && (
-          <div className="relative">
+          <div className="relative" ref={boardMenuRef}>
             <button
               onClick={() => setBoardDropdown(!boardDropdown)}
+              aria-haspopup="menu"
+              aria-expanded={boardDropdown}
               className="flex items-center gap-1.5 text-sm text-[#1d1d1f] hover:text-[#0071e3] transition-colors font-medium px-2 py-1 rounded-lg hover:bg-[#f5f5f7]"
             >
               Boards <ChevronDown size={14} />

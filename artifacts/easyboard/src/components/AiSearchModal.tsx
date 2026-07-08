@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAiSearch } from "@workspace/api-client-react";
 import { Search, Loader2, Bot, X } from "lucide-react";
 import { Link } from "wouter";
@@ -13,10 +13,37 @@ export function AiSearchModal({ onClose }: AiSearchModalProps) {
   const [query, setQuery] = useState("");
   const searchMutation = useAiSearch();
   const { user } = useAuth();
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Esc-to-close (a11y). Click-outside is handled on the overlay.
+  // Esc-to-close + focus trap (a11y). Tab cycles within the dialog instead of
+  // escaping to the page behind it. Click-outside is handled on the overlay.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusables = root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (!root.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -36,7 +63,7 @@ export function AiSearchModal({ onClose }: AiSearchModalProps) {
       aria-label="Search the board archive"
       data-testid="modal-ai-search"
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+      <div ref={dialogRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
         <form onSubmit={handleSearch} className="flex items-center gap-3 p-4 border-b border-[#e5e5e7]">
           <Search size={18} className="text-[#86868b] flex-shrink-0" />
           <input
