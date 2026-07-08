@@ -1,204 +1,107 @@
 # Security Policy
 
-## Reporting Vulnerabilities
+Open Board handles board-governance data — minutes, resolutions, votes, and confidential documents.
+Security is a first-class concern. This document explains how to report a vulnerability, what the
+platform does to protect data, and where the current limitations are.
+
+## Reporting a vulnerability
 
 The canonical repository is **[github.com/SaifAlYounan/Open-Board](https://github.com/SaifAlYounan/Open-Board)**.
 
-**For private disclosure, [open a GitHub Security Advisory](https://github.com/SaifAlYounan/Open-Board/security/advisories/new)** ("Report a vulnerability"). This keeps the report confidential until a fix is released and lets us collaborate on it privately.
+**For private disclosure, [open a GitHub Security Advisory](https://github.com/SaifAlYounan/Open-Board/security/advisories/new)**
+("Report a vulnerability"). This keeps the report confidential until a fix is released and lets us
+collaborate on it privately.
 
-If the advisory form is unavailable to you, reach the maintainer privately through their
-[GitHub profile](https://github.com/SaifAlYounan) (start a private conversation / DM) rather than
-filing a public issue.
+If the advisory form is unavailable to you, contact the maintainer privately through their
+[GitHub profile](https://github.com/SaifAlYounan) rather than filing a public issue.
 
-For non-sensitive issues, you may instead **[open a public issue](https://github.com/SaifAlYounan/Open-Board/issues)** — this is an open-source project, and the code, audit results, and known issues are all public.
+For non-sensitive matters you may instead [open a public issue](https://github.com/SaifAlYounan/Open-Board/issues) —
+this is an open-source project and its code, issues, and known gaps are all public.
 
-Include:
-- Description of the vulnerability
-- Steps to reproduce (or the affected file/line)
-- Impact assessment (what an attacker could do)
+Please include:
+- a description of the vulnerability and its impact (what an attacker could do),
+- steps to reproduce, or the affected file/line.
 
-**Response time:** We aim to acknowledge within 48 hours and provide a fix timeline within 7 days. All disclosures are credited in the changelog (unless you prefer to remain anonymous).
+We aim to acknowledge within 48 hours and agree a fix timeline within 7 days. We will not pursue
+researchers acting in good faith.
 
----
+## Disclosure process
 
-## Disclosure Policy
-
-1. **Reporter opens a private security advisory** (or a public issue for non-sensitive matters)
-2. **We acknowledge** within 48 hours
-3. **We assess severity** and agree on a fix timeline
-4. **We develop and test** the fix
-5. **We release the fix** and update the changelog with full details of what was wrong and how it was fixed
-
-We will not take legal action against researchers who report vulnerabilities in good faith.
+1. Reporter opens a private advisory (or a public issue for non-sensitive matters).
+2. We acknowledge and assess severity.
+3. We develop, test, and release a fix.
+4. We credit the reporter (unless they prefer to remain anonymous).
 
 ---
 
-## Security Design Principles
+## What the platform implements
 
-### Human-in-the-Loop by Default
+### Human-in-the-loop
+Every AI-proposed action goes through the Secretary's approval queue. The AI classifies documents and
+proposes actions — it never executes them. Each proposal is validated against a strict Zod schema
+**when it is queued and again when it executes**; unknown action types are rejected.
 
-Every AI-proposed action goes through the Secretary's approval queue. The AI classifies documents and suggests actions — it never executes them autonomously. This is a deliberate architectural choice: in board governance, no automated system should make decisions without human oversight.
+### Authentication & sessions
+- JWTs are stored in **HttpOnly cookies** (`SameSite=Strict`, `Secure` in production) — never in
+  localStorage. `Authorization: Bearer` is also accepted for programmatic access.
+- A per-user **token version** invalidates every outstanding JWT the moment a password is changed or
+  reset, or an account is deactivated. Sockets re-check role/active/version against the DB, not the token.
+- `SESSION_SECRET` is mandatory — the server refuses to start without it. Passwords are bcrypt (cost 10)
+  with a 12-character minimum; first-boot and newly created accounts use one-time passwords and are
+  forced to reset on first sign-in.
 
-### Least Privilege
+### Authorization
+- Object-level access control on boards, votes, meetings, minutes, and tasks; **per-document ACLs**
+  allow excluding an individual from specific materials (conflict-of-interest recusal).
+- Minutes signing and task-evidence submission enforce object-level checks (board membership /
+  assignee) — not just authentication.
 
-- **Board Members** can only see boards they're assigned to
-- **Observers** have read-only access to their assigned boards
-- **Management** sees only their tasks and board decisions relevant to their work
-- **Only the Secretary (admin)** can create meetings, votes, tasks, manage users, or reset data
+### Data integrity
+- **Tamper-evident audit trail**: each row stores a SHA-256 over the previous row (a hash chain)
+  binding actor, entity, details, IP, and timestamp.
+- **Verifiable vote certificates**: the certificate hash is computed entirely from persisted data and
+  can be recomputed via `GET /api/votes/:id/certificate/verify`.
+- **Retention log**: governance records are snapshotted into `deleted_records` before deletion and are
+  included in the data export.
 
-Access is deny-by-default. Every endpoint verifies the requesting user has explicit access to the entity they're requesting.
+### Transport & input hardening
+- Helmet security headers; 1 MB request-body cap; UUID validation on route parameters; `pick()`
+  field-allowlisting to prevent mass assignment.
+- `sanitize-html` on the backend and DOMPurify on the frontend for any rendered rich text.
+- Multi-layer rate limiting: per-IP + per-email on login, per-user on AI and write endpoints.
+- CORS requires an explicit `ALLOWED_ORIGIN` allowlist in production (no wildcard fallback); dev
+  accepts localhost only.
+- File uploads are limited by size and MIME/extension; downloads are path-traversal-contained to the
+  uploads directory.
 
-### Defense in Depth
-
-Security does not rely on a single layer:
-
-| Layer | Control |
-|-------|---------|
-| Transport | HTTPS (enforced via HSTS) |
-| Headers | Helmet (CSP, X-Frame-Options, X-Content-Type-Options) |
-| Authentication | JWT in HttpOnly secure cookies, bcrypt password hashing |
-| Authorization | Per-entity access control with DB-level uniqueness constraints |
-| Input | sanitize-html (backend), DOMPurify (frontend), Zod schemas, UUID validation |
-| Rate Limiting | Per-IP + per-email on auth, per-user on writes and AI |
-| Data | Hash-chained audit trail (each row carries a SHA-256 of the previous row), SHA-256 integrity hashes on votes and minutes |
-| Sessions | Token versioning — a password change or account deactivation invalidates every outstanding JWT immediately |
-| AI | Every AI-proposed action is validated against a strict Zod schema before it is queued *and* again before it executes; unknown action types are rejected |
-| Infrastructure | No debug endpoints, no source maps, no stack traces in responses |
-
-### Tenancy model
-
-Open Board is **single-organization per deployment**. Each install serves one board
-secretariat; the security boundary within it is **per-board membership** plus the
-per-entity access-control table, enforced on every route. There is no cross-tenant
-isolation because there are no tenants — run a separate deployment (separate database)
-per organization.
-
-### Demo mode
-
-Demo data (20 shared-password users, including an admin) is **only** seeded when
-`DEMO_MODE=true`. A real deployment seeds a single admin with a random one-time password
-printed once to the server log and flagged for immediate reset. Never set `DEMO_MODE=true`
-in production.
-
-### Known residuals (accepted)
-
-- **No password-reset email delivery.** The reset-token flow generates single-use, hashed,
-  1-hour tokens, but there is no mail transport wired in — an operator must relay the token
-  out of band (or an admin can create a new account). Wire up email for a production deploy.
-- **Operator responsibilities.** Application-level controls are defense-in-depth. The
-  durable perimeter for a self-hosted deployment is yours to set: TLS termination, a
-  firewall / reverse-proxy access policy, database credentials and network isolation,
-  and setting `ALLOWED_ORIGIN` to your real front-end origin in production.
-
-### Data Sovereignty
-
-Open Board is designed to be self-hosted. When you run it on your own infrastructure:
-
-- Your board documents never leave your servers
-- No telemetry, no analytics, no CDN calls
-- The AI API key is the only external dependency, and it's optional
-- You control your database, your backups, your jurisdiction
+### Deployment model
+- **Single-organization per deployment.** There is no multi-tenant isolation — the per-board
+  membership is the boundary.
+- Self-hosted: your data stays on your infrastructure, in your jurisdiction. When self-hosted, no
+  third-party vendor can be compelled to produce your board documents.
 
 ---
 
-## Open Source vs. Proprietary Board Portals: A Security Comparison
+## Known limitations
 
-Board governance platforms handle some of the most sensitive corporate information: strategic plans, M&A discussions, executive compensation, legal opinions, and voting records. The security model matters.
+These are real and tracked as issues — do your own review before using with production board data:
 
-### The Proprietary Model
+- **Account lockout is in-memory** (per-process, resets on restart) — [#7](https://github.com/SaifAlYounan/Open-Board/issues/7).
+- **Logout does not revoke the token** — it clears the cookie, but a token captured before logout
+  remains valid until its 7-day expiry — [#14](https://github.com/SaifAlYounan/Open-Board/issues/14).
+- **Password-reset email is not wired** — the reset flow generates a hashed, single-use, 1-hour token,
+  but there is no mail transport; an operator relays it out of band — [#6](https://github.com/SaifAlYounan/Open-Board/issues/6).
+- **No application-level encryption at rest.** Uploaded files and DB fields are stored unencrypted;
+  TLS is terminated at your reverse proxy and DB SSL is operator-configured — [#16](https://github.com/SaifAlYounan/Open-Board/issues/16).
+- **Weighted and proxy voting are not enforced** in tallying (schema only) —
+  [#4](https://github.com/SaifAlYounan/Open-Board/issues/4), [#5](https://github.com/SaifAlYounan/Open-Board/issues/5).
 
-Vendors like Diligent, Nasdaq Boardvantage, and OnBoard operate as SaaS platforms. Your board documents are stored on their infrastructure, managed by their teams, under their jurisdiction.
+## Pre-production checklist
 
-**What you get:**
-- Managed infrastructure and patching
-- SOC 2 / ISO 27001 certifications
-- Dedicated security teams
-
-**What you give up:**
-- **Visibility into the code.** You cannot audit what runs on their servers. You trust their security claims without the ability to verify them.
-- **Data sovereignty.** Your documents are on their servers, in their jurisdiction. Under the US CLOUD Act, a US-headquartered vendor can be compelled to produce data stored anywhere in the world — including your board minutes.
-- **Vendor lock-in.** Your governance history is trapped in their format, on their platform. Migration is painful by design.
-- **Changelog transparency.** When a proprietary vendor patches a vulnerability, they don't publish what was wrong. You have no way to assess whether vulnerabilities existed during the period your data was on their platform.
-
-### The Open Source Model
-
-Open Board takes the opposite approach. The code is public. The vulnerabilities are public. The fixes are public.
-
-**What you get:**
-- **Full code audit capability.** Any security researcher, any governance professional, any regulator can read every line of code. Nothing is hidden.
-- **Full deployment control.** Run it on your servers, in your jurisdiction, behind your firewall. No third-party access to your data.
-- **Transparent security history.** The [Security Audit Status](README.md#security-audit-status) section of the README documents every vulnerability found across 12 rounds of auditing — what was wrong, when it was fixed, and what remains open.
-- **No vendor dependency.** You own the code and the data. If this project disappears tomorrow, you still have everything.
-
-**What you give up:**
-- You are responsible for hosting, patching, and maintaining the application
-- You need technical staff (or a technical partner) to deploy and operate it
-- No SOC 2 certification (yet — this is a function of resources, not architecture)
-
-### The Core Argument
-
-Proprietary vendors ask you to trust their security. Open-source projects let you verify it.
-
-A SOC 2 certificate tells you that an auditor checked a vendor's *processes* at a point in time. An open-source codebase lets you check the *actual code* at any time.
-
-For board governance — where the stakes include regulatory liability, fiduciary duty, and director personal exposure — the ability to verify should not be optional.
-
----
-
-## Current Security Posture
-
-See [README.md — Security Audit Status](README.md#security-audit-status) for the latest findings, fixes, and known issues. This section is updated after each audit round.
-
----
-
-## Dependencies
-
-Open Board's security-relevant dependencies:
-
-| Package | Purpose | Notes |
-|---------|---------|-------|
-| `jsonwebtoken` | JWT signing/verification | Tokens in HttpOnly cookies |
-| `bcryptjs` | Password hashing | Cost factor 10 |
-| `helmet` | HTTP security headers | CSP, HSTS, X-Frame-Options |
-| `sanitize-html` | Backend input sanitization | Two modes: plain text + rich HTML |
-| `dompurify` | Frontend HTML sanitization | Renders minutes content safely |
-| `express-rate-limit` | Rate limiting | Auth, AI, and write endpoints |
-| `cookie-parser` | Cookie handling | HttpOnly JWT cookie parsing |
-| `drizzle-orm` | Database ORM | Parameterized queries (SQL injection prevention) |
-| `multer` | File uploads | 10MB limit, extension validation |
-| `zod` | Schema validation | Login form validation |
-
-We monitor dependencies for known vulnerabilities and update promptly.
-
----
-
-### Audit History
-
-Open Board has undergone twelve rounds of security auditing using multiple AI models and methodologies:
-
-**Rounds 1–10** used automated AI agents (MiniMax M2.7 via OpenClaw), three parallel agents per round:
-1. **Security audit** — fresh clone, live API testing with curl across all roles, adversarial testing (XSS, SQL injection, IDOR, privilege escalation, prompt injection)
-2. **Static code review** — every route and lib file checked for auth gaps, validation issues, type safety
-3. **Live E2E functional testing** — curl-based testing of every endpoint, every role, full lifecycle testing
-
-- **Rounds 1–4:** 4 critical, 5 high, 8 medium, 3 low (Round 1) down to 2 critical, 4 high, 6 medium, 5 low (Round 4) — all fixed
-- **Rounds 5–7:** Validation gaps, enum mismatches, rate limiting — all fixed
-- **Round 8:** Verification — 0 findings, 61 regression items confirmed fixed
-- **Round 9:** Adversarial red team — 0 critical, 0 high, 2 medium, 4 low. Documented as known limitations
-- **Round 10:** Post-launch verification of secret ballot, document access, auto-attach. Found and fixed 2 issues.
-
-**Round 11** was a multi-model review:
-- **Claude Opus 4.6** (full static audit, reading entire codebase): flagged 4 catastrophic, 11 critical, 23 high-severity architectural and design issues — transaction safety, idempotency, certificate hash coverage, trust boundary validation, README claim accuracy
-- **MiniMax M2.7** (3 parallel agents, same methodology as Rounds 1–10): found 0 new issues in the same codebase — demonstrating that endpoint-level automated testing cannot catch architectural and design-level flaws
-
-Manual source code verification confirmed all 4 catastrophic and most critical findings as real. v2.8 addressed 8 of the 15 most-severe items fully, 2 partially, with 5 still open (including architectural items requiring a validation-layer refactor).
-
-**Round 12** (post-fix verification):
-- 4 MiniMax M2.7 agents (security audit, code review, E2E testing, 25-item change verification) re-tested after v2.8
-- Confirmed 10 of 12 applied fixes are working correctly
-- Identified 2 fixes that did not land as intended: reject endpoint missing idempotency check, admin force-approve still possible on open votes
-- All findings cross-verified against source code
-
-**Current posture: BETA** — all endpoint-level findings from Rounds 1–10 are resolved. Of the 15 most-severe architectural findings from Round 11, 8 are fully fixed, 2 partially fixed, 5 remain open. See [README.md — Security Audit Status](README.md#security-audit-status) for full details.
-
-*Last updated: April 9, 2026*
+- [ ] `SESSION_SECRET` is a strong random string (`openssl rand -hex 32`).
+- [ ] `NODE_ENV=production` and `ALLOWED_ORIGIN` set to your exact origin(s).
+- [ ] Postgres on a private network with SSL enabled and backups configured.
+- [ ] HTTPS enforced at the reverse proxy; the API sits behind exactly one proxy hop (`trust proxy` = 1).
+- [ ] `DEMO_MODE` unset; demo accounts absent.
+- [ ] Consider removing the Admin → System "Reset All Data" action for production boards.
+- [ ] Run your own dependency and code audit.

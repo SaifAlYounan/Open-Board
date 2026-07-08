@@ -90,8 +90,8 @@ Compliance certifications are a necessary but insufficient condition for securit
 
 Typical vendor approach: board documents are sent to a cloud AI provider through the vendor's infrastructure. The customer has no visibility into the data pipeline — what is sent, how it is processed, whether it is retained, or whether it is used for model training.
 
-Open Board approach: AI calls go directly from the organization's server to the AI provider — no intermediary infrastructure. The organization selects its AI provider and can contractually verify data handling terms. Every AI call is visible in the source code — the exact data payload sent and received can be audited. For maximum security: deploy a local language model (Llama, Mistral, or equivalent) via self-hosted inference. Board documents never leave the organization's network. No vendor-hosted platform can offer this because they do not provide their source code.`}
-            question="When I use your AI features, where exactly does my document text go? Through whose infrastructure? Is it retained? Can I run a local model instead?"
+Open Board approach: AI calls go directly from the organization's server to the AI provider (Anthropic) — no intermediary infrastructure. Every AI call is visible in the source code, so the exact data payload sent and received can be audited, and you can point the client at an Anthropic-compatible gateway you host yourself. Support for fully local / OpenAI-compatible inference (e.g. Ollama, vLLM) so board documents never leave your network is on the roadmap, not yet built. No vendor-hosted platform can offer this level of auditability because they do not provide their source code.`}
+            question="When I use your AI features, where exactly does my document text go? Through whose infrastructure? Is it retained?"
           />
 
           <Section
@@ -128,9 +128,9 @@ With a self-hosted platform: the organization's own security team has immediate 
           <Section
             number="8"
             title='"Board portals require enterprise-grade encryption"'
-            content={`Open Board implements the same cryptographic standards used by every major technology platform and financial institution: TLS 1.3 for data in transit, bcryptjs (adaptive hashing) for password storage, SHA-256 for document integrity verification and digital signatures, JWT with configurable expiry for session management, and PostgreSQL encrypted connections for database communication.
+            content={`Open Board uses open cryptographic standards you can verify in the source: bcryptjs (adaptive hashing) for password storage, SHA-256 for document-integrity verification and signature hashes, and JWT with configurable expiry for session management. Transport encryption (TLS) is terminated at your reverse proxy, and encrypted database connections (SSL) and encryption at rest are configured on your own infrastructure — the same operator-provided controls any self-hosted platform relies on.
 
-There is no proprietary "enterprise-grade" encryption that differs from the open standards used by Open Board. AES-256 is AES-256. SHA-256 is SHA-256. The mathematics do not change based on licensing fees. The difference is that with open-source, you can verify the implementation. With closed-source, you trust a claim.`}
+There is no proprietary "enterprise-grade" encryption that differs from these open standards. SHA-256 is SHA-256; the mathematics do not change based on licensing fees. The difference is that with open source you can verify the implementation, and with closed source you trust a claim.`}
             question="Name one cryptographic algorithm in your platform that is not available in open source."
           />
 
@@ -146,7 +146,7 @@ By contrast, proprietary platforms disclose vulnerabilities only when the vendor
           <Section
             number="10"
             title='"Regulatory compliance requires a certified platform"'
-            content={`No regulatory framework in any jurisdiction requires a specific vendor. Regulations require specific controls: access management (role-based access control with per-entity permissions), encryption in transit and at rest, audit trail (complete logging of every action, user, entity, timestamp), data protection (self-hosted deployment with full data controller ownership), and business continuity (standard database backup and infrastructure redundancy).
+            content={`No regulatory framework in any jurisdiction requires a specific vendor. Regulations require specific controls: access management (role-based access control with per-entity permissions), encryption in transit and at rest (operator-configured at the proxy / database / storage layer), audit trail (complete logging of every action, user, entity, timestamp), data protection (self-hosted deployment with full data-controller ownership), and business continuity (standard database backup and infrastructure redundancy).
 
 These controls are implemented identically regardless of whether the software is proprietary or open source. The regulatory requirement is the control, not the brand.`}
             question="Please cite the specific regulation that requires a proprietary vendor rather than the implementation of specific security controls."
