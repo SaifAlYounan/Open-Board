@@ -14,7 +14,7 @@ domain feedback is as valuable as code.
 
 ## Development setup
 
-Requirements: Node 24+, pnpm 9+, PostgreSQL 16 (a `docker-compose.yml` for Postgres is included).
+Requirements: Node 20.12+ (24 recommended), pnpm 11, PostgreSQL 16 (a `docker-compose.yml` for Postgres is included).
 
 ```bash
 pnpm install
@@ -24,7 +24,7 @@ pnpm db:push
 pnpm dev
 ```
 
-See the [README Quick Start](README.md#quick-start) for the full walkthrough.
+See [Run it for development](README.md#run-it-for-development) in the README for the full walkthrough.
 
 ## Before you open a pull request
 

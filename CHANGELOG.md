@@ -7,6 +7,14 @@ All notable changes are documented here. This project follows
 
 Post-3.0.0 follow-ups on `main` (not yet tagged).
 
+### Deployment
+- **Turnkey Docker deployment.** A single production image now serves the built SPA and the API from one
+  process (`STATIC_DIR` + an Express SPA fallback that preserves the CSP and never shadows `/api` or
+  `/socket.io`). `docker compose up -d` brings up Postgres + the app and applies the schema on first
+  boot — the only required setting is `SESSION_SECRET`.
+- **Automatic HTTPS** via an optional Caddy reverse proxy (`docker compose --profile production up -d`
+  with `DOMAIN` + `ACME_EMAIL`) and a one-click **Render** blueprint (`render.yaml`). See `DEPLOY.md`.
+
 ### Performance
 - List endpoints (`votes`, `documents`, `tasks`, `minutes`, `pending-actions`) push filters,
   access-scoping, and pagination into SQL and batch all enrichment into a single query per relation —
