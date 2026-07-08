@@ -22,7 +22,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends poppler-utils \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable
+# Bake pnpm into the image (the entrypoint uses it to apply the schema). A global
+# npm install is user-agnostic — no corepack fetch at container start.
+RUN npm install -g pnpm@11.0.9
 
 ENV NODE_ENV=production \
     PORT=3000 \
