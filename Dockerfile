@@ -4,14 +4,21 @@
 FROM node:24-bookworm AS builder
 WORKDIR /app
 
-# Make the repo's pnpm-only preinstall guard pass regardless of how pnpm reports
-# its user agent, then activate the same pnpm the lockfile was written with.
-ENV npm_config_user_agent=pnpm/11.0.9
+# Activate the same pnpm the lockfile was written with.
 RUN corepack enable && corepack prepare pnpm@11.0.9 --activate
 
 COPY . .
+# The root package.json has a `preinstall` guard that blocks non-pnpm installs by
+# checking npm_config_user_agent. That check misfires under some container/CI pnpm
+# setups (the agent isn't reported as pnpm/*). We ARE using pnpm here, so drop the
+# guard for the image build only (it doesn't affect the built artifacts).
+RUN npm pkg delete scripts.preinstall
 RUN pnpm install --frozen-lockfile
-RUN pnpm run build
+# Build the artifacts (API esbuild bundle + frontend Vite build). We don't run
+# the typecheck here — esbuild/vite bundle straight from source, and CI already
+# enforces `pnpm run typecheck` on every change. (The root `build` script also
+# runs a composite tsc that needs a build-order the container doesn't have.)
+RUN pnpm -r --if-present run build
 
 # ---- Runtime: slim image that serves the API + the built frontend ------------
 FROM node:24-bookworm-slim AS runtime
