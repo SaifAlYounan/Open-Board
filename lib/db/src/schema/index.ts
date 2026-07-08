@@ -22,3 +22,4 @@ export * from "./auditTrail";
 export * from "./approvalWorkflows";
 export * from "./passwordResetTokens";
 export * from "./aiUsage";
+export * from "./deletedRecords";

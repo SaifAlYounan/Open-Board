@@ -19,6 +19,7 @@ import { callAI, REVIEW_PROMPT } from "../lib/ai";
 import { extractText, UPLOADS_DIR } from "../lib/extractText";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { retainDeleted } from "../lib/retention";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
 
@@ -240,8 +241,9 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
 router.delete("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
+  if (task) await retainDeleted(req, "task", id, task);
   await db.delete(tasksTable).where(eq(tasksTable.id, id));
-  audit(req, "task_deleted", "task", id, { title: task?.title });
+  await audit(req, "task_deleted", "task", id, { title: task?.title });
   res.sendStatus(204);
 });
 

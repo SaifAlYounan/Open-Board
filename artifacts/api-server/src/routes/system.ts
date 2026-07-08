@@ -27,6 +27,7 @@ import {
   boardsTable,
   boardMembershipsTable,
   auditTrailTable,
+  deletedRecordsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -75,6 +76,7 @@ router.get("/system/export", requireAuth, requireAdmin, async (req, res): Promis
     workflows: await db.select().from(approvalWorkflowsTable),
     workflowStages: await db.select().from(workflowStagesTable),
     auditTrail: await db.select().from(auditTrailTable),
+    deletedRecords: await db.select().from(deletedRecordsTable),
   };
 
   await audit(req, "data_exported", undefined, undefined, { by: req.user?.email });

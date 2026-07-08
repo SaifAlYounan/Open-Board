@@ -27,6 +27,7 @@ import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess, hasAccess } from "../lib/access";
 import { groupBy } from "../lib/group";
 import { audit } from "../lib/auditLog";
+import { retainDeleted } from "../lib/retention";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
@@ -572,6 +573,10 @@ router.delete("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req,
 
   // Delete vote_documents (files + DB rows)
   const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
+
+  // Retain a snapshot of the vote and its documents before the cascade delete.
+  await retainDeleted(req, "vote", id, { vote, documents: docs });
+
   for (const doc of docs) {
     if (doc.filePath && fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
   }

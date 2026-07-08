@@ -16,6 +16,7 @@ import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { retainDeleted } from "../lib/retention";
 import { writeLimiter } from "../lib/rateLimiters";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -239,8 +240,9 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (re
 router.delete("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, id));
+  if (meeting) await retainDeleted(req, "meeting", id, meeting);
   await db.delete(meetingsTable).where(eq(meetingsTable.id, id));
-  audit(req, "meeting_deleted", "meeting", id, { title: meeting?.title });
+  await audit(req, "meeting_deleted", "meeting", id, { title: meeting?.title });
   res.sendStatus(204);
 });
 

@@ -17,6 +17,7 @@ import { validateActionData, type ClassifyResponse } from "../lib/aiSchemas";
 import { extractText, truncateText, UPLOADS_DIR } from "../lib/extractText";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
+import { retainDeleted } from "../lib/retention";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
 
@@ -414,8 +415,9 @@ router.patch("/documents/:id/access", requireAuth, requireAdmin, writeLimiter, a
 router.delete("/documents/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [doc] = await db.select().from(documentsTable).where(eq(documentsTable.id, id));
+  if (doc) await retainDeleted(req, "document", id, doc);
   await db.delete(documentsTable).where(eq(documentsTable.id, id));
-  audit(req, "document_deleted", "document", id, { filename: doc?.filename });
+  await audit(req, "document_deleted", "document", id, { filename: doc?.filename });
   res.sendStatus(204);
 });
 
