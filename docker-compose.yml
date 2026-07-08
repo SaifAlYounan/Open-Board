@@ -81,8 +81,11 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # DOMAIN must be set in .env for this (production) profile — Caddy needs it to
+    # get a certificate. Not using `:?` here because Compose interpolates every
+    # service (even profiled ones), which would break a plain `docker compose up`.
     environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to use the production profile}
+      DOMAIN: ${DOMAIN:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
