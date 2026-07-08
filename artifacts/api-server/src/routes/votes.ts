@@ -17,7 +17,7 @@ import {
   workflowStagesTable,
   approvalWorkflowsTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { evaluateByRule, computeCertificateHash } from "../lib/voteTally";
@@ -25,6 +25,7 @@ import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess, hasAccess } from "../lib/access";
+import { groupBy } from "../lib/group";
 import { audit } from "../lib/auditLog";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 import { logger } from "../lib/logger";
@@ -97,14 +98,14 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   const { boardId, status } = req.query;
   const { limit, offset } = parsePagination(req.query);
 
-  let votes = await db.select().from(votesTable).orderBy(votesTable.createdAt);
-
-  if (boardId) votes = votes.filter((v) => v.boardId === boardId);
-  if (status) votes = votes.filter((v) => v.status === status);
-
+  // Push filters + access-scoping + pagination into SQL (was: fetch every vote,
+  // filter/slice in JS).
+  const conds = [];
+  if (typeof boardId === "string") conds.push(eq(votesTable.boardId, boardId));
+  if (typeof status === "string") conds.push(eq(votesTable.status, status as never));
   if (user.role !== "admin") {
     const accessible = await db
-      .select()
+      .select({ id: accessControlTable.entityId })
       .from(accessControlTable)
       .where(
         and(
@@ -113,60 +114,73 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
           eq(accessControlTable.hasAccess, true)
         )
       );
-    const accessibleIds = new Set(accessible.map((a) => a.entityId));
-    votes = votes.filter((v) => accessibleIds.has(v.id));
+    const ids = accessible.map((a) => a.id).filter((v): v is string => v != null);
+    if (ids.length === 0) {
+      res.json([]);
+      return;
+    }
+    conds.push(inArray(votesTable.id, ids));
   }
 
-  votes = votes.slice(offset, offset + limit);
+  const votes = await db
+    .select()
+    .from(votesTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(votesTable.createdAt)
+    .limit(limit)
+    .offset(offset);
 
-  const allStages = await db.select().from(workflowStagesTable);
-  const allWorkflows = await db.select().from(approvalWorkflowsTable);
-  const stageByVoteId = new Map(allStages.filter((s) => s.voteId).map((s) => [s.voteId!, s]));
-  const workflowById = new Map(allWorkflows.map((w) => [w.id, w]));
+  // Batch-load everything the page needs — one query per relation, not per vote.
+  const voteIds = votes.map((v) => v.id);
+  const boardIds = [...new Set(votes.map((v) => v.boardId).filter((v): v is string => v != null))];
 
-  const result = await Promise.all(
-    votes.map(async (v) => {
-      const [board] = v.boardId
-        ? await db.select().from(boardsTable).where(eq(boardsTable.id, v.boardId))
-        : [null];
+  const boards = boardIds.length ? await db.select().from(boardsTable).where(inArray(boardsTable.id, boardIds)) : [];
+  const boardById = new Map(boards.map((b) => [b.id, b]));
+  const records = voteIds.length ? await db.select().from(voteRecordsTable).where(inArray(voteRecordsTable.voteId, voteIds)) : [];
+  const members = boardIds.length ? await db.select().from(boardMembershipsTable).where(inArray(boardMembershipsTable.boardId, boardIds)) : [];
+  const docs = voteIds.length ? await db.select().from(voteDocumentsTable).where(inArray(voteDocumentsTable.voteId, voteIds)) : [];
+  const stages = voteIds.length ? await db.select().from(workflowStagesTable).where(inArray(workflowStagesTable.voteId, voteIds)) : [];
+  const workflowIds = [...new Set(stages.map((s) => s.workflowId))];
+  const workflows = workflowIds.length ? await db.select().from(approvalWorkflowsTable).where(inArray(approvalWorkflowsTable.id, workflowIds)) : [];
+  const workflowById = new Map(workflows.map((w) => [w.id, w]));
+  const stageByVoteId = new Map(stages.filter((s) => s.voteId).map((s) => [s.voteId!, s]));
 
-      const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, v.id));
-      const approvals = records.filter((r) => r.decision.startsWith("approved")).length;
+  const recordsByVote = groupBy(records, (r) => r.voteId);
+  const membersByBoard = groupBy(members, (m) => m.boardId);
+  const docCountByVote = new Map<string, number>();
+  for (const d of docs) docCountByVote.set(d.voteId, (docCountByVote.get(d.voteId) ?? 0) + 1);
 
-      const members = v.boardId
-        ? await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, v.boardId))
-        : [];
+  const result = votes.map((v) => {
+    const board = v.boardId ? boardById.get(v.boardId) : null;
+    const voteRecords = recordsByVote.get(v.id) ?? [];
+    const approvals = voteRecords.filter((r) => r.decision.startsWith("approved")).length;
+    const boardMembers = v.boardId ? membersByBoard.get(v.boardId) ?? [] : [];
+    const myRecord = voteRecords.find((r) => r.personId === user.id);
+    const stage = stageByVoteId.get(v.id);
+    const workflow = stage ? workflowById.get(stage.workflowId) : null;
+    const workflowStage = stage && workflow
+      ? {
+          workflowId: workflow.id,
+          workflowTitle: workflow.title,
+          stageGroup: stage.stageGroup,
+          stageIndex: stage.stageIndex,
+          stageTitle: stage.title,
+          stageStatus: stage.status,
+        }
+      : null;
 
-      const myRecord = records.find((r) => r.personId === user.id);
-
-      const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, v.id));
-
-      const stage = stageByVoteId.get(v.id);
-      const workflow = stage ? workflowById.get(stage.workflowId) : null;
-      const workflowStage = stage && workflow
-        ? {
-            workflowId: workflow.id,
-            workflowTitle: workflow.title,
-            stageGroup: stage.stageGroup,
-            stageIndex: stage.stageIndex,
-            stageTitle: stage.title,
-            stageStatus: stage.status,
-          }
-        : null;
-
-      return {
-        ...v,
-        boardName: board?.name || null,
-        boardAbbreviation: board?.abbreviation || null,
-        totalVoters: members.length,
-        votescast: records.length,
-        approvalsCount: approvals,
-        hasVoted: !!myRecord,
-        documentCount: docs.length,
-        workflowStage,
-      };
-    })
-  );
+    return {
+      ...v,
+      boardName: board?.name || null,
+      boardAbbreviation: board?.abbreviation || null,
+      totalVoters: boardMembers.length,
+      votescast: voteRecords.length,
+      approvalsCount: approvals,
+      hasVoted: !!myRecord,
+      documentCount: docCountByVote.get(v.id) ?? 0,
+      workflowStage,
+    };
+  });
 
   res.json(result);
 });

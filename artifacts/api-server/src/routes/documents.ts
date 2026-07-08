@@ -10,7 +10,7 @@ import {
   accessControlTable,
   boardsTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
 import { validateActionData, type ClassifyResponse } from "../lib/aiSchemas";
@@ -195,13 +195,11 @@ router.get("/documents", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
   const { boardId } = req.query;
 
-  let docs = await db.select().from(documentsTable).orderBy(documentsTable.createdAt);
-
-  if (boardId) docs = docs.filter((d) => d.boardId === boardId);
-
+  const conds = [];
+  if (typeof boardId === "string") conds.push(eq(documentsTable.boardId, boardId));
   if (user.role !== "admin") {
     const accessible = await db
-      .select()
+      .select({ id: accessControlTable.entityId })
       .from(accessControlTable)
       .where(
         and(
@@ -210,18 +208,31 @@ router.get("/documents", requireAuth, async (req, res): Promise<void> => {
           eq(accessControlTable.hasAccess, true)
         )
       );
-    const accessibleIds = new Set(accessible.map((a) => a.entityId));
-    docs = docs.filter((d) => accessibleIds.has(d.id));
+    const ids = accessible.map((a) => a.id).filter((v): v is string => v != null);
+    if (ids.length === 0) {
+      res.json([]);
+      return;
+    }
+    conds.push(inArray(documentsTable.id, ids));
   }
 
-  const result = await Promise.all(
-    docs.map(async (d) => {
-      const uploader = d.uploadedBy
-        ? await db.select().from(peopleTable).where(eq(peopleTable.id, d.uploadedBy))
-        : [];
-      return { ...d, uploaderName: uploader[0]?.name || null };
-    })
-  );
+  const docs = await db
+    .select()
+    .from(documentsTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(documentsTable.createdAt);
+
+  // Batch the uploader names (was one query per document).
+  const uploaderIds = [...new Set(docs.map((d) => d.uploadedBy).filter((v): v is string => v != null))];
+  const uploaders = uploaderIds.length
+    ? await db.select({ id: peopleTable.id, name: peopleTable.name }).from(peopleTable).where(inArray(peopleTable.id, uploaderIds))
+    : [];
+  const nameById = new Map(uploaders.map((u) => [u.id, u.name]));
+
+  const result = docs.map((d) => ({
+    ...d,
+    uploaderName: d.uploadedBy ? nameById.get(d.uploadedBy) ?? null : null,
+  }));
 
   res.json(result);
 });

@@ -18,7 +18,7 @@ import {
   voteDocumentsTable,
   agendaDocumentsTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
@@ -135,25 +135,29 @@ const router = Router();
 router.get("/pending-actions", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const { status } = req.query;
 
-  let actions = await db.select().from(pendingActionsTable).orderBy(pendingActionsTable.createdAt);
-  if (status) actions = actions.filter((a) => a.status === status);
+  const actions = await db
+    .select()
+    .from(pendingActionsTable)
+    .where(typeof status === "string" ? eq(pendingActionsTable.status, status as never) : undefined)
+    .orderBy(pendingActionsTable.createdAt);
 
-  const result = await Promise.all(
-    actions.map(async (a) => {
-      const [doc] = a.documentId
-        ? await db.select().from(documentsTable).where(eq(documentsTable.id, a.documentId))
-        : [null];
-      const data = a.actionData as Record<string, unknown>;
-      return {
-        ...a,
-        documentTitle: doc?.title || null,
-        documentFilename: doc?.filename || null,
-        aiConfidence: (data?.confidence as number) || null,
-        aiDescription: (data?.description as string) || null,
-        aiSourceQuote: (data?.source_quote as string) || null,
-      };
-    })
-  );
+  // Batch the source-document lookups (was one query per action).
+  const docIds = [...new Set(actions.map((a) => a.documentId).filter((v): v is string => v != null))];
+  const docs = docIds.length ? await db.select({ id: documentsTable.id, title: documentsTable.title, filename: documentsTable.filename }).from(documentsTable).where(inArray(documentsTable.id, docIds)) : [];
+  const docById = new Map(docs.map((d) => [d.id, d]));
+
+  const result = actions.map((a) => {
+    const doc = a.documentId ? docById.get(a.documentId) : null;
+    const data = a.actionData as Record<string, unknown>;
+    return {
+      ...a,
+      documentTitle: doc?.title || null,
+      documentFilename: doc?.filename || null,
+      aiConfidence: (data?.confidence as number) || null,
+      aiDescription: (data?.description as string) || null,
+      aiSourceQuote: (data?.source_quote as string) || null,
+    };
+  });
 
   res.json(result);
 });

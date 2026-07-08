@@ -11,11 +11,12 @@ import {
   peopleTable,
   accessControlTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeRichHtml, sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
 import { grantDefaultAccess } from "../lib/access";
+import { groupBy } from "../lib/group";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
@@ -49,69 +50,73 @@ router.get("/minutes", requireAuth, async (req, res): Promise<void> => {
   const { boardId, status } = req.query;
   const { limit, offset } = parsePagination(req.query);
 
-  let allMinutes = await db.select().from(minutesTable).orderBy(minutesTable.updatedAt);
+  // Status + draft filters go to SQL; draft is hidden from everyone but admin.
+  const conds = [];
+  if (typeof status === "string") conds.push(eq(minutesTable.status, status as never));
+  if (user.role !== "admin") conds.push(ne(minutesTable.status, "draft"));
 
-  // Filter by status
-  if (status) allMinutes = allMinutes.filter((m) => m.status === status);
+  let allMinutes = await db
+    .select()
+    .from(minutesTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(minutesTable.updatedAt);
 
-  // Filter draft for non-admins
-  if (user.role !== "admin") {
-    allMinutes = allMinutes.filter((m) => m.status !== "draft");
-  }
+  // Batch-load the meetings + boards these minutes belong to (was one query per
+  // minute, twice over).
+  const meetingIds = [...new Set(allMinutes.map((m) => m.meetingId).filter((v): v is string => v != null))];
+  const meetings = meetingIds.length ? await db.select().from(meetingsTable).where(inArray(meetingsTable.id, meetingIds)) : [];
+  const meetingById = new Map(meetings.map((mt) => [mt.id, mt]));
+  const meetingBoardIds = [...new Set(meetings.map((mt) => mt.boardId).filter((v): v is string => v != null))];
+  const boards = meetingBoardIds.length ? await db.select().from(boardsTable).where(inArray(boardsTable.id, meetingBoardIds)) : [];
+  const boardById = new Map(boards.map((b) => [b.id, b]));
 
-  // Access control — filter by board membership for all non-admin users including management.
-  // Admin sees everything. Everyone else sees only minutes from boards they're assigned to.
+  // Access control — non-admins (incl. management) see only minutes from boards
+  // they're assigned to.
   if (user.role !== "admin") {
     const memberships = await db
-      .select()
+      .select({ boardId: boardMembershipsTable.boardId })
       .from(boardMembershipsTable)
       .where(eq(boardMembershipsTable.personId, user.id));
     const memberBoardIds = new Set(memberships.map((m) => m.boardId));
+    allMinutes = allMinutes.filter((m) => {
+      const boardIdOfMinutes = m.meetingId ? meetingById.get(m.meetingId)?.boardId : null;
+      return boardIdOfMinutes != null && memberBoardIds.has(boardIdOfMinutes);
+    });
+  }
 
-    // Resolve which minutes belong to accessible boards
-    const minutesWithMeeting = await Promise.all(
-      allMinutes.map(async (m) => {
-        if (!m.meetingId) return null;
-        const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, m.meetingId));
-        if (meeting?.boardId && memberBoardIds.has(meeting.boardId)) return m;
-        return null;
-      })
-    );
-    const accessibleIds = new Set(minutesWithMeeting.filter(Boolean).map((m) => m!.id));
-    allMinutes = allMinutes.filter((m) => accessibleIds.has(m.id));
+  // Optional board filter (applied after access, as before).
+  if (typeof boardId === "string") {
+    allMinutes = allMinutes.filter((m) => {
+      const boardIdOfMinutes = m.meetingId ? meetingById.get(m.meetingId)?.boardId : null;
+      return boardIdOfMinutes === boardId;
+    });
   }
 
   allMinutes = allMinutes.slice(offset, offset + limit);
 
-  const result = await Promise.all(
-    allMinutes.map(async (m) => {
-      const [meeting] = m.meetingId
-        ? await db.select().from(meetingsTable).where(eq(meetingsTable.id, m.meetingId))
-        : [null];
-      const [board] = meeting?.boardId
-        ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
-        : [null];
+  // Batch signatures + comments for the page.
+  const pageIds = allMinutes.map((m) => m.id);
+  const sigs = pageIds.length ? await db.select().from(minutesSignaturesTable).where(inArray(minutesSignaturesTable.minutesId, pageIds)) : [];
+  const comments = pageIds.length ? await db.select().from(minutesSuggestionsTable).where(inArray(minutesSuggestionsTable.minutesId, pageIds)) : [];
+  const sigsByMinutes = groupBy(sigs, (s) => s.minutesId);
+  const commentsByMinutes = groupBy(comments, (c) => c.minutesId);
 
-      // Only do this filter if boardId was requested
-      if (boardId && board?.id !== boardId) return null;
+  const result = allMinutes.map((m) => {
+    const meeting = m.meetingId ? meetingById.get(m.meetingId) : null;
+    const board = meeting?.boardId ? boardById.get(meeting.boardId) : null;
+    const minutesSigs = sigsByMinutes.get(m.id) ?? [];
+    return {
+      ...m,
+      meetingTitle: meeting?.title || null,
+      meetingDate: meeting?.date || null,
+      boardName: board?.name || null,
+      signatureCount: minutesSigs.length,
+      commentCount: (commentsByMinutes.get(m.id) ?? []).length,
+      hasSigned: minutesSigs.some((s) => s.personId === user.id),
+    };
+  });
 
-      const sigs = await db.select().from(minutesSignaturesTable).where(eq(minutesSignaturesTable.minutesId, m.id));
-      const comments = await db.select().from(minutesSuggestionsTable).where(eq(minutesSuggestionsTable.minutesId, m.id));
-      const mySignature = sigs.find((s) => s.personId === user.id);
-
-      return {
-        ...m,
-        meetingTitle: meeting?.title || null,
-        meetingDate: meeting?.date || null,
-        boardName: board?.name || null,
-        signatureCount: sigs.length,
-        commentCount: comments.length,
-        hasSigned: !!mySignature,
-      };
-    })
-  );
-
-  res.json(result.filter(Boolean));
+  res.json(result);
 });
 
 router.post("/minutes", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {

@@ -10,7 +10,7 @@ import {
   meetingsTable,
   accessControlTable,
 } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
@@ -66,15 +66,14 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   const { boardId, assigneeId, status } = req.query;
   const { limit, offset } = parsePagination(req.query);
 
-  let tasks = await db.select().from(tasksTable).orderBy(tasksTable.createdAt);
-
-  if (boardId) tasks = tasks.filter((t) => t.boardId === boardId);
-  if (assigneeId) tasks = tasks.filter((t) => t.assigneeId === assigneeId);
-  if (status) tasks = tasks.filter((t) => t.status === status);
+  const conds = [];
+  if (typeof boardId === "string") conds.push(eq(tasksTable.boardId, boardId));
+  if (typeof assigneeId === "string") conds.push(eq(tasksTable.assigneeId, assigneeId));
+  if (typeof status === "string") conds.push(eq(tasksTable.status, status as never));
 
   if (user.role !== "admin" && user.role !== "management") {
     const accessible = await db
-      .select()
+      .select({ id: accessControlTable.entityId })
       .from(accessControlTable)
       .where(
         and(
@@ -83,32 +82,38 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
           eq(accessControlTable.hasAccess, true)
         )
       );
-    const accessibleIds = new Set(accessible.map((a) => a.entityId));
-    tasks = tasks.filter((t) => accessibleIds.has(t.id));
+    const ids = accessible.map((a) => a.id).filter((v): v is string => v != null);
+    if (ids.length === 0) {
+      res.json([]);
+      return;
+    }
+    conds.push(inArray(tasksTable.id, ids));
   }
 
-  if (user.role === "management") {
-    tasks = tasks.filter((t) => t.assigneeId === user.id);
-  }
+  // Management only ever sees the tasks assigned to them.
+  if (user.role === "management") conds.push(eq(tasksTable.assigneeId, user.id));
 
-  tasks = tasks.slice(offset, offset + limit);
+  const tasks = await db
+    .select()
+    .from(tasksTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(tasksTable.createdAt)
+    .limit(limit)
+    .offset(offset);
 
-  const result = await Promise.all(
-    tasks.map(async (t) => {
-      const assignee = t.assigneeId
-        ? await db.select().from(peopleTable).where(eq(peopleTable.id, t.assigneeId))
-        : [];
-      const meeting = t.sourceMeetingId
-        ? await db.select().from(meetingsTable).where(eq(meetingsTable.id, t.sourceMeetingId))
-        : [];
-      const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
-      return {
-        ...t,
-        assignee: assignee[0] ? safeAssignee : null,
-        sourceMeetingTitle: meeting[0]?.title || null,
-      };
-    })
-  );
+  // Batch assignees + source meetings (was two queries per task).
+  const assigneeIds = [...new Set(tasks.map((t) => t.assigneeId).filter((v): v is string => v != null))];
+  const meetingIds = [...new Set(tasks.map((t) => t.sourceMeetingId).filter((v): v is string => v != null))];
+  const assignees = assigneeIds.length ? await db.select().from(peopleTable).where(inArray(peopleTable.id, assigneeIds)) : [];
+  const meetings = meetingIds.length ? await db.select({ id: meetingsTable.id, title: meetingsTable.title }).from(meetingsTable).where(inArray(meetingsTable.id, meetingIds)) : [];
+  const assigneeById = new Map(assignees.map(({ passwordHash: _p, ...safe }) => [safe.id, safe]));
+  const meetingTitleById = new Map(meetings.map((m) => [m.id, m.title]));
+
+  const result = tasks.map((t) => ({
+    ...t,
+    assignee: t.assigneeId ? assigneeById.get(t.assigneeId) ?? null : null,
+    sourceMeetingTitle: t.sourceMeetingId ? meetingTitleById.get(t.sourceMeetingId) ?? null : null,
+  }));
 
   res.json(result);
 });
