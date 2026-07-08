@@ -63,7 +63,7 @@ router.post("/ai/command", requireAuth, requireAdmin, aiRateLimit, async (req, r
   }
 
   const dbContext = await getDatabaseContext(req.user!.id, req.user!.role);
-  const result = await callAI("COMMAND", COMMAND_PROMPT, `${dbContext}\n\nSECRETARY COMMAND: ${command}`);
+  const result = await callAI("COMMAND", COMMAND_PROMPT, `SECRETARY COMMAND: ${command}`, dbContext);
 
   if (!result.success) {
     res.json({

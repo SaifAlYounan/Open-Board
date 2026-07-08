@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { db, boardsTable, meetingsTable, votesTable, tasksTable, peopleTable, boardMembershipsTable, accessControlTable } from "@workspace/db";
-import { eq, ne, and } from "drizzle-orm";
+import { db, boardsTable, meetingsTable, votesTable, tasksTable, peopleTable, boardMembershipsTable, accessControlTable, aiUsageTable } from "@workspace/db";
+import { eq, ne, and, sql } from "drizzle-orm";
 import { MODE_SCHEMAS } from "./aiSchemas";
 import { logger } from "./logger";
 
@@ -223,20 +223,49 @@ function releaseSlot(): void {
   if (next) next();
 }
 
-// Daily aggregate ceiling — a runaway loop or upload flood can't spend without bound.
-let budgetDay = "";
-let callsToday = 0;
+// Daily aggregate ceiling — a runaway loop or upload flood can't spend without
+// bound. Persisted in the DB (ai_usage), so the cap survives restarts and is
+// shared across processes/replicas — unlike the old in-memory counter.
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
-function takeBudget(): boolean {
-  const today = new Date().toISOString().slice(0, 10);
-  if (today !== budgetDay) {
-    budgetDay = today;
-    callsToday = 0;
+async function takeBudget(): Promise<boolean> {
+  const today = utcDay();
+  const callLimit = Number(process.env.AI_DAILY_CALL_LIMIT || 1000);
+  const tokenLimit = process.env.AI_DAILY_TOKEN_LIMIT ? Number(process.env.AI_DAILY_TOKEN_LIMIT) : null;
+
+  // Token ceiling (optional): reject once the day's recorded tokens exceed it.
+  if (tokenLimit != null) {
+    const [row] = await db.select().from(aiUsageTable).where(eq(aiUsageTable.day, today));
+    if (row && row.inputTokens + row.outputTokens >= tokenLimit) return false;
   }
-  const limit = Number(process.env.AI_DAILY_CALL_LIMIT || 1000);
-  if (callsToday >= limit) return false;
-  callsToday++;
-  return true;
+
+  // Atomically reserve one call slot for today. Returns the post-increment count;
+  // if it exceeds the ceiling this call is refused (small overshoot is harmless —
+  // it's still refused).
+  const [usage] = await db
+    .insert(aiUsageTable)
+    .values({ day: today, calls: 1 })
+    .onConflictDoUpdate({ target: aiUsageTable.day, set: { calls: sql`${aiUsageTable.calls} + 1` } })
+    .returning();
+  return usage.calls <= callLimit;
+}
+
+// Record token spend after a call so the token ceiling and cost reporting reflect reality.
+async function recordUsage(inputTokens: number, outputTokens: number): Promise<void> {
+  const today = utcDay();
+  await db
+    .insert(aiUsageTable)
+    .values({ day: today, calls: 0, inputTokens, outputTokens })
+    .onConflictDoUpdate({
+      target: aiUsageTable.day,
+      set: {
+        inputTokens: sql`${aiUsageTable.inputTokens} + ${inputTokens}`,
+        outputTokens: sql`${aiUsageTable.outputTokens} + ${outputTokens}`,
+      },
+    })
+    .catch(() => {}); // usage recording must never break a successful call
 }
 
 // -----------------------------------------------------------------------------
@@ -244,25 +273,31 @@ function takeBudget(): boolean {
 export async function callAI(
   mode: string,
   modePrompt: string,
-  userContent: string
+  userContent: string,
+  cachedContext?: string
 ): Promise<{ success?: boolean; data?: unknown; error?: string; message?: string }> {
   const client = getClient();
   if (!client) {
     return { error: "no_api_key", message: "AI features require configuration." };
   }
-  if (!takeBudget()) {
-    logger.warn({ mode }, "[ai] daily call limit reached");
+  if (!(await takeBudget())) {
+    logger.warn({ mode }, "[ai] daily budget reached");
     return { error: "budget_exceeded", message: "Daily AI usage limit reached. Try again tomorrow or raise AI_DAILY_CALL_LIMIT." };
   }
 
-  // The static brain+mode prompt is cacheable; the volatile database context
-  // stays in the user message, after the cache breakpoint.
+  // Two cache breakpoints: the static brain+mode prompt, and — when the caller
+  // passes it — the org's database-state block. The DB-state block is identical
+  // across a burst of calls (e.g. classifying several uploaded documents), so
+  // caching it avoids re-sending the whole directory each time.
   const system = [
     {
       type: "text" as const,
       text: AI_BRAIN_PROMPT + modePrompt,
       cache_control: { type: "ephemeral" as const },
     },
+    ...(cachedContext
+      ? [{ type: "text" as const, text: cachedContext, cache_control: { type: "ephemeral" as const } }]
+      : []),
   ];
 
   await acquireSlot();
@@ -278,6 +313,7 @@ export async function callAI(
         system,
         messages: [{ role: "user", content: userContent }],
       });
+      await recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
       const text = response.content.find((b) => b.type === "text")?.text ?? null;
       if (!text) {
         return { error: "empty_response", message: "AI returned no content." };
@@ -296,6 +332,7 @@ export async function callAI(
       output_config: { format: zodOutputFormat(schema) },
     });
 
+    await recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
     if (response.parsed_output == null) {
       logger.warn({ mode, stopReason: response.stop_reason }, "[ai] structured output missing");
       return { error: "parse_error", message: "AI response could not be parsed." };

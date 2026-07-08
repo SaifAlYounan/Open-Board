@@ -51,9 +51,9 @@ async function classifyDocument(docId: string, filePath: string, mimeType: strin
 
   const { text: truncated, truncated: wasTruncated } = truncateText(extraction.text);
   const dbContext = await getDatabaseContext(userId, role);
-  const userContent = `${dbContext}\n\nDOCUMENT TEXT:\n${truncated}`;
 
-  const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, userContent);
+  // DB-state as a cached block; only the document text is per-call.
+  const result = await callAI("CLASSIFY", CLASSIFY_PROMPT, `DOCUMENT TEXT:\n${truncated}`, dbContext);
 
   if (!result.success || !result.data) {
     await db
