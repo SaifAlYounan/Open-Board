@@ -1,232 +1,240 @@
-# ✦ LQGovernance — Board Management Portal
+# LQGovernance — Board Management Portal
 
-**The open-source, AI-native board management platform.** You upload a document, the AI proposes the
-next governance action (a meeting, a vote, tasks), and a human on the board secretariat approves it.
-Nothing is ever created without a person signing off. It is self-hosted, so your board's documents stay
-on infrastructure you control.
+An **AI-native, self-hosted platform for running a board's governance**. You upload a document —
+a resolution, a report, a piece of correspondence — and the AI reads it and proposes the next
+governance action: a task, a circulation vote, or a meeting. A human on the board secretariat then
+approves or rejects that proposal. **Nothing is ever created without a person signing off.** Because
+it is self-hosted, your board's documents stay on infrastructure you control.
 
-> **Beta.** It runs and it is honest about its rough edges. See [what is still stubbed](#roadmap) and
-> [report anything wrong](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues).
+The AI is optional and pluggable. It runs against **Anthropic** or **any OpenAI-compatible / local
+model** (Ollama, vLLM, LM Studio, llama.cpp, …), and only when you configure a key or an endpoint.
+Without one, the AI features are simply switched off and **every other part of the app works exactly
+the same** — you drive the governance workflows by hand.
 
-This page is a step-by-step guide to **installing** and **setting up** LQGovernance. For a deeper
-deployment guide (cloud, HTTPS, backups) see [DEPLOY.md](DEPLOY.md).
+> **Beta, and honest about it.** It runs, it is tested, and its limitations are written down rather
+> than glossed over. Read [SECURITY.md](SECURITY.md) and do your own review before you put real board
+> data in it. Issues and known gaps live in the open at
+> [github.com/LegalQuants/LQGovernance-OpenBoard](https://github.com/LegalQuants/LQGovernance-OpenBoard).
 
 ---
 
 ## Contents
 
-- [What you need](#what-you-need)
-- [Install and run](#install-and-run) — the 4-step default
-- [First-time setup](#first-time-setup) — logging in and configuring your board
-- [Everyday commands](#everyday-commands)
-- [Deploy to production (your domain + HTTPS)](#deploy-to-production)
-- [Run it for development](#run-it-for-development)
+- [How it works](#how-it-works)
+- [What it does](#what-it-does)
+- [Quick start (Docker)](#quick-start-docker)
+- [Turn on AI (optional)](#turn-on-ai-optional)
+- [Deploy to production](#deploy-to-production)
+- [Local development](#local-development)
 - [Configuration](#configuration)
-- [Security](#security) · [Roadmap](#roadmap) · [Contributing](#contributing) · [License](#license)
+- [Architecture](#architecture)
+- [Security](#security)
+- [Roadmap, contributing, license](#roadmap-contributing-license)
 
 ---
 
-## What you need
+## How it works
 
-For the standard install, the only thing you need is **Docker**:
+The human-in-the-loop is the whole point:
 
-- **Docker Desktop** (macOS or Windows) or **Docker Engine** (Linux), which includes Docker Compose.
-  Install it from [docker.com](https://www.docker.com/products/docker-desktop/) and make sure it is
-  running. On macOS and Windows, launch Docker Desktop and wait until it reports "running".
-- **Git**, to download the code.
+1. **Upload.** A document lands in the portal (a resolution to circulate, a management report, an
+   email).
+2. **Propose.** If an AI provider is configured, the AI classifies the document and drafts a
+   *proposed* governance action — never an executed one. Every proposal is validated against a strict
+   schema both when it is queued and again when it runs; anything unknown is rejected.
+3. **Approve.** The proposal sits in the secretariat's pending-actions queue. An admin (acting as the
+   board secretary) reviews it and approves or rejects. Only on approval does anything real get
+   created.
+4. **Act & record.** The approved task/vote/meeting goes live, members are notified in real time, and
+   every step is written to a tamper-evident audit trail.
 
-That is all. You do **not** need Node, pnpm, or a separate database. Docker runs everything for you,
-including PostgreSQL. (Node and pnpm are only needed if you want to work on the code, see
-[Run it for development](#run-it-for-development).)
-
-An AI provider is **optional**. Every manual feature works without one. Configuring one (an Anthropic
-API key, or any local OpenAI-compatible server such as Ollama or vLLM) only turns on the AI document
-classification and suggestions. See [Turn on AI](#turn-on-ai-optional).
+Every action the AI can propose can also be created **manually** through the same validated contract,
+so the platform is fully usable with the AI turned off.
 
 ---
 
-## Install and run
+## What it does
 
-Four steps take you from nothing to a running board portal on your machine.
+**Boards & people**
+- Multiple boards per organization, each with its own membership.
+- Global account roles: **admin**, **management**, **member**, **observer**. Admins run the
+  secretariat and approve actions; management can be assigned tasks and submit evidence; members vote;
+  observers are read-only and are blocked from every mutating action. A per-board **secretary**
+  membership role records who serves as secretary on a given board.
+- New accounts (including the first-boot admin) are issued a one-time password and are **forced to
+  reset it on first sign-in**.
 
-### 1. Download the code
+**Voting**
+- **Circulation votes** with an outcome decided against a configurable **approval rule** (threshold,
+  quorum, and behavior).
+- **Weighted voting** — each membership carries a voting weight, and outcome and quorum are decided
+  over total weight, not a raw head count.
+- **Proxy voting** — per-vote grants let one member cast an **attributed** ballot on behalf of
+  another (the ballot is recorded against the principal, stamped with who cast it).
+- The **same tally logic** drives both casting and display, and eligible-voter totals exclude
+  observers and non-voting roles consistently.
+
+**Minutes & certificates**
+- Draft, comment on, and **sign** minutes, with object-level checks on who may sign.
+- **Verifiable vote certificates**: the certificate hash is computed entirely from persisted data and
+  can be re-checked at `GET /api/votes/:id/certificate/verify`.
+
+**Documents**
+- Upload, classify, download, and reclassify board materials.
+- **Per-document access control** — exclude a specific person from specific materials (conflict-of-
+  interest recusal).
+
+**Meetings & tasks**
+- Meetings with agendas and attendance; tasks with assignees and evidence submission/review.
+- Manual create/edit/cancel flows with validated state transitions (a closed vote, a completed task,
+  or a cancelled meeting can't be silently mutated). Cancel is distinct from delete.
+
+**Platform**
+- **Real-time updates** over Socket.IO — mutations invalidate the right views for the members of the
+  affected board only.
+- **Soft delete with snapshots** — governance records are copied into a retention log before deletion
+  and are included in the export.
+- **System data export** for backup / portability.
+- **Optional email** (SMTP) for password-reset and account-invite delivery. With SMTP unconfigured,
+  reset links are written to the server log instead and the app runs normally. (The first-boot admin
+  one-time password is always log-only.)
+- **Tamper-evident audit trail** — a SHA-256 hash chain binding actor, entity, details, IP, and time.
+
+There is **no** SCIM / directory-sync integration; accounts are managed in-app.
+
+---
+
+## Quick start (Docker)
+
+The only prerequisite is **Docker** (Docker Desktop on macOS/Windows, or Docker Engine on Linux —
+both include Compose) and **Git**. You do not need Node, pnpm, or a separate database; the image
+bundles the app and Compose runs PostgreSQL for you.
+
+**1. Get the code**
 
 ```bash
 git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
 cd LQGovernance-OpenBoard
 ```
 
-### 2. Create your configuration file
-
-Copy the example configuration to a new `.env` file:
+**2. Create your config**
 
 ```bash
 cp .env.example .env
 ```
 
-There is exactly **one value you must set**: `SESSION_SECRET`. It signs login sessions, and the app
-refuses to start without it. Generate a random one:
+There is exactly one value you must set — `SESSION_SECRET`, which signs login sessions (the server
+refuses to start without it). Generate one and paste it into `.env`:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Open `.env` in any text editor and paste the result:
-
 ```
 SESSION_SECRET=paste-the-long-random-string-here
 ```
 
-Leave every other value at its default for now.
+Leave everything else at its default.
 
-### 3. Start LQGovernance
+**3. Start it**
 
 ```bash
 docker compose up -d --build
 ```
 
-This builds the application image, starts PostgreSQL and the app, and automatically creates the
-database tables on first boot. The first build takes a few minutes. Later starts take seconds.
+Compose builds the image, starts PostgreSQL and the app, applies the **versioned SQL migrations** at
+boot, and seeds a single admin account. The first build takes a few minutes; later starts take
+seconds.
 
-### 4. Open it and sign in
+**4. Sign in**
 
-Go to **http://localhost:3000** in your browser.
-
-On the very first boot, LQGovernance creates an admin account and prints a **one-time password** to the
-log. Read it with:
+Open **http://localhost:3000**. On the very first boot the app prints a one-time admin password to
+the log:
 
 ```bash
 docker compose logs app | grep "One-time password"
+# FIRST BOOT — admin account created. One-time password: xxxxxxxxxxxxxxxx — log in and change it immediately.
 ```
 
-You will see a line like:
+Sign in with email **`admin@openboard.local`** (override with `ADMIN_EMAIL`) and that password. You
+are required to set a new password immediately.
 
-```
-FIRST BOOT — admin account created. One-time password: xxxxxxxxxxxxxxxx
-```
+> **Port already taken?** If 3000 (app) or 5432 (database) are in use, set `APP_PORT=` and/or
+> `DB_PORT=` in `.env` to free ports, then `docker compose up -d` and open the new app port.
 
-Sign in with:
-
-- **Email:** `admin@openboard.local`
-- **Password:** the one-time password from the log
-
-You will be asked to set a new password immediately. That is intended. You are now in.
-
-> **Port already in use?** If something else on your machine uses port 3000 (the app) or 5432 (the
-> database), add `APP_PORT=` and/or `DB_PORT=` to your `.env` with free ports (for example
-> `APP_PORT=3100`), then run `docker compose up -d` again and open the new port.
+> **Just want a demo dataset?** Set `DEMO_MODE=true` (and a `SEED_PASSWORD`) in `.env` before first
+> boot to seed a fictional organization. Never enable it in production — see the safety notes in
+> [`.env.example`](.env.example).
 
 ---
 
-## First-time setup
+## Turn on AI (optional)
 
-Once you are logged in as the admin:
+Add a provider to `.env` and restart (`docker compose up -d`). Two paths:
 
-### Set your organization details
-
-You already changed the admin password. You can set the admin email and your organization name in the
-Admin area, or set `ADMIN_EMAIL` and `ORG_NAME` in `.env` **before** the first boot.
-
-### Add your board and people
-
-From the Admin panel, create your organization's boards and add members. Each new member gets their own
-one-time password and is forced to set their own on first login, the same flow you just went through.
-Roles (admin, secretary, member, observer) control who can do what.
-
-### Turn on AI (optional)
-
-To enable the AI features (document classification, search, suggested actions), configure a provider in
-`.env` and restart (`docker compose up -d`). Two options:
-
-**Anthropic (default provider):**
+**Anthropic (default provider)**
 
 ```
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-**Local / OpenAI-compatible** — any server that speaks `/v1/chat/completions` (Ollama, vLLM, LM Studio,
-llama.cpp, LiteLLM, …), so board documents never leave your network:
+**Local / OpenAI-compatible** — anything that speaks `/v1/chat/completions`, so documents never leave
+your network:
 
 ```
 AI_PROVIDER=openai-compatible
 AI_BASE_URL=http://localhost:11434/v1   # your server's OpenAI-compatible root
 AI_MODEL=llama3.1:70b                   # a model your server hosts
 AI_LIGHT_MODEL=llama3.1:8b              # used for the low-stakes modes
-# AI_API_KEY=...                        # only if your server requires one
+# AI_API_KEY=...                        # only if your server requires a bearer token
 ```
 
-Structured responses are requested via JSON-schema `response_format` when the server supports it, and
-fall back to prompt-guided JSON when it doesn't — either way the reply is validated locally against the
-same strict schemas before anything reaches the approval queue. Anthropic-specific prompt caching is
-skipped on this path, and if the endpoint reports no token usage the daily budget records a conservative
-estimate.
-
-Without a provider, the AI features are simply disabled and everything else keeps working. The models
-are configurable (`AI_MODEL`, `AI_LIGHT_MODEL`), and on the Anthropic path you can point at an
-Anthropic-compatible gateway with `AI_INTEGRATIONS_ANTHROPIC_BASE_URL`. See
-[Configuration](#configuration).
-
-### Where your data lives
-
-Your database and uploaded files are stored in Docker named volumes (`db-data` and `uploads`), so they
-survive restarts and rebuilds. They are removed only if you explicitly run `docker compose down -v`.
-
----
-
-## Everyday commands
-
-Run these from inside the `LQGovernance-OpenBoard` folder:
-
-| Task | Command |
-|---|---|
-| Start (or apply config changes) | `docker compose up -d` |
-| Rebuild after pulling new code | `docker compose up -d --build` |
-| View live logs | `docker compose logs -f app` |
-| Stop (keeps your data) | `docker compose down` |
-| Stop and **erase all data** | `docker compose down -v` |
-| Update to the latest version | `git pull` then `docker compose up -d --build` |
+Structured replies are requested via JSON-schema `response_format` when the server supports it and
+fall back to prompt-guided JSON when it doesn't; either way the response is validated locally against
+the same strict schemas before it can reach the approval queue. With no provider configured, the AI
+features are disabled and everything else keeps working.
 
 ---
 
 ## Deploy to production
 
-To run LQGovernance on a server with a real domain and automatic HTTPS, LQGovernance includes a Caddy
-reverse proxy that obtains and renews a Let's Encrypt certificate for you.
+LQGovernance ships as a **single Docker image** plus a Compose file that adds PostgreSQL and,
+optionally, automatic HTTPS. The common paths:
 
-1. Point your domain's DNS at the server, and make sure ports 80 and 443 are open.
-2. In `.env`, set:
+**Turnkey HTTPS (Caddy).** Point your domain's DNS at the server, open ports 80 and 443, then set in
+`.env`:
 
-   ```
-   NODE_ENV=production
-   DOMAIN=board.yourcompany.com
-   ACME_EMAIL=you@yourcompany.com
-   ALLOWED_ORIGIN=https://board.yourcompany.com
-   ```
+```
+NODE_ENV=production
+DOMAIN=board.yourcompany.com
+ACME_EMAIL=you@yourcompany.com
+ALLOWED_ORIGIN=https://board.yourcompany.com
+```
 
-3. Start with the production profile:
+```bash
+docker compose --profile production up -d --build
+```
 
-   ```bash
-   docker compose --profile production up -d --build
-   ```
+The bundled **Caddy** reverse proxy obtains and renews a Let's Encrypt certificate automatically.
 
-LQGovernance will be live at `https://board.yourcompany.com` with a valid certificate.
-
-**One-click cloud deploy:** the repo ships a [Render](https://render.com) blueprint (`render.yaml`) that
-provisions a managed PostgreSQL database and the web service, and generates `SESSION_SECRET` for you.
+**One-click on Render.** The repo ships a [`render.yaml`](render.yaml) blueprint that provisions a
+managed Postgres, generates `SESSION_SECRET`, wires `ALLOWED_ORIGIN` to your Render URL, and serves
+over HTTPS.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LegalQuants/LQGovernance-OpenBoard)
 
-For the full production guide (backups, scaling, bare-metal, the complete environment reference) see
-**[DEPLOY.md](DEPLOY.md)**.
+**Bring your own proxy.** Run the container and terminate TLS at your own nginx/Traefik/LB, forwarding
+`/api` and `/socket.io` to the app on port 3000 (it trusts one proxy hop).
+
+The full production guide — backups, upgrades, the one-time baseline for pre-migration deployments,
+and operator-provided **encryption at rest** — is in **[DEPLOY.md](DEPLOY.md)**.
 
 ---
 
-## Run it for development
+## Local development
 
-This is only needed if you want to change the code. It runs the API and the frontend with hot reload
-instead of the production image.
-
-Requirements: **Node 20.12+** (24 recommended), **pnpm 11**, and Docker (for the database).
+Only needed to change the code. Requirements: **Node 20.12+** (24 recommended), **pnpm 11**, and
+Docker for the database.
 
 ```bash
 git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
@@ -234,60 +242,87 @@ cd LQGovernance-OpenBoard
 pnpm install
 cp .env.example .env        # set SESSION_SECRET (openssl rand -hex 32)
 docker compose up -d db     # just PostgreSQL, on localhost:5432
-pnpm db:migrate             # create the schema (versioned migrations)
+pnpm db:migrate             # apply the versioned migrations
 pnpm dev                    # API + frontend with hot reload
 ```
 
-The frontend runs on **http://localhost:5173** and proxies API calls to the server on port 3000. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow (tests, typecheck, OpenAPI drift).
+The frontend runs on **http://localhost:5173** and proxies `/api` to the server on port 3000. Useful
+scripts: `pnpm typecheck`, `pnpm -r test`, `pnpm -r build`, `pnpm db:generate` (author a migration
+after a schema change). See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, including the
+OpenAPI-codegen drift check that CI enforces.
 
 ---
 
 ## Configuration
 
-All settings live in `.env`. The full, commented list is in [`.env.example`](.env.example). The ones you
-are most likely to touch:
+Every setting is documented in [`.env.example`](.env.example). The ones you are most likely to touch:
 
 | Variable | Required | Purpose |
 |---|---|---|
 | `SESSION_SECRET` | **Yes** | Signs login sessions. `openssl rand -hex 32`. The app will not start without it. |
-| `DATABASE_URL` | Yes (defaulted) | PostgreSQL connection. Preset to match the bundled database. |
-| `APP_PORT` / `DB_PORT` | No | Host ports, if 3000 / 5432 are already taken. |
-| `ANTHROPIC_API_KEY` | No | Enables AI features on the default Anthropic provider. Omit to run without AI. |
-| `AI_PROVIDER` | No | `anthropic` (default) or `openai-compatible` for local inference (Ollama, vLLM, LM Studio, …). |
-| `AI_BASE_URL` | With `openai-compatible` | The OpenAI-compatible root, e.g. `http://localhost:11434/v1`. Requests go to `/chat/completions` under it. |
-| `AI_API_KEY` | No | Bearer token for the OpenAI-compatible server, if it requires one. |
-| `AI_MODEL` / `AI_LIGHT_MODEL` | No | Which models to use (Claude names by default; your server's model names on `openai-compatible`). |
-| `NODE_ENV` | No | Set to `production` for secure cookies and to require `ALLOWED_ORIGIN`. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | Outbound email for password resets and account invites. Without `SMTP_HOST`, reset links are logged to the server log instead. |
-| `APP_BASE_URL` | With SMTP | Public frontend URL used to build the reset links inside emails. |
-| `DOMAIN` / `ACME_EMAIL` | Production | Your domain and email, for automatic HTTPS via Caddy. |
-| `ALLOWED_ORIGIN` | Production | Allowed browser origin(s) for the API. |
-| `DEMO_MODE` | No | `true` seeds a fictional demo organization. Never use in production. |
+| `DATABASE_URL` | Yes (defaulted) | PostgreSQL connection string. Preset to match the bundled database. |
+| `APP_PORT` / `DB_PORT` | No | Host ports if 3000 / 5432 are taken. |
+| `APP_BIND` | No | App host bind address. Loopback (`127.0.0.1`) by default; set `0.0.0.0` only to expose it directly. |
+| `ANTHROPIC_API_KEY` | No | Enables AI on the default Anthropic provider. Omit to run without AI. |
+| `AI_PROVIDER` | No | `anthropic` (default) or `openai-compatible` for local inference. |
+| `AI_BASE_URL` | With `openai-compatible` | The OpenAI-compatible root, e.g. `http://localhost:11434/v1`. |
+| `AI_API_KEY` | No | Bearer token for the OpenAI-compatible server, if it needs one. |
+| `AI_MODEL` / `AI_LIGHT_MODEL` | No | Which models to use (Claude names by default; your server's names on `openai-compatible`). |
+| `AI_DAILY_CALL_LIMIT` | No | Daily ceiling on AI calls (cost guard, restart-safe). |
+| `NODE_ENV` | No | `production` enables secure cookies and requires `ALLOWED_ORIGIN`. |
+| `ALLOWED_ORIGIN` | Production | Allowed browser origin(s) for the API (no wildcard in production). |
+| `DOMAIN` / `ACME_EMAIL` | Production | Domain and account email for automatic HTTPS via Caddy. |
+| `ADMIN_EMAIL` / `ORG_NAME` | No | First-boot admin email and organization name. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | Outbound email for password resets and invites. Without `SMTP_HOST`, reset links are logged only. |
+| `APP_BASE_URL` | With SMTP | Public frontend URL used to build reset links inside emails. |
+| `POSTGRES_PASSWORD` | No | Override the dev-grade default database password (required in production). |
+| `DEMO_MODE` / `SEED_PASSWORD` | No | Seed a fictional demo organization. Never enable in production. |
+
+Uploaded files persist in the `uploads` Docker volume and database data in `db-data`; both survive
+restarts and are removed only by `docker compose down -v`.
+
+---
+
+## Architecture
+
+A pnpm monorepo (Node 24) that builds into one Docker image serving the SPA and the API from a single
+Express process:
+
+- `artifacts/easyboard` — the React single-page app (Vite).
+- `artifacts/api-server` — the Express API + Socket.IO server, and the static-file host for the SPA.
+- `lib/db` — the Drizzle schema and **versioned SQL migrations** (`lib/db/migrations`), applied at
+  boot behind a Postgres advisory lock.
+- `lib/api-spec` — the OpenAPI spec (`openapi.yaml`), the single source of truth for the HTTP contract.
+- `lib/api-zod`, `lib/api-client-react` — generated from the spec (orval); CI fails if they drift.
+- `scripts` — build and maintenance tooling.
+
+Data lives in **PostgreSQL**. The store is single-organization per deployment — the per-board
+membership is the isolation boundary (there is no multi-tenant separation).
 
 ---
 
 ## Security
 
-LQGovernance is built for governance data, so security is a first-class concern: sessions are signed,
-cookies are secured in production, a tamper-evident audit trail records governance actions, access is
-controlled per object and per document, and AI proposals are validated against a strict schema and
-always require human approval. If you find a vulnerability, please follow [SECURITY.md](SECURITY.md)
-rather than opening a public issue. Do your own security review before using this with real board data.
+LQGovernance handles minutes, resolutions, votes, and confidential documents, so security is a
+first-class concern: JWTs in HttpOnly cookies with server-side revocation on logout/password-change,
+a mandatory `SESSION_SECRET`, bcrypt passwords with forced first-login reset, object-level and
+per-document authorization, a durable Postgres-backed account lockout, a tamper-evident audit trail,
+and AI proposals that are schema-validated and always require human approval.
 
-## Roadmap
+The details, the **candid known limitations**, and a pre-production checklist are in
+**[SECURITY.md](SECURITY.md)**. To report a vulnerability, open a private
+[GitHub Security Advisory](https://github.com/LegalQuants/LQGovernance-OpenBoard/security/advisories/new)
+rather than a public issue. Do your own security review before using this with real board data.
 
-LQGovernance is beta and honest about it. The
-[open issues](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues) track what is planned and known, and
-[CHANGELOG.md](CHANGELOG.md) records what has shipped (recently: weighted and proxy voting, SMTP
-password-reset and invite email, real-time updates, and local / OpenAI-compatible model inference).
+---
 
-## Contributing
+## Roadmap, contributing, license
 
-Contributions are welcome, especially from people who work in board administration, legal, compliance,
-or corporate-secretarial roles. Domain feedback is as valuable as code. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-[MIT](LICENSE).
+- **Roadmap** — this is beta; [open issues](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues)
+  track what's planned and known, and [CHANGELOG.md](CHANGELOG.md) records what has shipped.
+- **Contributing** — welcome, especially from people in board administration, legal, compliance, or
+  corporate-secretarial roles. Domain feedback is as valuable as code. Start with
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- **License** — [MIT](LICENSE).
+</content>
+</invoke>
