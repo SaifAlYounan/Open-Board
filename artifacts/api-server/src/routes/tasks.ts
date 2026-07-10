@@ -16,7 +16,7 @@ import { sanitizeText } from "../lib/sanitize";
 import { createTaskBody, updateTaskBody, parseBody } from "../lib/governanceSchemas";
 import { parsePagination } from "../lib/pagination";
 import { pick } from "../lib/pick";
-import { callAI, REVIEW_PROMPT } from "../lib/ai";
+import { callAI, aiConfigured, REVIEW_PROMPT } from "../lib/ai";
 import { extractText, UPLOADS_DIR } from "../lib/extractText";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
@@ -323,7 +323,7 @@ router.post("/tasks/:id/evidence", requireAuth, writeLimiter, upload.single("fil
 
   // AI Review — evidence goes through real text extraction (PDF/DOCX/TXT),
   // never a raw-bytes read that feeds the model binary garbage.
-  if (process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) {
+  if (aiConfigured()) {
     try {
       const extraction = await extractText(filePath, req.file.mimetype || "", originalname);
       const evidenceText = extraction.ok

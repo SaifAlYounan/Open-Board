@@ -33,6 +33,7 @@ DOMAIN=board.yourcompany.com
 ACME_EMAIL=you@yourcompany.com
 ALLOWED_ORIGIN=https://board.yourcompany.com
 # ANTHROPIC_API_KEY=sk-ant-...   # optional — enables the AI features
+# (or AI_PROVIDER=openai-compatible + AI_BASE_URL for a local model — see README)
 ```
 
 Then:
@@ -95,6 +96,7 @@ Every variable is documented in [`.env.example`](.env.example). The essentials:
 | `DOMAIN` / `ACME_EMAIL` | Used by the `production` compose profile for automatic HTTPS. |
 | `ALLOWED_ORIGIN` | Your public origin, e.g. `https://board.yourcompany.com` (auto-set on Render). |
 | `ANTHROPIC_API_KEY` | Optional — enables document classification, search, and suggestions. |
+| `AI_PROVIDER` / `AI_BASE_URL` / `AI_API_KEY` | Optional — `AI_PROVIDER=openai-compatible` + `AI_BASE_URL` runs AI against a local OpenAI-compatible server instead of Anthropic (see README). |
 | `POSTGRES_PASSWORD` | Optional — override the default database password. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Optional — SMTP delivery for password-reset and account-invite emails. Unset = reset links appear in the server log only (the first-boot admin one-time password is always log-only). |
 | `APP_BASE_URL` | Set alongside SMTP — the public frontend URL used inside emailed reset links. |

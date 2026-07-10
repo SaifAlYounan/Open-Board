@@ -1,9 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { db, boardsTable, meetingsTable, votesTable, tasksTable, peopleTable, boardMembershipsTable, accessControlTable, aiUsageTable } from "@workspace/db";
 import { eq, ne, and, sql } from "drizzle-orm";
 import { MODE_SCHEMAS } from "./aiSchemas";
+import {
+  getProvider,
+  aiConfigured,
+  buildJsonSchema,
+  parseStructured,
+  estimateTokens,
+  openAiChatCompletion,
+} from "./aiProvider";
 import { logger } from "./logger";
+
+export { getProvider, aiConfigured } from "./aiProvider";
 
 const AI_BRAIN_PROMPT = `You are the AI brain of Open Board, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
 
@@ -194,7 +203,7 @@ function thinkingForMode(mode: string): { type: "adaptive" } | undefined {
   return HEAVY_MODES.has(mode) ? { type: "adaptive" } : undefined;
 }
 
-function getClient(): Anthropic | null {
+function getAnthropicClient(): Anthropic | null {
   const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
@@ -276,8 +285,8 @@ export async function callAI(
   userContent: string,
   cachedContext?: string
 ): Promise<{ success?: boolean; data?: unknown; error?: string; message?: string }> {
-  const client = getClient();
-  if (!client) {
+  const provider = getProvider();
+  if (!aiConfigured()) {
     return { error: "no_api_key", message: "AI features require configuration." };
   }
   if (!(await takeBudget())) {
@@ -285,59 +294,105 @@ export async function callAI(
     return { error: "budget_exceeded", message: "Daily AI usage limit reached. Try again tomorrow or raise AI_DAILY_CALL_LIMIT." };
   }
 
-  // Two cache breakpoints: the static brain+mode prompt, and — when the caller
-  // passes it — the org's database-state block. The DB-state block is identical
-  // across a burst of calls (e.g. classifying several uploaded documents), so
-  // caching it avoids re-sending the whole directory each time.
-  const system = [
-    {
-      type: "text" as const,
-      text: AI_BRAIN_PROMPT + modePrompt,
-      cache_control: { type: "ephemeral" as const },
-    },
-    ...(cachedContext
-      ? [{ type: "text" as const, text: cachedContext, cache_control: { type: "ephemeral" as const } }]
-      : []),
-  ];
+  const schema = MODE_SCHEMAS[mode as keyof typeof MODE_SCHEMAS];
+  const jsonSchema = schema ? buildJsonSchema(schema) : undefined;
 
   await acquireSlot();
   try {
-    const schema = MODE_SCHEMAS[mode as keyof typeof MODE_SCHEMAS];
+    let text: string | null;
 
-    if (!schema) {
-      // SEARCH mode returns prose with inline entity links — no JSON contract.
+    if (provider === "openai-compatible") {
+      // OpenAI-compatible dialect (vLLM / Ollama / LM Studio / …).
+      // Degradations vs Anthropic, by design:
+      //  - no prompt-cache breakpoints (cache_control is Anthropic-specific);
+      //  - no adaptive thinking config;
+      //  - the JSON schema is ALSO embedded in the system prompt, so if the
+      //    server rejects response_format (retried without it inside
+      //    openAiChatCompletion) the model still knows the contract. Local zod
+      //    validation below stays the only authority either way.
+      const system =
+        AI_BRAIN_PROMPT +
+        modePrompt +
+        (cachedContext ? `\n\n${cachedContext}` : "") +
+        (jsonSchema
+          ? `\n\nRespond with a single JSON object conforming to this JSON Schema — no markdown fences, no commentary:\n${JSON.stringify(jsonSchema)}`
+          : "");
+
+      const result = await openAiChatCompletion({
+        baseUrl: process.env.AI_BASE_URL!,
+        apiKey: process.env.AI_API_KEY,
+        model: modelForMode(mode),
+        system,
+        user: userContent,
+        maxTokens: TOKEN_LIMITS[mode] || 4000,
+        jsonSchema,
+        schemaName: `${mode.toLowerCase()}_response`,
+      });
+
+      if (result.usage) {
+        await recordUsage(result.usage.inputTokens, result.usage.outputTokens);
+      } else {
+        // Endpoint returned no usage block — estimate conservatively so the
+        // daily token budget still counts this call, and say so in the log.
+        const inputEstimate = estimateTokens(system + userContent);
+        const outputEstimate = estimateTokens(result.text);
+        logger.warn(
+          { mode, inputEstimate, outputEstimate },
+          "[ai] endpoint returned no usage fields — recording a conservative estimate"
+        );
+        await recordUsage(inputEstimate, outputEstimate);
+      }
+      text = result.text;
+    } else {
+      const client = getAnthropicClient()!;
+
+      // Two cache breakpoints: the static brain+mode prompt, and — when the
+      // caller passes it — the org's database-state block. The DB-state block
+      // is identical across a burst of calls (e.g. classifying several uploaded
+      // documents), so caching it avoids re-sending the whole directory each time.
+      const system = [
+        {
+          type: "text" as const,
+          text: AI_BRAIN_PROMPT + modePrompt,
+          cache_control: { type: "ephemeral" as const },
+        },
+        ...(cachedContext
+          ? [{ type: "text" as const, text: cachedContext, cache_control: { type: "ephemeral" as const } }]
+          : []),
+      ];
+
+      // Structured modes request output_config.format (server-side structured
+      // outputs), but the response is still validated locally below. (The SDK's
+      // messages.parse + zodOutputFormat helper is not used: it requires zod v4
+      // schema internals and throws on this repo's zod v3 contracts.)
       const response = await client.messages.create({
         model: modelForMode(mode),
         max_tokens: TOKEN_LIMITS[mode] || 4000,
         ...(thinkingForMode(mode) ? { thinking: thinkingForMode(mode)! } : {}),
         system,
         messages: [{ role: "user", content: userContent }],
+        ...(jsonSchema ? { output_config: { format: { type: "json_schema" as const, schema: jsonSchema } } } : {}),
       });
       await recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
-      const text = response.content.find((b) => b.type === "text")?.text ?? null;
-      if (!text) {
-        return { error: "empty_response", message: "AI returned no content." };
-      }
+      text = response.content.find((b) => b.type === "text")?.text ?? null;
+    }
+
+    if (!text) {
+      return { error: "empty_response", message: "AI returned no content." };
+    }
+    if (!schema) {
+      // SEARCH mode returns prose with inline entity links — no JSON contract.
       return { success: true, data: text };
     }
 
-    // Structured outputs: the response is schema-validated by the API + SDK —
-    // no markdown-fence stripping, no JSON.parse, no malformed shapes.
-    const response = await client.messages.parse({
-      model: modelForMode(mode),
-      max_tokens: TOKEN_LIMITS[mode] || 4000,
-      ...(thinkingForMode(mode) ? { thinking: thinkingForMode(mode)! } : {}),
-      system,
-      messages: [{ role: "user", content: userContent }],
-      output_config: { format: zodOutputFormat(schema) },
-    });
-
-    await recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
-    if (response.parsed_output == null) {
-      logger.warn({ mode, stopReason: response.stop_reason }, "[ai] structured output missing");
+    // The single validation authority for structured output, on every provider:
+    // the zod contract. Provider "structured output" claims are never trusted.
+    const parsed = parseStructured(text, schema);
+    if (!parsed.ok) {
+      logger.warn({ mode, provider, error: parsed.error }, "[ai] structured output failed validation");
       return { error: "parse_error", message: "AI response could not be parsed." };
     }
-    return { success: true, data: response.parsed_output };
+    return { success: true, data: parsed.data };
   } catch (err: unknown) {
     const anyErr = err as Record<string, unknown>;
     if (anyErr.status === 429) {

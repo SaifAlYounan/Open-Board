@@ -18,6 +18,8 @@ import {
   callAI,
   getDatabaseContext,
   getCurrentModel,
+  getProvider,
+  aiConfigured,
   COMMAND_PROMPT,
   SEARCH_PROMPT,
   SUGGEST_PROMPT,
@@ -35,14 +37,20 @@ const aiRateLimit = rateLimit({
   message: { error: "Too many AI requests — please wait a moment before trying again." },
 });
 
-const hasAI = () => !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+// Provider-aware configuration check: Anthropic needs an API key,
+// openai-compatible needs AI_BASE_URL. See lib/aiProvider.ts (roadmap #15).
+const hasAI = () => aiConfigured();
+
+const NOT_CONFIGURED_MESSAGE =
+  "AI features require configuration. Set ANTHROPIC_API_KEY, or AI_PROVIDER=openai-compatible with AI_BASE_URL for a local model. See Settings.";
 
 router.get("/ai/status", requireAuth, async (_req, res): Promise<void> => {
   const configured = hasAI();
   res.json({
     configured,
+    provider: getProvider(),
     model: configured ? getCurrentModel() : null,
-    message: configured ? null : "AI features require configuration. Add your Anthropic API key in Settings.",
+    message: configured ? null : NOT_CONFIGURED_MESSAGE,
   });
 });
 
@@ -56,7 +64,7 @@ router.post("/ai/command", requireAuth, requireAdmin, aiRateLimit, async (req, r
   if (!hasAI()) {
     res.json({
       understood: false,
-      interpretation: "AI features require configuration. Add your Anthropic API key in Settings.",
+      interpretation: NOT_CONFIGURED_MESSAGE,
       pendingActionIds: [],
       error: "no_api_key",
     });
@@ -125,7 +133,7 @@ router.post("/ai/search", requireAuth, aiRateLimit, async (req, res): Promise<vo
 
   if (!hasAI()) {
     res.json({
-      answer: "AI search requires configuration. Add your Anthropic API key in Settings.",
+      answer: NOT_CONFIGURED_MESSAGE,
       sources: [],
       error: "no_api_key",
     });

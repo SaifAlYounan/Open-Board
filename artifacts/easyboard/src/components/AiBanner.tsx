@@ -12,7 +12,7 @@ export function AiBanner() {
     <div className="bg-[#e8f0fe] border border-[#0071e3]/20 rounded-xl px-4 py-3 flex items-center gap-3 text-sm text-[#0071e3]">
       <Info size={16} className="flex-shrink-0" />
       <span className="flex-1">
-        AI features require configuration. Add your <strong>ANTHROPIC_API_KEY</strong> environment variable to enable document classification, AI search, and smart insights.
+        AI features require configuration. Set <strong>ANTHROPIC_API_KEY</strong> — or <strong>AI_PROVIDER=openai-compatible</strong> with <strong>AI_BASE_URL</strong> for a local model — to enable document classification, AI search, and smart insights.
       </span>
       <button onClick={() => setDismissed(true)} className="text-[#0071e3]/60 hover:text-[#0071e3] flex-shrink-0">
         <X size={14} />

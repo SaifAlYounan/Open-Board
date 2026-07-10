@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, ne, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
-import { callAI, getDatabaseContext, SUGGEST_PROMPT } from "../lib/ai";
+import { callAI, getDatabaseContext, aiConfigured, SUGGEST_PROMPT } from "../lib/ai";
 import { boardsTable } from "@workspace/db";
 
 const router = Router();
@@ -166,7 +166,7 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
 router.get("/dashboard/ai-insights", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
 
-  if (!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY)) {
+  if (!aiConfigured()) {
     res.json({
       insights: [],
       error: "no_api_key",

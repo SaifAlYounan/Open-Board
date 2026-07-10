@@ -39,8 +39,9 @@ That is all. You do **not** need Node, pnpm, or a separate database. Docker runs
 including PostgreSQL. (Node and pnpm are only needed if you want to work on the code, see
 [Run it for development](#run-it-for-development).)
 
-An Anthropic API key is **optional**. Every manual feature works without one. The key only turns on the
-AI document classification and suggestions. See [Turn on AI](#turn-on-ai-optional).
+An AI provider is **optional**. Every manual feature works without one. Configuring one (an Anthropic
+API key, or any local OpenAI-compatible server such as Ollama or vLLM) only turns on the AI document
+classification and suggestions. See [Turn on AI](#turn-on-ai-optional).
 
 ---
 
@@ -134,20 +135,36 @@ Roles (admin, secretary, member, observer) control who can do what.
 
 ### Turn on AI (optional)
 
-To enable the AI features (document classification, search, suggested actions), add an Anthropic API key
-to `.env` and restart:
+To enable the AI features (document classification, search, suggested actions), configure a provider in
+`.env` and restart (`docker compose up -d`). Two options:
+
+**Anthropic (default provider):**
 
 ```
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-```bash
-docker compose up -d
+**Local / OpenAI-compatible** — any server that speaks `/v1/chat/completions` (Ollama, vLLM, LM Studio,
+llama.cpp, LiteLLM, …), so board documents never leave your network:
+
+```
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=http://localhost:11434/v1   # your server's OpenAI-compatible root
+AI_MODEL=llama3.1:70b                   # a model your server hosts
+AI_LIGHT_MODEL=llama3.1:8b              # used for the low-stakes modes
+# AI_API_KEY=...                        # only if your server requires one
 ```
 
-Without a key, the AI features are simply disabled and everything else keeps working. The models are
-configurable (`AI_MODEL`, `AI_LIGHT_MODEL`), and you can point at an Anthropic-compatible gateway with
-`AI_INTEGRATIONS_ANTHROPIC_BASE_URL`. See [Configuration](#configuration).
+Structured responses are requested via JSON-schema `response_format` when the server supports it, and
+fall back to prompt-guided JSON when it doesn't — either way the reply is validated locally against the
+same strict schemas before anything reaches the approval queue. Anthropic-specific prompt caching is
+skipped on this path, and if the endpoint reports no token usage the daily budget records a conservative
+estimate.
+
+Without a provider, the AI features are simply disabled and everything else keeps working. The models
+are configurable (`AI_MODEL`, `AI_LIGHT_MODEL`), and on the Anthropic path you can point at an
+Anthropic-compatible gateway with `AI_INTEGRATIONS_ANTHROPIC_BASE_URL`. See
+[Configuration](#configuration).
 
 ### Where your data lives
 
@@ -236,8 +253,11 @@ are most likely to touch:
 | `SESSION_SECRET` | **Yes** | Signs login sessions. `openssl rand -hex 32`. The app will not start without it. |
 | `DATABASE_URL` | Yes (defaulted) | PostgreSQL connection. Preset to match the bundled database. |
 | `APP_PORT` / `DB_PORT` | No | Host ports, if 3000 / 5432 are already taken. |
-| `ANTHROPIC_API_KEY` | No | Enables AI features. Omit to run without AI. |
-| `AI_MODEL` / `AI_LIGHT_MODEL` | No | Which Claude models to use (sensible defaults). |
+| `ANTHROPIC_API_KEY` | No | Enables AI features on the default Anthropic provider. Omit to run without AI. |
+| `AI_PROVIDER` | No | `anthropic` (default) or `openai-compatible` for local inference (Ollama, vLLM, LM Studio, …). |
+| `AI_BASE_URL` | With `openai-compatible` | The OpenAI-compatible root, e.g. `http://localhost:11434/v1`. Requests go to `/chat/completions` under it. |
+| `AI_API_KEY` | No | Bearer token for the OpenAI-compatible server, if it requires one. |
+| `AI_MODEL` / `AI_LIGHT_MODEL` | No | Which models to use (Claude names by default; your server's model names on `openai-compatible`). |
 | `NODE_ENV` | No | Set to `production` for secure cookies and to require `ALLOWED_ORIGIN`. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | Outbound email for password resets and account invites. Without `SMTP_HOST`, reset links are logged to the server log instead. |
 | `APP_BASE_URL` | With SMTP | Public frontend URL used to build the reset links inside emails. |
@@ -257,10 +277,10 @@ rather than opening a public issue. Do your own security review before using thi
 
 ## Roadmap
 
-Open Board is beta and honest about it. Some surfaces are still stubbed or in progress (for example
-weighted and proxy voting exist in the data model but are not yet enforced, and password-reset email is
-not wired up). The [open issues](https://github.com/SaifAlYounan/Open-Board/issues) track what is
-planned and known, and [CHANGELOG.md](CHANGELOG.md) records what has shipped.
+Open Board is beta and honest about it. The
+[open issues](https://github.com/SaifAlYounan/Open-Board/issues) track what is planned and known, and
+[CHANGELOG.md](CHANGELOG.md) records what has shipped (recently: weighted and proxy voting, SMTP
+password-reset and invite email, real-time updates, and local / OpenAI-compatible model inference).
 
 ## Contributing
 

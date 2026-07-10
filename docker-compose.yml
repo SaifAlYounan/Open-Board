@@ -52,6 +52,9 @@ services:
       ORG_NAME: ${ORG_NAME:-My Organization}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_INTEGRATIONS_ANTHROPIC_API_KEY: ${AI_INTEGRATIONS_ANTHROPIC_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-claude-opus-4-8}
       AI_LIGHT_MODEL: ${AI_LIGHT_MODEL:-claude-haiku-4-5-20251001}
       DEMO_MODE: ${DEMO_MODE:-}

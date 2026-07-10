@@ -124,9 +124,9 @@ export default function HowItWorks() {
             <SectionHeader icon={<Bot size={12} />} label="The AI System" />
             <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-3 text-[#1d1d1f]">The Central AI Pipeline</h2>
             <p className="text-[#86868b] leading-relaxed max-w-2xl">
-              Every document uploaded to Open Board is processed by Claude via the Anthropic API (Claude Opus 4.8 by
-              default; set the <code className="font-mono text-xs">AI_MODEL</code> environment variable to choose a
-              different Claude model). The AI reads the full text, classifies its intent, and proposes zero or more
+              Every document uploaded to Open Board is processed by the configured AI provider — Claude via the
+              Anthropic API by default (Claude Opus 4.8; set <code className="font-mono text-xs">AI_MODEL</code> to
+              choose another), or a fully local OpenAI-compatible model. The AI reads the full text, classifies its intent, and proposes zero or more
               structured governance actions — never executing anything automatically. A human Secretary reviews every
               proposal before anything is created.
             </p>
@@ -426,7 +426,7 @@ export default function HowItWorks() {
               },
               {
                 title: "Self-Hosted & Open Source",
-                detail: "Your data stays on your infrastructure. The API server and database run entirely under your control. The only outbound request is to the Anthropic API, using your own key — and Anthropic does not train on API data. Point AI_INTEGRATIONS_ANTHROPIC_BASE_URL at a self-hosted, Anthropic-compatible gateway to keep even that on-premises.",
+                detail: "Your data stays on your infrastructure. The API server and database run entirely under your control. On the default provider the only outbound request is to the Anthropic API, using your own key — and Anthropic does not train on API data. Or set AI_PROVIDER=openai-compatible with AI_BASE_URL to run a local model (Ollama, vLLM, LM Studio) and make zero outbound AI requests at all.",
               },
             ].map(({ title, detail }) => (
               <div key={title} className="border-b border-[#e5e5e7] last:border-0 pb-5 last:pb-0">
@@ -455,7 +455,7 @@ export default function HowItWorks() {
               { layer: "Frontend", stack: "React 18 + Vite + TypeScript", detail: "Role-based single-page app. TanStack Query for server state. Wouter for routing. Tailwind CSS for styling." },
               { layer: "API Server", stack: "Node.js + Express + TypeScript", detail: "REST API compiled with esbuild. JWT middleware on every protected route. Multer for secure file uploads." },
               { layer: "Database", stack: "PostgreSQL + Drizzle ORM", detail: "Fully relational schema with foreign-key constraints, UUIDs for all primary keys, and timestamped audit rows." },
-              { layer: "AI Layer", stack: "Claude via Anthropic API", detail: "Runs on Claude (Opus 4.8 by default; set AI_MODEL to pick another Claude model). Structured, schema-validated JSON output with confidence scores and source quotes. Point the base URL at an Anthropic-compatible gateway to self-host. Anthropic does not train on your data." },
+              { layer: "AI Layer", stack: "Claude via Anthropic API, or any local OpenAI-compatible server", detail: "Runs on Claude (Opus 4.8 by default; set AI_MODEL to pick another model) or on a local OpenAI-compatible endpoint (AI_PROVIDER=openai-compatible + AI_BASE_URL — Ollama, vLLM, LM Studio). Structured JSON output is always validated locally against strict schemas, whatever the provider. Anthropic does not train on API data." },
             ].map(({ layer, stack, detail }) => (
               <div key={layer} className="bg-white border border-[#e5e5e7] rounded-xl p-5">
                 <div className="text-xs font-semibold text-[#0071e3] uppercase tracking-widest mb-1">{layer}</div>

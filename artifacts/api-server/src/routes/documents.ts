@@ -12,7 +12,7 @@ import {
 } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
-import { callAI, getDatabaseContext, CLASSIFY_PROMPT } from "../lib/ai";
+import { callAI, getDatabaseContext, aiConfigured, CLASSIFY_PROMPT } from "../lib/ai";
 import { validateActionData, type ClassifyResponse } from "../lib/aiSchemas";
 import { extractText, truncateText, UPLOADS_DIR } from "../lib/extractText";
 import { grantDefaultAccess } from "../lib/access";
@@ -174,13 +174,13 @@ router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => 
     .onConflictDoNothing();
 
   // Respond immediately — don't wait for AI
-  res.json({ document: doc, classifying: !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) });
+  res.json({ document: doc, classifying: aiConfigured() });
   audit(req, "document_uploaded", "document", doc.id, { filename: originalname, fileSize: size });
   emitInvalidate("documents", { id: doc.id });
 
   // AI Classification runs in background; classifyDocument records every
   // failure into aiClassification so the client polling sees the real state.
-  const hasAI = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+  const hasAI = aiConfigured();
   if (hasAI) {
     setImmediate(async () => {
       try {
@@ -435,7 +435,7 @@ router.post("/documents/:id/reclassify", requireAuth, requireAdmin, writeLimiter
     return;
   }
 
-  if (!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY)) {
+  if (!aiConfigured()) {
     res.json({ ...doc, error: "no_api_key" });
     return;
   }
