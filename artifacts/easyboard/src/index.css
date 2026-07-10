@@ -34,13 +34,6 @@
   src: url('/fonts/Inter-Bold.woff2') format('woff2');
 }
 
-@font-face {
-  font-family: 'Dancing Script';
-  font-style: normal;
-  font-weight: 400 700;
-  src: local('Dancing Script'), url('/fonts/DancingScript-VariableFont_wght.ttf') format('truetype');
-}
-
 @keyframes signature-appear {
   from {
     opacity: 0;
