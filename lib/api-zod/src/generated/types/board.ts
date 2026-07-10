@@ -15,6 +15,8 @@ export interface Board {
   /** @nullable */
   abbreviation?: string | null;
   type: BoardType;
+  /** Max proxies one member may hold on a single vote (0 disables proxy voting). */
+  proxyLimit: number;
   memberCount: number;
   createdAt: string;
 }

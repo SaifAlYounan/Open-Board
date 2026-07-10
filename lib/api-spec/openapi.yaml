@@ -267,6 +267,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BoardWithMembers"
+    patch:
+      operationId: updateBoard
+      tags: [boards]
+      summary: Update board settings (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBoardBody"
+      responses:
+        "200":
+          description: Updated board
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Board"
 
   /boards/{id}/members:
     get:
@@ -611,6 +634,63 @@ paths:
                 $ref: "#/components/schemas/VoteRecord"
         "409":
           description: Already voted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /votes/{id}/proxies:
+    post:
+      operationId: grantVoteProxy
+      tags: [votes]
+      summary: Record a per-vote proxy grant (admin only) — holder may cast on behalf of the principal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantVoteProxyBody"
+      responses:
+        "201":
+          description: Proxy grant recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoteProxy"
+        "409":
+          description: Grant violates a proxy rule (already voted, already granted, holder at limit, recused…)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /votes/{id}/proxies/{proxyId}:
+    delete:
+      operationId: revokeVoteProxy
+      tags: [votes]
+      summary: Revoke an unused proxy grant while the vote is open (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: proxyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Proxy grant revoked
+        "409":
+          description: Proxy already used or vote no longer open
           content:
             application/json:
               schema:
@@ -1281,6 +1361,9 @@ components:
         type:
           type: string
           enum: [board, committee]
+        proxyLimit:
+          type: integer
+          description: Max proxies one member may hold on a single vote (0 disables proxy voting).
         memberCount:
           type: integer
         createdAt:
@@ -1289,6 +1372,7 @@ components:
         - id
         - name
         - type
+        - proxyLimit
         - memberCount
         - createdAt
 
@@ -1305,6 +1389,8 @@ components:
           type: ["string", "null"]
         type:
           type: string
+        proxyLimit:
+          type: integer
         members:
           type: array
           items:
@@ -1315,6 +1401,7 @@ components:
         - id
         - name
         - type
+        - proxyLimit
         - members
         - createdAt
 
@@ -1354,6 +1441,15 @@ components:
       required:
         - name
         - type
+
+    UpdateBoardBody:
+      type: object
+      properties:
+        name:
+          type: ["string", "null"]
+        proxyLimit:
+          type: ["integer", "null"]
+          description: Max proxies one member may hold on a single vote (0 disables proxy voting).
 
     AddBoardMemberBody:
       type: object
@@ -1615,6 +1711,11 @@ components:
           description: Summed voting weight of valid "approved" ballots.
         hasVoted:
           type: boolean
+        myProxies:
+          type: array
+          description: Proxy grants the current user holds on this vote.
+          items:
+            $ref: "#/components/schemas/MyVoteProxy"
         createdAt:
           type: string
       required:
@@ -1677,6 +1778,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VoteRecord"
+        proxies:
+          type: array
+          description: Proxy grants recorded for this vote (administrative facts, visible to anyone with vote access).
+          items:
+            $ref: "#/components/schemas/VoteProxy"
+        myProxies:
+          type: array
+          description: Proxy grants the current user holds on this vote.
+          items:
+            $ref: "#/components/schemas/MyVoteProxy"
         approvalRule:
           $ref: "#/components/schemas/ApprovalRule"
         certificateHash:
@@ -1718,6 +1829,11 @@ components:
         weight:
           type: integer
           description: Voting weight snapshotted when the ballot was cast.
+        castBy:
+          type: ["string", "null"]
+          description: Person who cast this ballot as proxy for `personId` (null = cast in person).
+        castByName:
+          type: ["string", "null"]
         votedAt:
           type: string
         person:
@@ -1730,6 +1846,64 @@ components:
         - weight
         - votedAt
         - person
+
+    VoteProxy:
+      type: object
+      properties:
+        id:
+          type: string
+        voteId:
+          type: string
+        principalId:
+          type: string
+        holderId:
+          type: string
+        principalName:
+          type: ["string", "null"]
+        holderName:
+          type: ["string", "null"]
+        used:
+          type: boolean
+          description: True once the holder has cast the principal's ballot.
+        createdAt:
+          type: string
+      required:
+        - id
+        - voteId
+        - principalId
+        - holderId
+        - used
+        - createdAt
+
+    MyVoteProxy:
+      type: object
+      properties:
+        proxyId:
+          type: string
+        principalId:
+          type: string
+        principalName:
+          type: ["string", "null"]
+        hasVoted:
+          type: boolean
+          description: True once a ballot exists for the principal (own or proxy-cast).
+      required:
+        - proxyId
+        - principalId
+        - hasVoted
+
+    GrantVoteProxyBody:
+      type: object
+      properties:
+        principalId:
+          type: string
+          description: The absent member whose ballot will be cast by proxy.
+        holderId:
+          type: string
+          description: The member who will cast on the principal's behalf.
+      required:
+        - principalId
+        - holderId
 
     ApprovalRule:
       type: object
@@ -1783,6 +1957,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VoteRecord"
+        proxies:
+          type: array
+          description: Proxy relationships (disclosed for open ballots; withheld with the records on secret ballots).
+          items:
+            $ref: "#/components/schemas/VoteProxy"
       required:
         - voteId
         - resolutionNumber
@@ -1793,6 +1972,7 @@ components:
         - castWeight
         - approvalsWeight
         - voteRecords
+        - proxies
 
     CreateVoteBody:
       type: object
@@ -1867,6 +2047,12 @@ components:
           enum: [approved, approved_with_comments, not_approved, not_approved_with_comments]
         comment:
           type: ["string", "null"]
+        onBehalfOf:
+          type: ["string", "null"]
+          description: >
+            Person id of the PRINCIPAL when casting as their proxy holder. The
+            ballot is recorded against the principal with the holder attributed
+            (never masqueraded). Requires a recorded proxy grant for this vote.
       required:
         - decision
 

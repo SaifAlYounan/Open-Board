@@ -42,6 +42,7 @@ import type {
   DashboardSummary,
   Document,
   ErrorResponse,
+  GrantVoteProxyBody,
   HealthStatus,
   ListDocumentsParams,
   ListMeetingsParams,
@@ -65,6 +66,7 @@ import type {
   TaskDetail,
   TaskEvidence,
   UpdateAttendanceBody,
+  UpdateBoardBody,
   UpdateBoardMemberBody,
   UpdateMeetingBody,
   UpdateMinutesBody,
@@ -75,6 +77,7 @@ import type {
   Vote,
   VoteCertificate,
   VoteDetail,
+  VoteProxy,
   VoteRecord,
 } from "./api.schemas";
 
@@ -1199,6 +1202,93 @@ export function useGetBoard<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Update board settings (admin only)
+ */
+export const getUpdateBoardUrl = (id: string) => {
+  return `/api/boards/${id}`;
+};
+
+export const updateBoard = async (
+  id: string,
+  updateBoardBody: UpdateBoardBody,
+  options?: RequestInit,
+): Promise<Board> => {
+  return customFetch<Board>(getUpdateBoardUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateBoardBody),
+  });
+};
+
+export const getUpdateBoardMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateBoard>>,
+    TError,
+    { id: string; data: BodyType<UpdateBoardBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateBoard>>,
+  TError,
+  { id: string; data: BodyType<UpdateBoardBody> },
+  TContext
+> => {
+  const mutationKey = ["updateBoard"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateBoard>>,
+    { id: string; data: BodyType<UpdateBoardBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateBoard(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateBoardMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateBoard>>
+>;
+export type UpdateBoardMutationBody = BodyType<UpdateBoardBody>;
+export type UpdateBoardMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update board settings (admin only)
+ */
+export const useUpdateBoard = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateBoard>>,
+    TError,
+    { id: string; data: BodyType<UpdateBoardBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateBoard>>,
+  TError,
+  { id: string; data: BodyType<UpdateBoardBody> },
+  TContext
+> => {
+  return useMutation(getUpdateBoardMutationOptions(options));
+};
 
 /**
  * @summary Get members of a board
@@ -2673,6 +2763,178 @@ export const useCastVote = <
   TContext
 > => {
   return useMutation(getCastVoteMutationOptions(options));
+};
+
+/**
+ * @summary Record a per-vote proxy grant (admin only) — holder may cast on behalf of the principal
+ */
+export const getGrantVoteProxyUrl = (id: string) => {
+  return `/api/votes/${id}/proxies`;
+};
+
+export const grantVoteProxy = async (
+  id: string,
+  grantVoteProxyBody: GrantVoteProxyBody,
+  options?: RequestInit,
+): Promise<VoteProxy> => {
+  return customFetch<VoteProxy>(getGrantVoteProxyUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(grantVoteProxyBody),
+  });
+};
+
+export const getGrantVoteProxyMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof grantVoteProxy>>,
+    TError,
+    { id: string; data: BodyType<GrantVoteProxyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof grantVoteProxy>>,
+  TError,
+  { id: string; data: BodyType<GrantVoteProxyBody> },
+  TContext
+> => {
+  const mutationKey = ["grantVoteProxy"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof grantVoteProxy>>,
+    { id: string; data: BodyType<GrantVoteProxyBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return grantVoteProxy(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GrantVoteProxyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof grantVoteProxy>>
+>;
+export type GrantVoteProxyMutationBody = BodyType<GrantVoteProxyBody>;
+export type GrantVoteProxyMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Record a per-vote proxy grant (admin only) — holder may cast on behalf of the principal
+ */
+export const useGrantVoteProxy = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof grantVoteProxy>>,
+    TError,
+    { id: string; data: BodyType<GrantVoteProxyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof grantVoteProxy>>,
+  TError,
+  { id: string; data: BodyType<GrantVoteProxyBody> },
+  TContext
+> => {
+  return useMutation(getGrantVoteProxyMutationOptions(options));
+};
+
+/**
+ * @summary Revoke an unused proxy grant while the vote is open (admin only)
+ */
+export const getRevokeVoteProxyUrl = (id: string, proxyId: string) => {
+  return `/api/votes/${id}/proxies/${proxyId}`;
+};
+
+export const revokeVoteProxy = async (
+  id: string,
+  proxyId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRevokeVoteProxyUrl(id, proxyId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeVoteProxyMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeVoteProxy>>,
+    TError,
+    { id: string; proxyId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeVoteProxy>>,
+  TError,
+  { id: string; proxyId: string },
+  TContext
+> => {
+  const mutationKey = ["revokeVoteProxy"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeVoteProxy>>,
+    { id: string; proxyId: string }
+  > = (props) => {
+    const { id, proxyId } = props ?? {};
+
+    return revokeVoteProxy(id, proxyId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeVoteProxyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeVoteProxy>>
+>;
+
+export type RevokeVoteProxyMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Revoke an unused proxy grant while the vote is open (admin only)
+ */
+export const useRevokeVoteProxy = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeVoteProxy>>,
+    TError,
+    { id: string; proxyId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeVoteProxy>>,
+  TError,
+  { id: string; proxyId: string },
+  TContext
+> => {
+  return useMutation(getRevokeVoteProxyMutationOptions(options));
 };
 
 /**

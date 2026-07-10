@@ -178,6 +178,11 @@ export const ListBoardsResponseItem = zod.object({
   name: zod.string(),
   abbreviation: zod.string().nullish(),
   type: zod.enum(["board", "committee"]),
+  proxyLimit: zod
+    .number()
+    .describe(
+      "Max proxies one member may hold on a single vote (0 disables proxy voting).",
+    ),
   memberCount: zod.number(),
   createdAt: zod.string(),
 });
@@ -205,6 +210,7 @@ export const GetBoardResponse = zod.object({
   name: zod.string(),
   abbreviation: zod.string().nullish(),
   type: zod.string(),
+  proxyLimit: zod.number(),
   members: zod.array(
     zod.object({
       id: zod.string(),
@@ -227,6 +233,38 @@ export const GetBoardResponse = zod.object({
       }),
     }),
   ),
+  createdAt: zod.string(),
+});
+
+/**
+ * @summary Update board settings (admin only)
+ */
+export const UpdateBoardParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateBoardBody = zod.object({
+  name: zod.string().nullish(),
+  proxyLimit: zod
+    .number()
+    .nullish()
+    .describe(
+      "Max proxies one member may hold on a single vote (0 disables proxy voting).",
+    ),
+});
+
+export const UpdateBoardResponse = zod.object({
+  id: zod.string(),
+  organizationId: zod.string().nullish(),
+  name: zod.string(),
+  abbreviation: zod.string().nullish(),
+  type: zod.enum(["board", "committee"]),
+  proxyLimit: zod
+    .number()
+    .describe(
+      "Max proxies one member may hold on a single vote (0 disables proxy voting).",
+    ),
+  memberCount: zod.number(),
   createdAt: zod.string(),
 });
 
@@ -513,6 +551,21 @@ export const ListVotesResponseItem = zod.object({
     .number()
     .describe('Summed voting weight of valid \"approved\" ballots.'),
   hasVoted: zod.boolean(),
+  myProxies: zod
+    .array(
+      zod.object({
+        proxyId: zod.string(),
+        principalId: zod.string(),
+        principalName: zod.string().nullish(),
+        hasVoted: zod
+          .boolean()
+          .describe(
+            "True once a ballot exists for the principal (own or proxy-cast).",
+          ),
+      }),
+    )
+    .optional()
+    .describe("Proxy grants the current user holds on this vote."),
   createdAt: zod.string(),
 });
 export const ListVotesResponse = zod.array(ListVotesResponseItem);
@@ -587,6 +640,13 @@ export const GetVoteResponse = zod.object({
       weight: zod
         .number()
         .describe("Voting weight snapshotted when the ballot was cast."),
+      castBy: zod
+        .string()
+        .nullish()
+        .describe(
+          "Person who cast this ballot as proxy for `personId` (null = cast in person).",
+        ),
+      castByName: zod.string().nullish(),
       votedAt: zod.string(),
       person: zod.object({
         id: zod.string(),
@@ -614,6 +674,13 @@ export const GetVoteResponse = zod.object({
       weight: zod
         .number()
         .describe("Voting weight snapshotted when the ballot was cast."),
+      castBy: zod
+        .string()
+        .nullish()
+        .describe(
+          "Person who cast this ballot as proxy for `personId` (null = cast in person).",
+        ),
+      castByName: zod.string().nullish(),
       votedAt: zod.string(),
       person: zod.object({
         id: zod.string(),
@@ -626,6 +693,40 @@ export const GetVoteResponse = zod.object({
       }),
     }),
   ),
+  proxies: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        voteId: zod.string(),
+        principalId: zod.string(),
+        holderId: zod.string(),
+        principalName: zod.string().nullish(),
+        holderName: zod.string().nullish(),
+        used: zod
+          .boolean()
+          .describe("True once the holder has cast the principal's ballot."),
+        createdAt: zod.string(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Proxy grants recorded for this vote (administrative facts, visible to anyone with vote access).",
+    ),
+  myProxies: zod
+    .array(
+      zod.object({
+        proxyId: zod.string(),
+        principalId: zod.string(),
+        principalName: zod.string().nullish(),
+        hasVoted: zod
+          .boolean()
+          .describe(
+            "True once a ballot exists for the principal (own or proxy-cast).",
+          ),
+      }),
+    )
+    .optional()
+    .describe("Proxy grants the current user holds on this vote."),
   approvalRule: zod
     .object({
       id: zod.string(),
@@ -686,6 +787,21 @@ export const UpdateVoteResponse = zod.object({
     .number()
     .describe('Summed voting weight of valid \"approved\" ballots.'),
   hasVoted: zod.boolean(),
+  myProxies: zod
+    .array(
+      zod.object({
+        proxyId: zod.string(),
+        principalId: zod.string(),
+        principalName: zod.string().nullish(),
+        hasVoted: zod
+          .boolean()
+          .describe(
+            "True once a ballot exists for the principal (own or proxy-cast).",
+          ),
+      }),
+    )
+    .optional()
+    .describe("Proxy grants the current user holds on this vote."),
   createdAt: zod.string(),
 });
 
@@ -711,6 +827,12 @@ export const CastVoteBody = zod.object({
     "not_approved_with_comments",
   ]),
   comment: zod.string().nullish(),
+  onBehalfOf: zod
+    .string()
+    .nullish()
+    .describe(
+      "Person id of the PRINCIPAL when casting as their proxy holder. The ballot is recorded against the principal with the holder attributed (never masqueraded). Requires a recorded proxy grant for this vote.\n",
+    ),
 });
 
 export const CastVoteResponse = zod.object({
@@ -727,6 +849,13 @@ export const CastVoteResponse = zod.object({
   weight: zod
     .number()
     .describe("Voting weight snapshotted when the ballot was cast."),
+  castBy: zod
+    .string()
+    .nullish()
+    .describe(
+      "Person who cast this ballot as proxy for `personId` (null = cast in person).",
+    ),
+  castByName: zod.string().nullish(),
   votedAt: zod.string(),
   person: zod.object({
     id: zod.string(),
@@ -737,6 +866,30 @@ export const CastVoteResponse = zod.object({
     avatarColor: zod.string().nullish(),
     createdAt: zod.string(),
   }),
+});
+
+/**
+ * @summary Record a per-vote proxy grant (admin only) — holder may cast on behalf of the principal
+ */
+export const GrantVoteProxyParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GrantVoteProxyBody = zod.object({
+  principalId: zod
+    .string()
+    .describe("The absent member whose ballot will be cast by proxy."),
+  holderId: zod
+    .string()
+    .describe("The member who will cast on the principal's behalf."),
+});
+
+/**
+ * @summary Revoke an unused proxy grant while the vote is open (admin only)
+ */
+export const RevokeVoteProxyParams = zod.object({
+  id: zod.coerce.string(),
+  proxyId: zod.coerce.string(),
 });
 
 /**
@@ -772,6 +925,13 @@ export const GetVoteCertificateResponse = zod.object({
       weight: zod
         .number()
         .describe("Voting weight snapshotted when the ballot was cast."),
+      castBy: zod
+        .string()
+        .nullish()
+        .describe(
+          "Person who cast this ballot as proxy for `personId` (null = cast in person).",
+        ),
+      castByName: zod.string().nullish(),
       votedAt: zod.string(),
       person: zod.object({
         id: zod.string(),
@@ -784,6 +944,24 @@ export const GetVoteCertificateResponse = zod.object({
       }),
     }),
   ),
+  proxies: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        voteId: zod.string(),
+        principalId: zod.string(),
+        holderId: zod.string(),
+        principalName: zod.string().nullish(),
+        holderName: zod.string().nullish(),
+        used: zod
+          .boolean()
+          .describe("True once the holder has cast the principal's ballot."),
+        createdAt: zod.string(),
+      }),
+    )
+    .describe(
+      "Proxy relationships (disclosed for open ballots; withheld with the records on secret ballots).",
+    ),
 });
 
 /**

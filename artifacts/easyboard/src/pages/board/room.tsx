@@ -59,28 +59,38 @@ export default function BoardRoom() {
 
   const b = board as any;
 
-  const handleVoteOption = (voteId: string, option: typeof VOTE_OPTIONS[0]) => {
+  // Voting state is keyed per ballot: the member's own ballot uses the vote id,
+  // a proxy ballot uses `voteId:principalId` so the holder can compose both
+  // distinctly on the same card.
+  const ballotKey = (voteId: string, onBehalfOf?: string) => (onBehalfOf ? `${voteId}:${onBehalfOf}` : voteId);
+
+  const handleVoteOption = (voteId: string, option: typeof VOTE_OPTIONS[0], onBehalfOf?: string) => {
+    const key = ballotKey(voteId, onBehalfOf);
     if (option.needsComment) {
       setVotingState((prev) => ({
         ...prev,
-        [voteId]: { decision: option.key, comment: prev[voteId]?.comment || '', showComment: true }
+        [key]: { decision: option.key, comment: prev[key]?.comment || '', showComment: true }
       }));
     } else {
-      submitVote(voteId, option.key, '');
+      submitVote(voteId, option.key, '', onBehalfOf);
     }
   };
 
-  const submitVote = (voteId: string, decision: string, comment: string) => {
-    castVote.mutate({ id: voteId, data: { decision: decision as any, comment } }, {
+  const submitVote = (voteId: string, decision: string, comment: string, onBehalfOf?: string) => {
+    const key = ballotKey(voteId, onBehalfOf);
+    castVote.mutate({ id: voteId, data: { decision: decision as any, comment, ...(onBehalfOf ? { onBehalfOf } : {}) } }, {
       onSuccess: () => {
-        toast({ title: 'Vote cast', description: `Your vote: ${decision.replace(/_/g, ' ')}` });
-        setSubmittedVotes((prev) => ({ ...prev, [voteId]: { decision, votedAt: new Date().toISOString(), comment: comment || undefined } }));
-        setVotingState((prev) => { const n = { ...prev }; delete n[voteId]; return n; });
+        toast({
+          title: onBehalfOf ? 'Proxy ballot cast' : 'Vote cast',
+          description: `${onBehalfOf ? 'Ballot recorded for the member you represent' : 'Your vote'}: ${decision.replace(/_/g, ' ')}`,
+        });
+        setSubmittedVotes((prev) => ({ ...prev, [key]: { decision, votedAt: new Date().toISOString(), comment: comment || undefined } }));
+        setVotingState((prev) => { const n = { ...prev }; delete n[key]; return n; });
         queryClient.invalidateQueries({ queryKey: getListVotesQueryKey({ boardId }) });
       },
       onError: (err: any) => {
         if (err.status === 409) {
-          toast({ title: 'Already voted', description: 'You have already cast your vote on this resolution.', variant: 'destructive' });
+          toast({ title: 'Already voted', description: onBehalfOf ? 'A ballot has already been cast for this member.' : 'You have already cast your vote on this resolution.', variant: 'destructive' });
         } else {
           toast({ title: 'Vote failed', description: err.data?.error, variant: 'destructive' });
         }
@@ -273,6 +283,77 @@ export default function BoardRoom() {
                             )}
                           </div>
                         ) : null}
+
+                        {/* Proxy ballots this user holds — cast distinctly from their own vote */}
+                        {user?.role === 'member' && ((vote.myProxies as any[]) || []).map((p: any) => {
+                          const key = ballotKey(vote.id, p.principalId);
+                          const proxySubmitted = submittedVotes[key];
+                          const pState = votingState[key];
+                          if (p.hasVoted || proxySubmitted) {
+                            return (
+                              <div key={p.principalId} className="mt-3 p-3 bg-[#f5f3ff] rounded-xl flex items-center gap-2 text-sm" data-testid={`proxy-confirmed-${vote.id}-${p.principalId}`}>
+                                <CheckCircle size={16} className="text-[#5856d6]" />
+                                <span className="text-[#1d1d1f]">
+                                  Ballot recorded for <strong>{p.principalName || 'the member you represent'}</strong>
+                                  {proxySubmitted ? <> — <strong>{proxySubmitted.decision.replace(/_/g, ' ')}</strong> (cast by you as proxy)</> : null}
+                                </span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div key={p.principalId} className="mt-4 border border-[#5856d6]/30 bg-[#f5f3ff]/40 rounded-xl p-4 space-y-3" data-testid={`proxy-ballot-${vote.id}-${p.principalId}`}>
+                              <div className="text-sm text-[#1d1d1f]">
+                                <span className="inline-block text-xs font-medium text-[#5856d6] bg-[#5856d6]/10 px-2 py-0.5 rounded-full mr-2">Proxy</span>
+                                You hold a proxy for <strong>{p.principalName || 'a member'}</strong> — cast their ballot (recorded as cast by you on their behalf):
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                {VOTE_OPTIONS.map((option) => (
+                                  <button
+                                    key={option.key}
+                                    onClick={() => handleVoteOption(vote.id, option, p.principalId)}
+                                    disabled={castVote.isPending}
+                                    className="py-2.5 px-4 rounded-xl text-sm font-medium transition-colors text-white disabled:opacity-50"
+                                    style={{ backgroundColor: option.color }}
+                                    data-testid={`proxy-option-${option.key}-${vote.id}-${p.principalId}`}
+                                  >
+                                    {option.label}
+                                  </button>
+                                ))}
+                              </div>
+                              {pState?.showComment && (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={pState.comment}
+                                    onChange={(e) => setVotingState((prev) => ({
+                                      ...prev,
+                                      [key]: { ...prev[key], comment: e.target.value }
+                                    }))}
+                                    placeholder={`Comment on behalf of ${p.principalName || 'the member'}...`}
+                                    rows={3}
+                                    className="w-full px-3 py-2 bg-white rounded-xl text-sm border border-[#e5e5e7] focus:outline-none focus:ring-2 focus:ring-[#5856d6]/30 resize-none"
+                                    data-testid={`proxy-comment-${vote.id}-${p.principalId}`}
+                                  />
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => submitVote(vote.id, pState.decision, pState.comment, p.principalId)}
+                                      disabled={castVote.isPending}
+                                      className="px-4 py-2 bg-[#5856d6] text-white rounded-xl text-sm font-medium disabled:opacity-50"
+                                      data-testid={`button-submit-proxy-${vote.id}-${p.principalId}`}
+                                    >
+                                      Submit Proxy Ballot
+                                    </button>
+                                    <button
+                                      onClick={() => setVotingState((prev) => { const n = { ...prev }; delete n[key]; return n; })}
+                                      className="px-4 py-2 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl text-sm font-medium"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}

@@ -15,6 +15,7 @@ export interface BoardWithMembers {
   /** @nullable */
   abbreviation?: string | null;
   type: string;
+  proxyLimit: number;
   members: BoardMember[];
   createdAt: string;
 }

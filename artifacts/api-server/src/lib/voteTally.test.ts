@@ -172,6 +172,56 @@ describe("computeTally", () => {
   });
 });
 
+describe("computeTally — proxy ballots", () => {
+  // A proxy-cast ballot is stored against the PRINCIPAL (personId = principal,
+  // castBy = holder) with the principal's weight snapshot — so the tally needs
+  // no proxy-special-casing: the ballot counts once, as the principal, at the
+  // principal's weight, for quorum and outcome alike.
+  const members = [
+    { personId: "holder", weight: 1 },
+    { personId: "principal", weight: 3 },
+  ];
+
+  it("a proxy-cast ballot counts as the principal at the principal's weight", () => {
+    const records = [
+      { personId: "holder", decision: "approved", weight: 1, castBy: null },
+      { personId: "principal", decision: "not_approved", weight: 3, castBy: "holder" },
+    ];
+    const t = computeTally(members, records);
+    expect(t.votesCast).toBe(2); // both ballots present for quorum/close
+    expect(t.castWeight).toBe(4);
+    expect(t.approvalsWeight).toBe(1); // holder's own approval only
+    // Holder approving both their own and the proxy ballot never double-counts
+    // the holder's weight.
+    const bothApprove = computeTally(members, [
+      { personId: "holder", decision: "approved", weight: 1, castBy: null },
+      { personId: "principal", decision: "approved", weight: 3, castBy: "holder" },
+    ]);
+    expect(bothApprove.approvalsWeight).toBe(4);
+    expect(bothApprove.approvalsCount).toBe(2);
+  });
+
+  it("a superseded ballot (principal re-cast in person) still counts exactly once", () => {
+    // Supersession updates the SAME record in place (castBy → null), so the
+    // tally shape is identical to an in-person cast.
+    const t = computeTally(members, [
+      { personId: "principal", decision: "approved", weight: 3, castBy: null },
+    ]);
+    expect(t.votesCast).toBe(1);
+    expect(t.castWeight).toBe(3);
+    expect(t.approvalsWeight).toBe(3);
+  });
+
+  it("a recused principal's proxy-cast ballot is excluded like any recused ballot", () => {
+    const t = computeTally(members, [
+      { personId: "principal", decision: "approved", weight: 3, castBy: "holder" },
+    ], new Set(["principal"]));
+    expect(t.totalVoters).toBe(1);
+    expect(t.votesCast).toBe(0);
+    expect(t.approvalsWeight).toBe(0);
+  });
+});
+
 describe("weight=1 regression equivalence (weighted tally is a strict generalization)", () => {
   // Sweep every small scenario: with all weights at 1, feeding the weighted
   // tally into evaluateByRule must reproduce the old head-count outcome for

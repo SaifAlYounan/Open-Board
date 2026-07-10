@@ -91,6 +91,8 @@ export interface Board {
   /** @nullable */
   abbreviation?: string | null;
   type: BoardType;
+  /** Max proxies one member may hold on a single vote (0 disables proxy voting). */
+  proxyLimit: number;
   memberCount: number;
   createdAt: string;
 }
@@ -114,6 +116,7 @@ export interface BoardWithMembers {
   /** @nullable */
   abbreviation?: string | null;
   type: string;
+  proxyLimit: number;
   members: BoardMember[];
   createdAt: string;
 }
@@ -131,6 +134,16 @@ export interface CreateBoardBody {
   /** @nullable */
   abbreviation?: string | null;
   type: CreateBoardBodyType;
+}
+
+export interface UpdateBoardBody {
+  /** @nullable */
+  name?: string | null;
+  /**
+   * Max proxies one member may hold on a single vote (0 disables proxy voting).
+   * @nullable
+   */
+  proxyLimit?: number | null;
 }
 
 export interface AddBoardMemberBody {
@@ -333,6 +346,15 @@ export const VoteStatus = {
   lapsed: "lapsed",
 } as const;
 
+export interface MyVoteProxy {
+  proxyId: string;
+  principalId: string;
+  /** @nullable */
+  principalName?: string | null;
+  /** True once a ballot exists for the principal (own or proxy-cast). */
+  hasVoted: boolean;
+}
+
 export interface Vote {
   id: string;
   boardId: string;
@@ -359,6 +381,8 @@ export interface Vote {
   /** Summed voting weight of valid "approved" ballots. */
   approvalsWeight: number;
   hasVoted: boolean;
+  /** Proxy grants the current user holds on this vote. */
+  myProxies?: MyVoteProxy[];
   createdAt: string;
 }
 
@@ -381,8 +405,29 @@ export interface VoteRecord {
   comment?: string | null;
   /** Voting weight snapshotted when the ballot was cast. */
   weight: number;
+  /**
+   * Person who cast this ballot as proxy for `personId` (null = cast in person).
+   * @nullable
+   */
+  castBy?: string | null;
+  /** @nullable */
+  castByName?: string | null;
   votedAt: string;
   person: Person;
+}
+
+export interface VoteProxy {
+  id: string;
+  voteId: string;
+  principalId: string;
+  holderId: string;
+  /** @nullable */
+  principalName?: string | null;
+  /** @nullable */
+  holderName?: string | null;
+  /** True once the holder has cast the principal's ballot. */
+  used: boolean;
+  createdAt: string;
 }
 
 export type ApprovalRuleType =
@@ -431,10 +476,21 @@ export interface VoteDetail {
   hasVoted: boolean;
   myVote?: VoteRecord;
   voteRecords: VoteRecord[];
+  /** Proxy grants recorded for this vote (administrative facts, visible to anyone with vote access). */
+  proxies?: VoteProxy[];
+  /** Proxy grants the current user holds on this vote. */
+  myProxies?: MyVoteProxy[];
   approvalRule?: ApprovalRule;
   /** @nullable */
   certificateHash?: string | null;
   createdAt: string;
+}
+
+export interface GrantVoteProxyBody {
+  /** The absent member whose ballot will be cast by proxy. */
+  principalId: string;
+  /** The member who will cast on the principal's behalf. */
+  holderId: string;
 }
 
 export interface VoteCertificate {
@@ -451,6 +507,8 @@ export interface VoteCertificate {
   castWeight: number;
   approvalsWeight: number;
   voteRecords: VoteRecord[];
+  /** Proxy relationships (disclosed for open ballots; withheld with the records on secret ballots). */
+  proxies: VoteProxy[];
 }
 
 export type CreateVoteBodyType =
@@ -531,6 +589,12 @@ export interface CastVoteBody {
   decision: CastVoteBodyDecision;
   /** @nullable */
   comment?: string | null;
+  /**
+   * Person id of the PRINCIPAL when casting as their proxy holder. The ballot is recorded against the principal with the holder attributed (never masqueraded). Requires a recorded proxy grant for this vote.
+
+   * @nullable
+   */
+  onBehalfOf?: string | null;
 }
 
 export type MinutesStatus = (typeof MinutesStatus)[keyof typeof MinutesStatus];

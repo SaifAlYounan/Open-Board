@@ -11,6 +11,7 @@ import {
   attendanceTable,
   pendingActionsTable,
   voteRecordsTable,
+  voteProxiesTable,
   approvalRuleWeightsTable,
   approvalRuleRecusalsTable,
   approvalRuleRequiredVotersTable,
@@ -66,6 +67,7 @@ router.get("/system/export", requireAuth, requireAdmin, async (req, res): Promis
     attendance: await db.select().from(attendanceTable),
     votes: await db.select().from(votesTable),
     voteRecords: await db.select().from(voteRecordsTable),
+    voteProxies: await db.select().from(voteProxiesTable),
     approvalRules: await db.select().from(approvalRulesTable),
     minutes: await db.select().from(minutesTable),
     minutesSignatures: await db.select().from(minutesSignaturesTable),
@@ -122,6 +124,7 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
       await tx.delete(attendanceTable);
       await tx.delete(pendingActionsTable);
       await tx.delete(voteRecordsTable);
+      await tx.delete(voteProxiesTable);
       await tx.delete(approvalRuleWeightsTable);
       await tx.delete(approvalRuleRecusalsTable);
       await tx.delete(approvalRuleRequiredVotersTable);

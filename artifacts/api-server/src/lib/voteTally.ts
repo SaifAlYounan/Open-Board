@@ -50,7 +50,10 @@ export function evaluateByRule(
 }
 
 export type EligibleMember = { personId: string | null; weight?: number | null };
-export type BallotRecord = { personId: string | null; decision: string; weight?: number | null };
+// `castBy` (proxy attribution) is carried on ballot rows but needs no tally
+// special-casing: a proxy-cast ballot is stored against the PRINCIPAL at the
+// principal's weight, so it already counts once, correctly.
+export type BallotRecord = { personId: string | null; decision: string; weight?: number | null; castBy?: string | null };
 
 export type Tally = {
   /** head count of eligible (non-recused) voting members */

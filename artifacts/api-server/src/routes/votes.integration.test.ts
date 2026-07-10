@@ -23,6 +23,7 @@ d("votes — weighted voting", () => {
   const m1 = { email: "wv-m1@test.local", name: "WV Member 1", role: "member" as const };
   const m2 = { email: "wv-m2@test.local", name: "WV Member 2", role: "member" as const };
   const m3 = { email: "wv-m3@test.local", name: "WV Member 3 (heavy)", role: "member" as const };
+  const obs = { email: "wv-obs@test.local", name: "WV Observer", role: "member" as const };
   const people: Record<string, any> = {};
 
   // Distinct client IP per request so the per-IP write limiter never trips as
@@ -30,14 +31,19 @@ d("votes — weighted voting", () => {
   let ipCounter = 0;
   const nextIp = () => `10.98.0.${(++ipCounter % 250) + 1}`;
 
+  // Sessions are cached per email: the login endpoint also rate-limits per
+  // ACCOUNT (10/window), which a login-per-request suite would exhaust.
+  const cookieCache: Record<string, string> = {};
   async function cookieFor(email: string): Promise<string> {
+    if (cookieCache[email]) return cookieCache[email];
     const res = await request(app)
       .post("/api/auth/login")
       .set("X-Forwarded-For", nextIp())
       .send({ email, password: PASSWORD });
     expect(res.status).toBe(200);
     const setCookie = res.headers["set-cookie"];
-    return (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    cookieCache[email] = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    return cookieCache[email];
   }
 
   /** Wipe every vote (and its children) on a board, then the board itself. */
@@ -49,6 +55,7 @@ d("votes — weighted voting", () => {
       const votes = await db.select().from(votesTable).where(eq(votesTable.boardId, b.id));
       const voteIds = votes.map((v: any) => v.id);
       if (voteIds.length) {
+        await db.delete(dbMod.voteProxiesTable).where(inArray(dbMod.voteProxiesTable.voteId, voteIds));
         await db.delete(voteRecordsTable).where(inArray(voteRecordsTable.voteId, voteIds));
         await db.delete(voteDocumentsTable).where(inArray(voteDocumentsTable.voteId, voteIds));
         const rules = await db.select().from(approvalRulesTable).where(inArray(approvalRulesTable.voteId, voteIds));
@@ -102,13 +109,22 @@ d("votes — weighted voting", () => {
     ({ eq, inArray } = await import("drizzle-orm"));
     app = (await import("../app")).default;
 
-    const { peopleTable, boardMembershipsTable, auditTrailTable, voteRecordsTable, accessControlTable } = dbMod;
+    const { peopleTable, boardMembershipsTable, auditTrailTable, voteRecordsTable, accessControlTable, voteProxiesTable } = dbMod;
+    const { or } = await import("drizzle-orm");
     const hash = await bcrypt.hash(PASSWORD, 10);
-    for (const p of [secretary, m1, m2, m3]) {
+    for (const p of [secretary, m1, m2, m3, obs]) {
       const [existing] = await db.select().from(peopleTable).where(eq(peopleTable.email, p.email));
       if (existing) {
         await db.delete(auditTrailTable).where(eq(auditTrailTable.personId, existing.id));
-        await db.delete(voteRecordsTable).where(eq(voteRecordsTable.personId, existing.id));
+        await db.delete(voteProxiesTable).where(or(
+          eq(voteProxiesTable.principalId, existing.id),
+          eq(voteProxiesTable.holderId, existing.id),
+          eq(voteProxiesTable.createdBy, existing.id),
+        ));
+        await db.delete(voteRecordsTable).where(or(
+          eq(voteRecordsTable.personId, existing.id),
+          eq(voteRecordsTable.castBy, existing.id),
+        ));
         await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.personId, existing.id));
         await db.delete(accessControlTable).where(eq(accessControlTable.personId, existing.id));
         await db.delete(peopleTable).where(eq(peopleTable.id, existing.id));
@@ -318,6 +334,301 @@ d("votes — weighted voting", () => {
       const members = await request(app).get(`/api/boards/${boardId}/members`).set("Cookie", adminCookie);
       const row = members.body.find((m: any) => m.personId === people[m1.email].id);
       expect(row.votingWeight).toBe(4);
+    });
+  });
+
+  // ── Proxy voting (issue #5) ────────────────────────────────────────────────
+
+  function grantProxy(cookie: string, voteId: string, principalId: string, holderId: string) {
+    return request(app)
+      .post(`/api/votes/${voteId}/proxies`)
+      .set("Cookie", cookie)
+      .set("X-Forwarded-For", nextIp())
+      .send({ principalId, holderId });
+  }
+
+  describe("proxy grants — authz and governance rules", () => {
+    const BOARD = "Proxy Grant Rules Board";
+    let boardId: string;
+    let adminCookie: string;
+
+    beforeAll(async () => {
+      await wipeBoardsNamed(BOARD);
+      const [board] = await db.insert(dbMod.boardsTable).values({ name: BOARD, abbreviation: "PGB", type: "board" }).returning();
+      boardId = board.id;
+      await db.insert(dbMod.boardMembershipsTable).values([
+        { boardId, personId: people[m1.email].id },
+        { boardId, personId: people[m2.email].id },
+        { boardId, personId: people[m3.email].id },
+        { boardId, personId: people[obs.email].id, roleInBoard: "observer" },
+      ]);
+      adminCookie = await cookieFor(secretary.email);
+    });
+
+    it("only an admin can record a proxy grant", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      const memberCookie = await cookieFor(m1.email);
+      const res = await request(app)
+        .post(`/api/votes/${vote.id}/proxies`)
+        .set("Cookie", memberCookie)
+        .set("X-Forwarded-For", nextIp())
+        .send({ principalId: people[m1.email].id, holderId: people[m2.email].id });
+      expect(res.status).toBe(403);
+    });
+
+    it("enforces every grant rule: self-proxy, observers, duplicates, delegated holders, the per-board limit, and already-voted principals", async () => {
+      const vote = await createVote(adminCookie, boardId);
+
+      // Self-proxy is meaningless.
+      expect((await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m1.email].id)).status).toBe(400);
+      // Observers can neither grant nor hold.
+      expect((await grantProxy(adminCookie, vote.id, people[obs.email].id, people[m2.email].id)).status).toBe(400);
+      expect((await grantProxy(adminCookie, vote.id, people[m1.email].id, people[obs.email].id)).status).toBe(400);
+
+      // A valid grant: m1 → m2.
+      const ok = await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id);
+      expect(ok.status).toBe(201);
+      expect(ok.body.principalName).toBe(m1.name);
+      expect(ok.body.holderName).toBe(m2.name);
+      expect(ok.body.used).toBe(false);
+
+      // The principal cannot delegate twice.
+      expect((await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m3.email].id)).status).toBe(409);
+      // A member who delegated their own ballot cannot hold proxies (m2 → m1: m1 delegated away).
+      expect((await grantProxy(adminCookie, vote.id, people[m2.email].id, people[m1.email].id)).status).toBe(409);
+      // Default per-board limit is 1: m2 already holds m1's proxy.
+      expect((await grantProxy(adminCookie, vote.id, people[m3.email].id, people[m2.email].id)).status).toBe(409);
+
+      // Raising the board's proxyLimit unlocks a second grant for the same holder.
+      const bump = await request(app)
+        .patch(`/api/boards/${boardId}`)
+        .set("Cookie", adminCookie)
+        .set("X-Forwarded-For", nextIp())
+        .send({ proxyLimit: 2 });
+      expect(bump.status).toBe(200);
+      expect(bump.body.proxyLimit).toBe(2);
+      const second = await grantProxy(adminCookie, vote.id, people[m3.email].id, people[m2.email].id);
+      expect(second.status).toBe(201);
+
+      // Restore the default for the rest of the suite.
+      await request(app).patch(`/api/boards/${boardId}`).set("Cookie", adminCookie).set("X-Forwarded-For", nextIp()).send({ proxyLimit: 1 });
+    });
+
+    it("rejects a grant for a principal who has already voted", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      expect((await cast(await cookieFor(m1.email), vote.id, "approved")).status).toBe(200);
+      const res = await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id);
+      expect(res.status).toBe(409);
+    });
+
+    it("only the designated holder can cast the proxy ballot", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      expect((await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id)).status).toBe(201);
+
+      // m3 holds no grant for m1 → 403.
+      const impostor = await cast(await cookieFor(m3.email), vote.id, "approved", { onBehalfOf: people[m1.email].id });
+      expect(impostor.status).toBe(403);
+      // …and no grant at all for m2 as principal → 403 even for an eligible member.
+      const noGrant = await cast(await cookieFor(m3.email), vote.id, "approved", { onBehalfOf: people[m2.email].id });
+      expect(noGrant.status).toBe(403);
+    });
+
+    it("revocation: an unused grant can be revoked (then casting fails); a used grant cannot", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      const grant = await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id);
+      expect(grant.status).toBe(201);
+
+      // Revoke while unused → the holder can no longer cast.
+      const revoke = await request(app)
+        .delete(`/api/votes/${vote.id}/proxies/${grant.body.id}`)
+        .set("Cookie", adminCookie)
+        .set("X-Forwarded-For", nextIp());
+      expect(revoke.status).toBe(204);
+      const afterRevoke = await cast(await cookieFor(m2.email), vote.id, "approved", { onBehalfOf: people[m1.email].id });
+      expect(afterRevoke.status).toBe(403);
+
+      // Grant again, use it, then try to revoke → blocked (the principal
+      // supersedes by casting in person instead).
+      const grant2 = await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id);
+      expect(grant2.status).toBe(201);
+      expect((await cast(await cookieFor(m2.email), vote.id, "approved", { onBehalfOf: people[m1.email].id })).status).toBe(200);
+      const revokeUsed = await request(app)
+        .delete(`/api/votes/${vote.id}/proxies/${grant2.body.id}`)
+        .set("Cookie", adminCookie)
+        .set("X-Forwarded-For", nextIp());
+      expect(revokeUsed.status).toBe(409);
+    });
+  });
+
+  describe("proxy casting — attribution, weights, precedence, quorum", () => {
+    const BOARD = "Proxy Cast Board";
+    let boardId: string;
+    let adminCookie: string;
+
+    beforeAll(async () => {
+      await wipeBoardsNamed(BOARD);
+      const [board] = await db.insert(dbMod.boardsTable).values({ name: BOARD, abbreviation: "PCB", type: "board" }).returning();
+      boardId = board.id;
+      await db.insert(dbMod.boardMembershipsTable).values([
+        { boardId, personId: people[m1.email].id, votingWeight: 1 },
+        { boardId, personId: people[m2.email].id, votingWeight: 1 },
+        { boardId, personId: people[m3.email].id, votingWeight: 3 },
+      ]);
+      adminCookie = await cookieFor(secretary.email);
+    });
+
+    it("a proxy ballot is recorded against the principal, attributed to the holder, at the principal's weight", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      // m2 (weight 1) holds the proxy of the HEAVY member m3 (weight 3).
+      expect((await grantProxy(adminCookie, vote.id, people[m3.email].id, people[m2.email].id)).status).toBe(201);
+
+      const res = await cast(await cookieFor(m2.email), vote.id, "approved", { onBehalfOf: people[m3.email].id });
+      expect(res.status).toBe(200);
+      expect(res.body.personId).toBe(people[m3.email].id); // the principal's ballot…
+      expect(res.body.castBy).toBe(people[m2.email].id); // …attributed to the holder, never masqueraded
+      expect(res.body.weight).toBe(3); // …at the PRINCIPAL's weight
+      expect(res.body.person.name).toBe(m3.name);
+
+      // The holder cannot cast the same proxy twice.
+      const again = await cast(await cookieFor(m2.email), vote.id, "approved", { onBehalfOf: people[m3.email].id });
+      expect(again.status).toBe(409);
+    });
+
+    it("proxy ballots count for quorum/closing, and combine with weights in the outcome", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      expect((await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id)).status).toBe(201);
+
+      const m2Cookie = await cookieFor(m2.email);
+      expect((await cast(m2Cookie, vote.id, "approved")).status).toBe(200); // m2's own ballot (w1)
+      expect((await cast(m2Cookie, vote.id, "approved", { onBehalfOf: people[m1.email].id })).status).toBe(200); // m1's ballot by proxy (w1)
+      expect((await cast(await cookieFor(m3.email), vote.id, "not_approved")).status).toBe(200); // m3 in person (w3)
+
+      // All three ballots present (one by proxy) → the vote auto-closed, and
+      // the weighted majority (3 of 5 against) rejected it.
+      const detail = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(detail.body.votescast).toBe(3);
+      expect(detail.body.castWeight).toBe(5);
+      expect(detail.body.approvalsWeight).toBe(2);
+      expect(detail.body.status).toBe("rejected");
+
+      // On an open (non-secret) ballot the certificate discloses the proxy
+      // relationship — to members too, with the holder attributed by name.
+      const memberCert = await request(app).get(`/api/votes/${vote.id}/certificate`).set("Cookie", await cookieFor(m2.email));
+      expect(memberCert.body.proxies.length).toBe(1);
+      expect(memberCert.body.proxies[0].principalName).toBe(m1.name);
+      expect(memberCert.body.proxies[0].holderName).toBe(m2.name);
+      expect(memberCert.body.proxies[0].used).toBe(true);
+      const proxiedRecord = memberCert.body.voteRecords.find((r: any) => r.personId === people[m1.email].id);
+      expect(proxiedRecord.castBy).toBe(people[m2.email].id);
+      expect(proxiedRecord.castByName).toBe(m2.name);
+
+      // The certificate hash covers the proxy attribution: tampering castBy
+      // breaks verification.
+      const verifyOk = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
+      expect(verifyOk.body.verified).toBe(true);
+      expect(verifyOk.body.hashVersion).toBe(2);
+      const { voteRecordsTable } = dbMod;
+      const { and: andOp } = await import("drizzle-orm");
+      await db.update(voteRecordsTable).set({ castBy: null })
+        .where(andOp(eq(voteRecordsTable.voteId, vote.id), eq(voteRecordsTable.personId, people[m1.email].id)));
+      const verifyTampered = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
+      expect(verifyTampered.body.verified).toBe(false);
+      await db.update(voteRecordsTable).set({ castBy: people[m2.email].id })
+        .where(andOp(eq(voteRecordsTable.voteId, vote.id), eq(voteRecordsTable.personId, people[m1.email].id)));
+    });
+
+    it("precedence: the principal's own later cast supersedes the proxy ballot (audit-logged); the reverse is rejected", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      expect((await grantProxy(adminCookie, vote.id, people[m1.email].id, people[m2.email].id)).status).toBe(201);
+
+      // Holder casts approved for the principal…
+      expect((await cast(await cookieFor(m2.email), vote.id, "approved", { onBehalfOf: people[m1.email].id })).status).toBe(200);
+
+      // …then the principal shows up and votes the other way: SUPERSEDES.
+      const own = await cast(await cookieFor(m1.email), vote.id, "not_approved");
+      expect(own.status).toBe(200);
+      expect(own.body.personId).toBe(people[m1.email].id);
+      expect(own.body.castBy).toBeNull();
+      expect(own.body.decision).toBe("not_approved");
+
+      // Exactly one ballot exists for the principal.
+      const { voteRecordsTable, auditTrailTable } = dbMod;
+      const { and: andOp } = await import("drizzle-orm");
+      const ballots = await db.select().from(voteRecordsTable)
+        .where(andOp(eq(voteRecordsTable.voteId, vote.id), eq(voteRecordsTable.personId, people[m1.email].id)));
+      expect(ballots.length).toBe(1);
+      expect(ballots[0].decision).toBe("not_approved");
+      expect(ballots[0].castBy).toBeNull();
+
+      // The supersession is on the audit trail.
+      const auditRows = await db.select().from(auditTrailTable)
+        .where(andOp(eq(auditTrailTable.action, "vote_proxy_superseded"), eq(auditTrailTable.entityId, vote.id)));
+      expect(auditRows.length).toBe(1);
+      expect((auditRows[0].details as any).principalId).toBe(people[m1.email].id);
+      expect((auditRows[0].details as any).previousCastBy).toBe(people[m2.email].id);
+
+      // The principal cannot supersede twice (their ballot is now their own)…
+      expect((await cast(await cookieFor(m1.email), vote.id, "approved")).status).toBe(409);
+      // …and the holder cannot proxy-cast over the principal's own ballot.
+      expect((await cast(await cookieFor(m2.email), vote.id, "approved", { onBehalfOf: people[m1.email].id })).status).toBe(409);
+    });
+  });
+
+  describe("proxy voting on secret ballots", () => {
+    const BOARD = "Proxy Secret Board";
+    let boardId: string;
+    let adminCookie: string;
+    let voteId: string;
+
+    beforeAll(async () => {
+      await wipeBoardsNamed(BOARD);
+      const [board] = await db.insert(dbMod.boardsTable).values({ name: BOARD, abbreviation: "PSB", type: "board" }).returning();
+      boardId = board.id;
+      await db.insert(dbMod.boardMembershipsTable).values([
+        { boardId, personId: people[m1.email].id },
+        { boardId, personId: people[m2.email].id },
+        { boardId, personId: people[m3.email].id },
+      ]);
+      adminCookie = await cookieFor(secretary.email);
+      const vote = await createVote(adminCookie, boardId, { secret: true });
+      voteId = vote.id;
+      expect((await grantProxy(adminCookie, voteId, people[m1.email].id, people[m2.email].id)).status).toBe(201);
+      expect((await cast(await cookieFor(m2.email), voteId, "approved", { onBehalfOf: people[m1.email].id })).status).toBe(200);
+    });
+
+    it("a proxy-cast secret ballot is invisible to uninvolved members", async () => {
+      const res = await request(app).get(`/api/votes/${voteId}`).set("Cookie", await cookieFor(m3.email));
+      expect(res.status).toBe(200);
+      expect(res.body.voteRecords).toEqual([]); // m3 cast nothing and holds nothing
+      // Aggregates stay visible, as for any secret ballot.
+      expect(res.body.votescast).toBe(1);
+    });
+
+    it("the holder sees the ballot they cast; the principal sees their own ballot", async () => {
+      const holderView = await request(app).get(`/api/votes/${voteId}`).set("Cookie", await cookieFor(m2.email));
+      const holderVisible = holderView.body.voteRecords.map((r: any) => r.personId);
+      expect(holderVisible).toContain(people[m1.email].id); // the ballot they cast as proxy
+      const principalView = await request(app).get(`/api/votes/${voteId}`).set("Cookie", await cookieFor(m1.email));
+      expect(principalView.body.hasVoted).toBe(true);
+      expect(principalView.body.voteRecords.map((r: any) => r.personId)).toEqual([people[m1.email].id]);
+    });
+
+    it("the secret certificate withholds records AND proxy relationships from non-admins", async () => {
+      const memberCert = await request(app).get(`/api/votes/${voteId}/certificate`).set("Cookie", await cookieFor(m3.email));
+      expect(memberCert.body.voteRecords).toEqual([]);
+      expect(memberCert.body.proxies).toEqual([]);
+      const adminCert = await request(app).get(`/api/votes/${voteId}/certificate`).set("Cookie", adminCookie);
+      expect(adminCert.body.voteRecords.length).toBe(1);
+      expect(adminCert.body.proxies.length).toBe(1);
+      expect(adminCert.body.proxies[0].used).toBe(true);
+    });
+
+    it("after the principal supersedes, the ex-holder loses sight of the new secret ballot", async () => {
+      expect((await cast(await cookieFor(m1.email), voteId, "not_approved")).status).toBe(200);
+      const holderView = await request(app).get(`/api/votes/${voteId}`).set("Cookie", await cookieFor(m2.email));
+      // The superseded ballot has castBy = null now — the ex-holder only sees
+      // their own ballot (none cast) → nothing of m1's new secret ballot.
+      expect(holderView.body.voteRecords.map((r: any) => r.personId)).not.toContain(people[m1.email].id);
     });
   });
 });

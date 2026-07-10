@@ -11,4 +11,10 @@ export interface CastVoteBody {
   decision: CastVoteBodyDecision;
   /** @nullable */
   comment?: string | null;
+  /**
+   * Person id of the PRINCIPAL when casting as their proxy holder. The ballot is recorded against the principal with the holder attributed (never masqueraded). Requires a recorded proxy grant for this vote.
+
+   * @nullable
+   */
+  onBehalfOf?: string | null;
 }

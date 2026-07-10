@@ -17,6 +17,13 @@ export interface VoteRecord {
   comment?: string | null;
   /** Voting weight snapshotted when the ballot was cast. */
   weight: number;
+  /**
+   * Person who cast this ballot as proxy for `personId` (null = cast in person).
+   * @nullable
+   */
+  castBy?: string | null;
+  /** @nullable */
+  castByName?: string | null;
   votedAt: string;
   person: Person;
 }

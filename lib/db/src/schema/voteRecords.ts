@@ -8,7 +8,12 @@ export const voteRecordsTable = pgTable("vote_records", {
   personId: uuid("person_id").references(() => peopleTable.id),
   decision: text("decision", { enum: ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"] }).notNull(),
   comment: text("comment"),
-  proxyFor: uuid("proxy_for").references(() => peopleTable.id),
+  // When set, this ballot was cast by `castBy` acting as proxy FOR `personId`
+  // (the ballot always belongs to — and weighs as — the principal in
+  // `personId`; the proxy holder is never masqueraded). Null = cast in person.
+  // A principal casting in person later SUPERSEDES a proxy-cast ballot: the
+  // record is updated and castBy reset to null (audit-logged).
+  castBy: uuid("cast_by").references(() => peopleTable.id),
   // Snapshot of the caster's board voting weight at the moment the ballot was
   // cast — the tally and the certificate hash use this persisted value, so a
   // later weight change can never silently rewrite a closed vote.

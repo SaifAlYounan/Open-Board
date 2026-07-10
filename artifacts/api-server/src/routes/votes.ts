@@ -13,6 +13,7 @@ import {
   approvalRulesTable,
   approvalRuleRequiredVotersTable,
   approvalRuleRecusalsTable,
+  voteProxiesTable,
   voteDocumentsTable,
   workflowStagesTable,
   approvalWorkflowsTable,
@@ -46,6 +47,14 @@ router.param("id", (_req, res, next, id) => {
 router.param("docId", (_req, res, next, id) => {
   if (!UUID_REGEX.test(id)) {
     res.status(400).json({ error: "Invalid docId format" });
+    return;
+  }
+  next();
+});
+
+router.param("proxyId", (_req, res, next, id) => {
+  if (!UUID_REGEX.test(id)) {
+    res.status(400).json({ error: "Invalid proxyId format" });
     return;
   }
   next();
@@ -163,6 +172,16 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   const recusals = ruleIds.length ? await db.select().from(approvalRuleRecusalsTable).where(inArray(approvalRuleRecusalsTable.ruleId, ruleIds)) : [];
   const ruleByVoteId = new Map(rules.filter((r) => r.voteId).map((r) => [r.voteId!, r]));
   const recusalsByRule = groupBy(recusals, (r) => r.ruleId);
+  // Proxy grants held by the current user — one batched query, drives the
+  // "you hold a proxy" affordance in the voting UI.
+  const myGrants = voteIds.length
+    ? await db.select().from(voteProxiesTable).where(and(inArray(voteProxiesTable.voteId, voteIds), eq(voteProxiesTable.holderId, user.id)))
+    : [];
+  const grantPrincipalIds = [...new Set(myGrants.map((g) => g.principalId))];
+  const grantPeople = grantPrincipalIds.length
+    ? await db.select().from(peopleTable).where(inArray(peopleTable.id, grantPrincipalIds))
+    : [];
+  const grantsByVote = groupBy(myGrants, (g) => g.voteId);
   const docs = voteIds.length ? await db.select().from(voteDocumentsTable).where(inArray(voteDocumentsTable.voteId, voteIds)) : [];
   const stages = voteIds.length ? await db.select().from(workflowStagesTable).where(inArray(workflowStagesTable.voteId, voteIds)) : [];
   const workflowIds = [...new Set(stages.map((s) => s.workflowId))];
@@ -205,6 +224,12 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
       approvalsCount: approvals,
       ...weightedFields(boardMembers, voteRecords, recusedIds),
       hasVoted: !!myRecord,
+      myProxies: (grantsByVote.get(v.id) ?? []).map((g) => ({
+        proxyId: g.id,
+        principalId: g.principalId,
+        principalName: grantPeople.find((p) => p.id === g.principalId)?.name ?? null,
+        hasVoted: voteRecords.some((r) => r.personId === g.principalId),
+      })),
       documentCount: docCountByVote.get(v.id) ?? 0,
       workflowStage,
     };
@@ -355,11 +380,40 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
 
   const myRecord = records.find((r) => r.personId === user.id);
 
+  // Proxy grants for this vote — administrative facts (who may vote for whom),
+  // not ballot contents, so they are visible to everyone with vote access even
+  // on secret ballots. Ballot CONTENTS stay masked below.
+  const proxies = await db.select().from(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
+  const proxyPersonIds = [...new Set(proxies.flatMap((p) => [p.principalId, p.holderId]))];
+  const proxyPeople = proxyPersonIds.length
+    ? await db.select().from(peopleTable).where(inArray(peopleTable.id, proxyPersonIds))
+    : [];
+  const proxyNameOf = (pid: string) => proxyPeople.find((p) => p.id === pid)?.name ?? null;
+  const proxiesWithNames = proxies.map((p) => ({
+    ...p,
+    principalName: proxyNameOf(p.principalId),
+    holderName: proxyNameOf(p.holderId),
+    used: records.some((r) => r.personId === p.principalId && r.castBy === p.holderId),
+  }));
+  // The grants the current user holds — drives the "you hold a proxy for Y"
+  // voting UI. hasVoted covers ANY ballot for the principal (own or proxy).
+  const myProxies = proxiesWithNames
+    .filter((p) => p.holderId === user.id)
+    .map((p) => ({
+      proxyId: p.id,
+      principalId: p.principalId,
+      principalName: p.principalName,
+      hasVoted: records.some((r) => r.personId === p.principalId),
+    }));
+
   const voteRecordsWithPeople = await Promise.all(
     records.map(async (r) => {
       const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, r.personId!));
       const { passwordHash: _, ...safePerson } = person || { passwordHash: "" };
-      return { ...r, person: safePerson };
+      const [castByPerson] = r.castBy
+        ? await db.select().from(peopleTable).where(eq(peopleTable.id, r.castBy))
+        : [null];
+      return { ...r, person: safePerson, castByName: castByPerson?.name ?? null };
     })
   );
 
@@ -496,9 +550,15 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
           })(),
         }
       : null,
+    // Secret-ballot masking: a non-admin sees only ballots they are already
+    // party to — their own, and any they cast as proxy holder (they know that
+    // ballot's content because they cast it; once the principal supersedes it,
+    // castBy resets and the holder loses visibility of the new ballot).
     voteRecords: vote.secret && user.role !== "admin"
-      ? voteRecordsWithPeople.filter((r) => r.personId === user.id)
+      ? voteRecordsWithPeople.filter((r) => r.personId === user.id || r.castBy === user.id)
       : voteRecordsWithPeople,
+    proxies: proxiesWithNames,
+    myProxies,
     boardMembers: boardMembersWithPeople,
     approvalRule: ruleWithSummary,
     certificateHash: vote.certificateHash,
@@ -603,9 +663,11 @@ router.delete("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req,
 
   // Delete vote_documents (files + DB rows)
   const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
+  const proxies = await db.select().from(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
 
-  // Retain a snapshot of the vote and its documents before the cascade delete.
-  await retainDeleted(req, "vote", id, { vote, documents: docs });
+  // Retain a snapshot of the vote, its documents, and proxy grants before the cascade delete.
+  await retainDeleted(req, "vote", id, { vote, documents: docs, proxies });
+  await db.delete(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
 
   for (const doc of docs) {
     if (doc.filePath && fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
@@ -634,7 +696,7 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const user = req.user!;
-    const { decision, comment } = req.body;
+    const { decision, comment, onBehalfOf } = req.body;
 
     if (!decision) {
       res.status(400).json({ error: "decision required" });
@@ -663,28 +725,119 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
-    // Snapshot the voter's board weight onto the ballot: the tally and the
-    // certificate hash use the persisted snapshot, so a later membership-weight
-    // edit can never rewrite a cast ballot.
-    let casterWeight = 1;
-    if (vote.boardId) {
-      const membership = await db
-        .select()
-        .from(boardMembershipsTable)
-        .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, user.id)));
-      const role = membership[0]?.roleInBoard;
-      if (!membership.length || role === "observer" || role === "secretary") {
-        res.status(403).json({ error: "You are not an eligible voter for this resolution" });
+    // Proxy casting: `onBehalfOf` names the PRINCIPAL whose ballot this is.
+    // The ballot is recorded against the principal (person_id = principal,
+    // cast_by = holder) — the holder is attributed, never masqueraded. Only
+    // the designated holder of a recorded per-vote grant may do this.
+    let ballotOwnerId = user.id;
+    let castBy: string | null = null;
+    if (onBehalfOf != null) {
+      if (typeof onBehalfOf !== "string" || !UUID_REGEX.test(onBehalfOf)) {
+        res.status(400).json({ error: "onBehalfOf must be a valid person id" });
         return;
       }
-      casterWeight = membership[0].votingWeight ?? 1;
+      if (onBehalfOf === user.id) {
+        res.status(400).json({ error: "You cannot hold a proxy for yourself — cast your own ballot without onBehalfOf" });
+        return;
+      }
+      if (!vote.boardId) {
+        res.status(400).json({ error: "Proxy voting is only available on board votes" });
+        return;
+      }
+      const [grant] = await db
+        .select()
+        .from(voteProxiesTable)
+        .where(and(
+          eq(voteProxiesTable.voteId, id),
+          eq(voteProxiesTable.principalId, onBehalfOf),
+          eq(voteProxiesTable.holderId, user.id),
+        ));
+      if (!grant) {
+        res.status(403).json({ error: "You do not hold a proxy for this member on this vote" });
+        return;
+      }
+      // The principal's ballot is subject to the principal's own access
+      // (recusal/access revocation), exactly as if they cast in person.
+      if (!await hasAccess(onBehalfOf, "member", "vote", id)) {
+        res.status(403).json({ error: "The member you hold a proxy for does not have access to this vote" });
+        return;
+      }
+      ballotOwnerId = onBehalfOf;
+      castBy = user.id;
+    }
+
+    // Snapshot the ballot owner's board weight onto the ballot: the tally and
+    // the certificate hash use the persisted snapshot, so a later
+    // membership-weight edit can never rewrite a cast ballot. A proxy-cast
+    // ballot weighs as the PRINCIPAL, never as the holder.
+    let ballotWeight = 1;
+    if (vote.boardId) {
+      const [membership] = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, ballotOwnerId)));
+      const role = membership?.roleInBoard;
+      if (!membership || role === "observer" || role === "secretary") {
+        res.status(403).json({
+          error: castBy
+            ? "The member you hold a proxy for is not an eligible voter for this resolution"
+            : "You are not an eligible voter for this resolution",
+        });
+        return;
+      }
+      ballotWeight = membership.votingWeight ?? 1;
+
+      if (castBy) {
+        // The holder must themselves still be an eligible voting member of the board.
+        const [holderMembership] = await db
+          .select()
+          .from(boardMembershipsTable)
+          .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, user.id)));
+        const holderRole = holderMembership?.roleInBoard;
+        if (!holderMembership || holderRole === "observer" || holderRole === "secretary") {
+          res.status(403).json({ error: "You are not an eligible voter for this resolution" });
+          return;
+        }
+      }
     }
 
     const sanitizedComment = comment ? sanitizeText(comment) : null;
-    const [record] = await db
-      .insert(voteRecordsTable)
-      .values({ voteId: id, personId: user.id, decision, comment: sanitizedComment, weight: casterWeight })
-      .returning();
+
+    // No double voting, with a defined precedence: a principal casting in
+    // person SUPERSEDES their proxy-cast ballot (the standard rule — the
+    // member's own voice wins); every other duplicate is rejected, including a
+    // proxy cast after the principal has voted. The (voteId, personId) unique
+    // constraint backstops this check against races.
+    const [existing] = await db
+      .select()
+      .from(voteRecordsTable)
+      .where(and(eq(voteRecordsTable.voteId, id), eq(voteRecordsTable.personId, ballotOwnerId)));
+
+    let record;
+    if (existing) {
+      if (!castBy && existing.castBy) {
+        [record] = await db
+          .update(voteRecordsTable)
+          .set({ decision, comment: sanitizedComment, weight: ballotWeight, castBy: null, votedAt: new Date() })
+          .where(eq(voteRecordsTable.id, existing.id))
+          .returning();
+        await audit(req, "vote_proxy_superseded", "vote", id, {
+          principalId: ballotOwnerId,
+          previousCastBy: existing.castBy,
+          previousDecision: existing.decision,
+          decision,
+          voteTitle: vote.title,
+        });
+      } else {
+        res.status(409).json({ error: castBy ? "This member has already voted" : "You have already voted" });
+        return;
+      }
+    } else {
+      [record] = await db
+        .insert(voteRecordsTable)
+        .values({ voteId: id, personId: ballotOwnerId, decision, comment: sanitizedComment, weight: ballotWeight, castBy })
+        .returning();
+    }
 
     if (vote.boardId) {
       const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
@@ -738,9 +891,11 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       }
     }
 
-    const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, user.id));
+    // The returned record belongs to the ballot owner (the principal, for a
+    // proxy cast) — with the holder attributed via castBy.
+    const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, ballotOwnerId));
     const { passwordHash: _, ...safePerson } = person;
-    audit(req, "vote_cast", "vote", id, { decision, voteTitle: vote.title });
+    audit(req, "vote_cast", "vote", id, { decision, voteTitle: vote.title, ...(castBy ? { asProxyFor: ballotOwnerId } : {}) });
     res.json({ ...record, person: safePerson });
   } catch (err: unknown) {
     const anyErr = err as { code?: string; message?: string; cause?: { code?: string } };
@@ -752,6 +907,147 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
     logger.error({ err: anyErr }, "[votes] cast error");
     res.status(500).json({ error: "Failed to record vote" });
   }
+});
+
+// Record a proxy grant for one vote: `holderId` may cast on behalf of
+// `principalId` for THIS vote only (per-vote grants — the circulation-vote
+// model has no meeting session to scope a wider grant to, and per-vote keeps
+// the audit trail exact). Secretary/admin records the grant; every governance
+// edge is enforced here so the cast path can trust the grant.
+router.post("/votes/:id/proxies", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const { principalId, holderId } = pick(req.body, ["principalId", "holderId"] as (keyof typeof req.body)[]) as { principalId?: string; holderId?: string };
+
+  if (!principalId || !holderId || !UUID_REGEX.test(principalId) || !UUID_REGEX.test(holderId)) {
+    res.status(400).json({ error: "Required: principalId and holderId (person UUIDs)" });
+    return;
+  }
+  if (principalId === holderId) {
+    res.status(400).json({ error: "A member cannot hold a proxy for themselves" });
+    return;
+  }
+
+  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  if (!vote) {
+    res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+  if (vote.status !== "open") {
+    res.status(409).json({ error: "Proxies can only be granted while the vote is open" });
+    return;
+  }
+  if (!vote.boardId) {
+    res.status(400).json({ error: "Proxy voting is only available on board votes" });
+    return;
+  }
+
+  const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, vote.boardId));
+  const proxyLimit = board?.proxyLimit ?? 1;
+  if (proxyLimit < 1) {
+    res.status(409).json({ error: "Proxy voting is disabled on this board" });
+    return;
+  }
+
+  // Both parties must be eligible voting members of the vote's board.
+  const memberships = await db
+    .select()
+    .from(boardMembershipsTable)
+    .where(and(eq(boardMembershipsTable.boardId, vote.boardId), inArray(boardMembershipsTable.personId, [principalId, holderId])));
+  for (const [pid, who] of [[principalId, "principal"], [holderId, "proxy holder"]] as const) {
+    const m = memberships.find((row) => row.personId === pid);
+    if (!m || m.roleInBoard === "observer" || m.roleInBoard === "secretary") {
+      res.status(400).json({ error: `The ${who} is not an eligible voting member of this board` });
+      return;
+    }
+  }
+
+  // Neither party may be recused from this vote.
+  const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
+  if (rule) {
+    const recusals = await db.select().from(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id));
+    const recused = new Set(recusals.map((r) => r.personId));
+    if (recused.has(principalId)) {
+      res.status(409).json({ error: "The principal is recused from this vote" });
+      return;
+    }
+    if (recused.has(holderId)) {
+      res.status(409).json({ error: "The proxy holder is recused from this vote" });
+      return;
+    }
+  }
+
+  // A proxy is for an ABSENT member: pointless (and confusing) once the
+  // principal has already voted.
+  const [existingBallot] = await db
+    .select()
+    .from(voteRecordsTable)
+    .where(and(eq(voteRecordsTable.voteId, id), eq(voteRecordsTable.personId, principalId)));
+  if (existingBallot) {
+    res.status(409).json({ error: "This member has already voted on this resolution" });
+    return;
+  }
+
+  const grants = await db.select().from(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
+  if (grants.some((g) => g.principalId === principalId)) {
+    res.status(409).json({ error: "This member has already granted a proxy for this vote" });
+    return;
+  }
+  // A member who has delegated their own ballot away cannot collect proxies.
+  if (grants.some((g) => g.principalId === holderId)) {
+    res.status(409).json({ error: "The proxy holder has delegated their own ballot for this vote and cannot hold proxies" });
+    return;
+  }
+  const held = grants.filter((g) => g.holderId === holderId).length;
+  if (held >= proxyLimit) {
+    res.status(409).json({ error: `A member may hold at most ${proxyLimit} prox${proxyLimit === 1 ? "y" : "ies"} on this board` });
+    return;
+  }
+
+  const [proxy] = await db
+    .insert(voteProxiesTable)
+    .values({ voteId: id, principalId, holderId, createdBy: req.user!.id })
+    .returning();
+
+  const namedPeople = await db.select().from(peopleTable).where(inArray(peopleTable.id, [principalId, holderId]));
+  const nameOf = (pid: string) => namedPeople.find((p) => p.id === pid)?.name ?? null;
+
+  await audit(req, "vote_proxy_granted", "vote", id, { principalId, holderId, voteTitle: vote.title });
+  res.status(201).json({ ...proxy, principalName: nameOf(principalId), holderName: nameOf(holderId), used: false });
+});
+
+// Revoke an unused proxy grant while the vote is open. A grant whose ballot
+// has already been cast cannot be silently revoked — the principal supersedes
+// it by casting in person instead (audit-logged precedence rule).
+router.delete("/votes/:id/proxies/:proxyId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const proxyId = Array.isArray(req.params.proxyId) ? req.params.proxyId[0] : req.params.proxyId;
+
+  const [proxy] = await db.select().from(voteProxiesTable).where(eq(voteProxiesTable.id, proxyId));
+  if (!proxy || proxy.voteId !== id) {
+    res.status(404).json({ error: "Proxy grant not found" });
+    return;
+  }
+  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  if (!vote || vote.status !== "open") {
+    res.status(409).json({ error: "Proxies can only be revoked while the vote is open" });
+    return;
+  }
+  const [usedBallot] = await db
+    .select()
+    .from(voteRecordsTable)
+    .where(and(
+      eq(voteRecordsTable.voteId, id),
+      eq(voteRecordsTable.personId, proxy.principalId),
+      eq(voteRecordsTable.castBy, proxy.holderId),
+    ));
+  if (usedBallot) {
+    res.status(409).json({ error: "This proxy has already been used. The principal can override it by casting their own ballot." });
+    return;
+  }
+
+  await db.delete(voteProxiesTable).where(eq(voteProxiesTable.id, proxyId));
+  await audit(req, "vote_proxy_revoked", "vote", id, { principalId: proxy.principalId, holderId: proxy.holderId });
+  res.sendStatus(204);
 });
 
 router.get("/votes/:id/documents", requireAuth, async (req, res): Promise<void> => {
@@ -901,9 +1197,31 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     records.map(async (r) => {
       const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, r.personId!));
       const { passwordHash: _, ...safePerson } = person || { passwordHash: "" };
-      return { ...r, person: safePerson };
+      const [castByPerson] = r.castBy
+        ? await db.select().from(peopleTable).where(eq(peopleTable.id, r.castBy))
+        : [null];
+      return { ...r, person: safePerson, castByName: castByPerson?.name ?? null };
     })
   );
+
+  // Proxy relationships on the certificate — disclosed for OPEN (non-secret)
+  // ballots only. On a secret ballot the certificate already withholds the
+  // individual records from non-admins; the proxy list is withheld with them
+  // so the certificate never says more than the ballot rules allow.
+  const showIndividualData = !vote.secret || user.role === "admin";
+  const proxies = showIndividualData
+    ? await db.select().from(voteProxiesTable).where(eq(voteProxiesTable.voteId, id))
+    : [];
+  const proxyPersonIds = [...new Set(proxies.flatMap((p) => [p.principalId, p.holderId]))];
+  const proxyPeople = proxyPersonIds.length
+    ? await db.select().from(peopleTable).where(inArray(peopleTable.id, proxyPersonIds))
+    : [];
+  const proxiesWithNames = proxies.map((p) => ({
+    ...p,
+    principalName: proxyPeople.find((q) => q.id === p.principalId)?.name ?? null,
+    holderName: proxyPeople.find((q) => q.id === p.holderId)?.name ?? null,
+    used: records.some((r) => r.personId === p.principalId && r.castBy === p.holderId),
+  }));
 
   const [approvalRule] = await db
     .select()
@@ -940,9 +1258,8 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
         deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
       }),
     } : null,
-    voteRecords: vote.secret && req.user?.role !== "admin"
-      ? []
-      : recordsWithPeople,
+    voteRecords: showIndividualData ? recordsWithPeople : [],
+    proxies: proxiesWithNames,
   });
 });
 

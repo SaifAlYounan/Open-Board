@@ -67,6 +67,35 @@ router.post("/boards", requireAuth, requireAdmin, async (req, res): Promise<void
   res.status(201).json({ ...board, memberCount: 0 });
 });
 
+const MAX_PROXY_LIMIT = 100;
+
+router.patch("/boards/:id", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const { name, proxyLimit } = req.body;
+  if (name == null && proxyLimit == null) {
+    res.status(400).json({ error: "Nothing to update — provide name and/or proxyLimit" });
+    return;
+  }
+  if (proxyLimit != null && (typeof proxyLimit !== "number" || !Number.isInteger(proxyLimit) || proxyLimit < 0 || proxyLimit > MAX_PROXY_LIMIT)) {
+    res.status(400).json({ error: `proxyLimit must be an integer between 0 and ${MAX_PROXY_LIMIT} (0 disables proxy voting)` });
+    return;
+  }
+  const updates: Record<string, unknown> = {};
+  if (name != null) updates.name = sanitizeText(String(name));
+  if (proxyLimit != null) updates.proxyLimit = proxyLimit;
+  const [board] = await db.update(boardsTable).set(updates).where(eq(boardsTable.id, id)).returning();
+  if (!board) {
+    res.status(404).json({ error: "Board not found" });
+    return;
+  }
+  await audit(req, "board_updated", "board", id, { changed: Object.keys(updates), ...(proxyLimit != null ? { proxyLimit } : {}) });
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(boardMembershipsTable)
+    .where(eq(boardMembershipsTable.boardId, id));
+  res.json({ ...board, memberCount: Number(count) });
+});
+
 router.get("/boards/:id", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;

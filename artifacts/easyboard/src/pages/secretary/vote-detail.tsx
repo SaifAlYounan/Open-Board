@@ -115,6 +115,9 @@ function MemberRow({ record, member, isRecused, isRequired, weight }: { record?:
             <span className="text-xs px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-medium block mb-0.5">Key Approver</span>
           )}
           <p className="text-xs font-medium" style={{ color }}>{decisionLabel}</p>
+          {record.castBy && (
+            <p className="text-xs text-[#5856d6]">by proxy: {record.castByName || 'proxy holder'}</p>
+          )}
           <p className="text-xs text-[#86868b]">{formatDateTime(record.votedAt)}</p>
         </div>
       </div>
@@ -141,6 +144,8 @@ export default function SecretaryVoteDetail() {
   const [uploading, setUploading] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
+  const [proxyForm, setProxyForm] = useState({ principalId: '', holderId: '' });
+  const [savingProxy, setSavingProxy] = useState(false);
 
   const { data: vote, isLoading } = useGetVote(id);
   const updateVote = useUpdateVote();
@@ -257,6 +262,43 @@ export default function SecretaryVoteDetail() {
       queryClient.invalidateQueries({ queryKey: getGetVoteQueryKey(id) });
     } catch {
       toast({ title: 'Failed to remove', variant: 'destructive' });
+    }
+  };
+
+  const handleGrantProxy = async () => {
+    if (!proxyForm.principalId || !proxyForm.holderId) {
+      toast({ title: 'Select both members', variant: 'destructive' });
+      return;
+    }
+    setSavingProxy(true);
+    const resp = await fetch(`/api/votes/${id}/proxies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(proxyForm),
+    });
+    setSavingProxy(false);
+    if (resp.ok) {
+      toast({ title: 'Proxy recorded' });
+      setProxyForm({ principalId: '', holderId: '' });
+      queryClient.invalidateQueries({ queryKey: getGetVoteQueryKey(id) });
+    } else {
+      const err = await resp.json().catch(() => null);
+      toast({ title: 'Could not record proxy', description: err?.error, variant: 'destructive' });
+    }
+  };
+
+  const handleRevokeProxy = async (proxyId: string) => {
+    const resp = await fetch(`/api/votes/${id}/proxies/${proxyId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    if (resp.ok) {
+      toast({ title: 'Proxy revoked' });
+      queryClient.invalidateQueries({ queryKey: getGetVoteQueryKey(id) });
+    } else {
+      const err = await resp.json().catch(() => null);
+      toast({ title: 'Could not revoke proxy', description: err?.error, variant: 'destructive' });
     }
   };
 
@@ -387,7 +429,7 @@ export default function SecretaryVoteDetail() {
       <tbody>
         ${(cert.voteRecords || []).map((r: any) => `
           <tr>
-            <td>${esc(r.person?.name || 'Unknown')}</td>
+            <td>${esc(r.person?.name || 'Unknown')}${r.castBy ? `<br/><span style="font-size:11px;color:#5856d6;">by proxy: ${esc(r.castByName || 'proxy holder')}</span>` : ''}</td>
             ${certIsWeighted ? `<td>${esc(String(r.weight ?? 1))}</td>` : ''}
             <td class="${r.decision.startsWith('approved') ? 'approved' : 'rejected'}">${esc(r.decision.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))}</td>
             <td>${r.votedAt ? new Date(r.votedAt).toLocaleString('en-AU') : '—'}</td>
@@ -398,6 +440,24 @@ export default function SecretaryVoteDetail() {
     </table>
     `}
   </div>
+
+  ${!isSecret && (cert.proxies || []).length > 0 ? `
+  <div class="section">
+    <div class="section-title">Proxy Relationships</div>
+    <table>
+      <thead><tr><th>Principal (absent member)</th><th>Proxy holder</th><th>Status</th></tr></thead>
+      <tbody>
+        ${(cert.proxies || []).map((p: any) => `
+          <tr>
+            <td>${esc(p.principalName || 'Unknown')}</td>
+            <td>${esc(p.holderName || 'Unknown')}</td>
+            <td>${p.used ? 'Ballot cast by proxy' : 'Not used'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+  ` : ''}
 
   ${cert.hash ? `
   <div class="section">
@@ -458,6 +518,19 @@ export default function SecretaryVoteDetail() {
   const isWeighted =
     votingBoardMembers.some((m: any) => (m.votingWeight ?? 1) !== 1) ||
     (voteData.voteRecords || []).some((r: any) => (r.weight ?? 1) !== 1);
+
+  // Proxy grants: a principal must be an eligible member who has not voted and
+  // has not already delegated; a holder must be eligible and not have delegated
+  // their own ballot away. The API enforces every rule (incl. the per-board
+  // holder limit) — these lists just keep the pickers sensible.
+  const proxies = (voteData.proxies || []) as any[];
+  const delegatedPrincipals = new Set(proxies.map((p: any) => p.principalId));
+  const proxyPrincipalOptions = votingBoardMembers.filter(
+    (m: any) => !recusedIds.has(m.personId) && !voteRecordsById.has(m.personId) && !delegatedPrincipals.has(m.personId)
+  );
+  const proxyHolderOptions = votingBoardMembers.filter(
+    (m: any) => !recusedIds.has(m.personId) && !delegatedPrincipals.has(m.personId) && m.personId !== proxyForm.principalId
+  );
 
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
@@ -796,6 +869,87 @@ export default function SecretaryVoteDetail() {
                         <MemberRow key={m.personId} member={m.person} isRequired={requiredVoterIds.has(m.personId)} weight={m.votingWeight} />
                       ))
                     }
+                  </div>
+                )}
+              </div>
+
+              {/* Proxy grants */}
+              <div className="bg-white rounded-2xl border border-[#e5e5e7] p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users size={16} className="text-[#86868b]" />
+                  <h2 className="font-semibold text-[#1d1d1f] text-sm">Proxies</h2>
+                  <span className="text-xs text-[#86868b]">per-vote grants — an absent member's ballot cast on their behalf</span>
+                </div>
+
+                {proxies.length === 0 && (
+                  <p className="text-xs text-[#86868b] mb-3">No proxies recorded for this vote.</p>
+                )}
+                {proxies.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {proxies.map((p: any) => (
+                      <div key={p.id} className="flex items-center gap-3 p-2.5 bg-[#f5f5f7] rounded-xl text-sm" data-testid={`proxy-${p.id}`}>
+                        <span className="text-[#1d1d1f]">
+                          <strong>{p.holderName || 'Unknown'}</strong> holds the proxy of <strong>{p.principalName || 'Unknown'}</strong>
+                        </span>
+                        {p.used ? (
+                          <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-[#34c759]/10 text-[#34c759] font-medium">Ballot cast</span>
+                        ) : (
+                          <>
+                            <span className="ml-auto text-xs text-[#86868b]">Not used yet</span>
+                            {isOpen && (
+                              <button
+                                onClick={() => handleRevokeProxy(p.id)}
+                                className="text-xs text-[#ff3b30] hover:underline"
+                                data-testid={`btn-revoke-proxy-${p.id}`}
+                              >
+                                Revoke
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {isOpen && (
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div>
+                      <label className="text-xs text-[#86868b] mb-1 block">Absent member (principal)</label>
+                      <select
+                        value={proxyForm.principalId}
+                        onChange={(e) => setProxyForm((f) => ({ ...f, principalId: e.target.value, holderId: f.holderId === e.target.value ? '' : f.holderId }))}
+                        className="h-8 px-2 rounded-lg border border-[#e5e5e7] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
+                        data-testid="select-proxy-principal"
+                      >
+                        <option value="">Select member…</option>
+                        {proxyPrincipalOptions.map((m: any) => (
+                          <option key={m.personId} value={m.personId}>{m.person?.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-[#86868b] mb-1 block">Proxy holder</label>
+                      <select
+                        value={proxyForm.holderId}
+                        onChange={(e) => setProxyForm((f) => ({ ...f, holderId: e.target.value }))}
+                        className="h-8 px-2 rounded-lg border border-[#e5e5e7] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
+                        data-testid="select-proxy-holder"
+                      >
+                        <option value="">Select member…</option>
+                        {proxyHolderOptions.map((m: any) => (
+                          <option key={m.personId} value={m.personId}>{m.person?.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={handleGrantProxy}
+                      disabled={savingProxy}
+                      className="h-8 px-3 bg-[#0071e3] text-white rounded-lg text-xs font-medium hover:bg-[#0077ed] disabled:opacity-50"
+                      data-testid="btn-grant-proxy"
+                    >
+                      {savingProxy ? 'Recording…' : 'Record Proxy'}
+                    </button>
                   </div>
                 )}
               </div>

@@ -8,6 +8,7 @@ export * from "./agendaItems";
 export * from "./documents";
 export * from "./agendaDocuments";
 export * from "./voteRecords";
+export * from "./voteProxies";
 export * from "./voteDocuments";
 export * from "./minutes";
 export * from "./minutesSuggestions";

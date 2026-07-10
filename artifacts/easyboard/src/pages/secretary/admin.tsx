@@ -398,6 +398,7 @@ function BoardMembersTab() {
   const [addMemberForm, setAddMemberForm] = useState({ personId: "", roleInBoard: "member", votingWeight: "1" });
   const [saving, setSaving] = useState(false);
   const [weightDrafts, setWeightDrafts] = useState<Record<string, string>>({});
+  const [proxyLimitDraft, setProxyLimitDraft] = useState<string | null>(null);
 
   const boardList = (boards as any[]) || [];
   const selectedBoard = boardList.find((b: any) => b.id === selectedBoardId);
@@ -453,6 +454,35 @@ function BoardMembersTab() {
     }
   }
 
+  async function saveProxyLimit() {
+    if (proxyLimitDraft == null) return;
+    const limit = parseInt(proxyLimitDraft, 10);
+    if (!Number.isInteger(limit) || limit < 0) {
+      toast({ title: "Proxy limit must be a whole number (0 disables proxies)", variant: "destructive" });
+      setProxyLimitDraft(null);
+      return;
+    }
+    if (limit === (selectedBoard?.proxyLimit ?? 1)) {
+      setProxyLimitDraft(null);
+      return;
+    }
+    const res = await fetch(`${API_BASE}/api/boards/${selectedBoardId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ proxyLimit: limit }),
+    });
+    setProxyLimitDraft(null);
+    if (res.ok) {
+      queryClient.invalidateQueries({ queryKey: getListBoardsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetBoardQueryKey(selectedBoardId!) });
+      toast({ title: "Proxy limit updated" });
+    } else {
+      const err = await res.json().catch(() => null);
+      toast({ title: "Failed to update proxy limit", description: err?.error, variant: "destructive" });
+    }
+  }
+
   async function saveWeight(m: any) {
     const draft = weightDrafts[m.personId];
     if (draft == null) return;
@@ -495,7 +525,7 @@ function BoardMembersTab() {
           {boardList.map((board: any) => (
             <button
               key={board.id}
-              onClick={() => { setSelectedBoardId(board.id); setShowAddMember(false); }}
+              onClick={() => { setSelectedBoardId(board.id); setShowAddMember(false); setProxyLimitDraft(null); setWeightDrafts({}); }}
               className={cn(
                 "w-full text-left px-4 py-3 flex items-center justify-between border-b border-[#f5f5f7] last:border-0 transition-colors",
                 selectedBoardId === board.id ? "bg-[#0071e315]" : "hover:bg-[#f5f5f7]"
@@ -527,13 +557,29 @@ function BoardMembersTab() {
                   <h3 className="font-semibold text-[#1d1d1f]">{selectedBoard?.name}</h3>
                   <p className="text-xs text-[#86868b]">{members.length} member{members.length !== 1 ? "s" : ""}</p>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => setShowAddMember(!showAddMember)}
-                  className="bg-[#0071e3] hover:bg-[#0077ed] text-white rounded-xl h-8 px-3 text-xs"
-                >
-                  <Plus size={12} className="mr-1" /> Add Member
-                </Button>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-[#86868b]" title="Max proxies one member may hold on a single vote (0 disables proxy voting)">
+                    Proxy limit
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={proxyLimitDraft ?? String(selectedBoard?.proxyLimit ?? 1)}
+                      onChange={(e) => setProxyLimitDraft(e.target.value)}
+                      onBlur={saveProxyLimit}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      className="h-7 w-14 px-2 rounded-lg border border-[#e5e5e7] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0071e3]"
+                      data-testid="input-proxy-limit"
+                    />
+                  </label>
+                  <Button
+                    size="sm"
+                    onClick={() => setShowAddMember(!showAddMember)}
+                    className="bg-[#0071e3] hover:bg-[#0077ed] text-white rounded-xl h-8 px-3 text-xs"
+                  >
+                    <Plus size={12} className="mr-1" /> Add Member
+                  </Button>
+                </div>
               </div>
 
               {showAddMember && (

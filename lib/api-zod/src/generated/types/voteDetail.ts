@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ApprovalRule } from "./approvalRule";
+import type { MyVoteProxy } from "./myVoteProxy";
+import type { VoteProxy } from "./voteProxy";
 import type { VoteRecord } from "./voteRecord";
 
 export interface VoteDetail {
@@ -31,6 +33,10 @@ export interface VoteDetail {
   hasVoted: boolean;
   myVote?: VoteRecord;
   voteRecords: VoteRecord[];
+  /** Proxy grants recorded for this vote (administrative facts, visible to anyone with vote access). */
+  proxies?: VoteProxy[];
+  /** Proxy grants the current user holds on this vote. */
+  myProxies?: MyVoteProxy[];
   approvalRule?: ApprovalRule;
   /** @nullable */
   certificateHash?: string | null;

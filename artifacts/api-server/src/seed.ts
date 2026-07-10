@@ -15,6 +15,7 @@ import {
   attendanceTable,
   pendingActionsTable,
   voteRecordsTable,
+  voteProxiesTable,
   votesTable,
   meetingsTable,
   documentsTable,
@@ -72,6 +73,7 @@ export async function clearAll() {
   await db.delete(attendanceTable);
   await db.delete(pendingActionsTable);
   await db.delete(voteRecordsTable);
+  await db.delete(voteProxiesTable);
   await db.delete(approvalRuleWeightsTable);
   await db.delete(approvalRuleRecusalsTable);
   await db.delete(approvalRuleRequiredVotersTable);
@@ -363,6 +365,7 @@ async function cleanupTestAccounts() {
     await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.personId, id));
     await db.delete(accessControlTable).where(eq(accessControlTable.personId, id));
     await db.delete(voteRecordsTable).where(eq(voteRecordsTable.personId, id));
+    await db.execute(sql`DELETE FROM vote_proxies WHERE principal_id = ${id} OR holder_id = ${id} OR created_by = ${id}`);
     await db.delete(minutesSignaturesTable).where(eq(minutesSignaturesTable.personId, id));
     await db.delete(attendanceTable).where(eq(attendanceTable.personId, id));
     await db.execute(sql`DELETE FROM audit_trail WHERE person_id = ${id}`);

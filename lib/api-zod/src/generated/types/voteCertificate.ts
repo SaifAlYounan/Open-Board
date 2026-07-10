@@ -5,6 +5,7 @@
  * Open Board API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { VoteProxy } from "./voteProxy";
 import type { VoteRecord } from "./voteRecord";
 
 export interface VoteCertificate {
@@ -21,4 +22,6 @@ export interface VoteCertificate {
   castWeight: number;
   approvalsWeight: number;
   voteRecords: VoteRecord[];
+  /** Proxy relationships (disclosed for open ballots; withheld with the records on secret ballots). */
+  proxies: VoteProxy[];
 }

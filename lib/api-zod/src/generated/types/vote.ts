@@ -5,6 +5,7 @@
  * Open Board API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MyVoteProxy } from "./myVoteProxy";
 import type { VoteStatus } from "./voteStatus";
 import type { VoteType } from "./voteType";
 
@@ -34,5 +35,7 @@ export interface Vote {
   /** Summed voting weight of valid "approved" ballots. */
   approvalsWeight: number;
   hasVoted: boolean;
+  /** Proxy grants the current user holds on this vote. */
+  myProxies?: MyVoteProxy[];
   createdAt: string;
 }

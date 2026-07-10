@@ -128,10 +128,26 @@ export default function VoteCertificate() {
                               <span className="text-[#1d1d1f]">
                                 {r.person?.name || "Unknown"}
                                 {isWeighted && <span className="ml-1.5 text-xs text-[#5856d6]">×{r.weight ?? 1}</span>}
+                                {r.castBy && <span className="ml-1.5 text-xs text-[#5856d6]">by proxy: {r.castByName || "proxy holder"}</span>}
                               </span>
                               <span className="font-medium" style={{ color: r.decision?.startsWith("approved") ? "#34c759" : r.decision?.startsWith("rejected") || r.decision?.startsWith("not_approved") ? "#ff3b30" : "#86868b" }}>
                                 {r.decision}
                               </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(cert.proxies || []).length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-[#86868b] uppercase tracking-wide mb-2">Proxy Relationships</div>
+                        <div className="space-y-2">
+                          {cert.proxies.map((p: any) => (
+                            <div key={p.id} className="flex items-center justify-between text-sm">
+                              <span className="text-[#1d1d1f]">
+                                <strong>{p.holderName || "Unknown"}</strong> held the proxy of <strong>{p.principalName || "Unknown"}</strong>
+                              </span>
+                              <span className="text-xs text-[#86868b]">{p.used ? "Ballot cast by proxy" : "Not used"}</span>
                             </div>
                           ))}
                         </div>

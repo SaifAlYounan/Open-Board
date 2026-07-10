@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { organizationsTable } from "./organizations";
 
 export const boardsTable = pgTable("boards", {
@@ -7,6 +7,9 @@ export const boardsTable = pgTable("boards", {
   name: text("name").notNull(),
   abbreviation: text("abbreviation"),
   type: text("type", { enum: ["board", "committee"] }).notNull(),
+  // Maximum number of proxies one member may hold on a single vote (standard
+  // governance default: 1). 0 disables proxy voting on this board.
+  proxyLimit: integer("proxy_limit").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
