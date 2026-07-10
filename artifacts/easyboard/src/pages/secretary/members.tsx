@@ -23,7 +23,7 @@ export default function SecretaryMembers() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-[#1d1d1f]">Members</h1>
-              <p className="text-sm text-[#86868b] mt-1">All people with access to Open Board. Add people, set roles, and manage board memberships in the Admin Panel.</p>
+              <p className="text-sm text-[#86868b] mt-1">All people with access to LQGovernance. Add people, set roles, and manage board memberships in the Admin Panel.</p>
             </div>
             <button
               onClick={() => setLocation('/secretary/admin')}

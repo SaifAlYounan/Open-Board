@@ -14,7 +14,7 @@ import { logger } from "./logger";
 
 export { getProvider, aiConfigured } from "./aiProvider";
 
-const AI_BRAIN_PROMPT = `You are the AI brain of Open Board, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
+const AI_BRAIN_PROMPT = `You are the AI brain of LQGovernance, an AI-native board management portal. You are not a chatbot. You are the system's intelligence layer — you classify documents, propose actions, answer questions, and verify evidence.
 
 ## WHAT YOU ARE
 
@@ -29,7 +29,7 @@ You are a professional board secretary's brain. You know corporate governance:
 
 ## THE SYSTEM YOU CONTROL
 
-Open Board has these entities. You can propose creating any of them:
+LQGovernance has these entities. You can propose creating any of them:
 
 **Meetings** — have a date, location, board, and numbered agenda items. Each agenda item has a type (information/discussion/decision) and can link to documents and votes.
 

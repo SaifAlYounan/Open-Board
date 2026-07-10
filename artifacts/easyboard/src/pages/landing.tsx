@@ -9,7 +9,7 @@ export default function Landing() {
           <div className="w-7 h-7 bg-[#0071e3] text-white rounded-lg flex items-center justify-center text-sm font-bold">
             ✦
           </div>
-          <span className="text-sm font-semibold text-[#1d1d1f]">Open Board</span>
+          <span className="text-sm font-semibold text-[#1d1d1f]">LQGovernance</span>
         </div>
         <nav className="flex items-center gap-3">
           <Link href="/whitepaper">
@@ -86,7 +86,7 @@ export default function Landing() {
       </section>
 
       <footer className="py-8 text-center text-[#86868b] text-sm border-t border-[#e5e5e7] bg-white">
-        <p data-testid="text-footer">Open Board &nbsp;·&nbsp; MIT License</p>
+        <p data-testid="text-footer">LQGovernance &nbsp;·&nbsp; MIT License</p>
       </footer>
     </div>
   );

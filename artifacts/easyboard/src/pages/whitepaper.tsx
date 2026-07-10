@@ -8,7 +8,7 @@ export default function Whitepaper() {
         <Link href="/">
           <button className="flex items-center gap-2 text-[#86868b] hover:text-[#1d1d1f] transition-colors text-sm font-medium">
             <ArrowLeft size={16} />
-            Back to Open Board
+            Back to LQGovernance
           </button>
         </Link>
         <div className="flex items-center gap-2 text-sm text-[#86868b]">
@@ -24,7 +24,7 @@ export default function Whitepaper() {
             Security White Paper
           </div>
           <h1 className="text-4xl md:text-5xl font-semibold tracking-tight leading-tight text-[#1d1d1f]">
-            Open Board Security Architecture
+            LQGovernance Security Architecture
           </h1>
           <p className="text-[#86868b] text-lg leading-relaxed">
             Why Open Source and Self-Hosted Is the Secure Choice for Board Management
@@ -90,7 +90,7 @@ Compliance certifications are a necessary but insufficient condition for securit
 
 Typical vendor approach: board documents are sent to a cloud AI provider through the vendor's infrastructure. The customer has no visibility into the data pipeline — what is sent, how it is processed, whether it is retained, or whether it is used for model training.
 
-Open Board approach: AI calls go directly from the organization's server to the AI provider — no intermediary infrastructure. Every AI call is visible in the source code, so the exact data payload sent and received can be audited. The provider is configurable: the Anthropic API (optionally through an Anthropic-compatible gateway you host yourself), or fully local / OpenAI-compatible inference (Ollama, vLLM, LM Studio and similar — set AI_PROVIDER=openai-compatible and AI_BASE_URL) so board documents never leave your network at all. AI can also be disabled entirely. No vendor-hosted platform can offer this level of auditability because they do not provide their source code.`}
+LQGovernance approach: AI calls go directly from the organization's server to the AI provider — no intermediary infrastructure. Every AI call is visible in the source code, so the exact data payload sent and received can be audited. The provider is configurable: the Anthropic API (optionally through an Anthropic-compatible gateway you host yourself), or fully local / OpenAI-compatible inference (Ollama, vLLM, LM Studio and similar — set AI_PROVIDER=openai-compatible and AI_BASE_URL) so board documents never leave your network at all. AI can also be disabled entirely. No vendor-hosted platform can offer this level of auditability because they do not provide their source code.`}
             question="When I use your AI features, where exactly does my document text go? Through whose infrastructure? Is it retained?"
           />
 
@@ -99,7 +99,7 @@ Open Board approach: AI calls go directly from the organization's server to the 
             title='"Self-hosted software requires dedicated security expertise"'
             content={`Any organization with a board of directors has IT infrastructure. That infrastructure team already manages email servers, ERP systems, CRM platforms, and network security. A Node.js application with PostgreSQL is well within the competency of any professional IT department.
 
-Open Board's dependency footprint is minimal and entirely mainstream: Express (widely deployed web framework), PostgreSQL (25+ year track record), React (used by the largest consumer and enterprise platforms globally), bcryptjs, JWT, SHA-256 — industry-standard security primitives.
+LQGovernance's dependency footprint is minimal and entirely mainstream: Express (widely deployed web framework), PostgreSQL (25+ year track record), React (used by the largest consumer and enterprise platforms globally), bcryptjs, JWT, SHA-256 — industry-standard security primitives.
 
 The cost comparison: the annual licensing fee for a typical proprietary board management platform ($50,000–$150,000+) exceeds the annual cost of infrastructure and maintenance for a self-hosted deployment by a significant multiple. The organization spends less and gets more control.`}
             question="What is the total annual cost of your platform including implementation, training, and support? Have you compared that to the cost of a self-hosted deployment?"
@@ -128,7 +128,7 @@ With a self-hosted platform: the organization's own security team has immediate 
           <Section
             number="8"
             title='"Board portals require enterprise-grade encryption"'
-            content={`Open Board uses open cryptographic standards you can verify in the source: bcryptjs (adaptive hashing) for password storage, SHA-256 for document-integrity verification and signature hashes, and JWT with configurable expiry for session management. Transport encryption (TLS) is terminated at your reverse proxy, and encrypted database connections (SSL) and encryption at rest are configured on your own infrastructure — the same operator-provided controls any self-hosted platform relies on.
+            content={`LQGovernance uses open cryptographic standards you can verify in the source: bcryptjs (adaptive hashing) for password storage, SHA-256 for document-integrity verification and signature hashes, and JWT with configurable expiry for session management. Transport encryption (TLS) is terminated at your reverse proxy, and encrypted database connections (SSL) and encryption at rest are configured on your own infrastructure — the same operator-provided controls any self-hosted platform relies on.
 
 There is no proprietary "enterprise-grade" encryption that differs from these open standards. SHA-256 is SHA-256; the mathematics do not change based on licensing fees. The difference is that with open source you can verify the implementation, and with closed source you trust a claim.`}
             question="Name one cryptographic algorithm in your platform that is not available in open source."
@@ -137,7 +137,7 @@ There is no proprietary "enterprise-grade" encryption that differs from these op
           <Section
             number="9"
             title={`"Open-source projects can't keep pace with security patches"`}
-            content={`Open Board's core dependencies are among the most actively maintained software projects in existence: PostgreSQL (25-year track record, timely security releases), Node.js / Express (backed by the OpenJS Foundation, millions of production deployments), React (maintained by one of the largest technology companies). These projects issue security advisories and patches on a faster cadence than most proprietary software vendors.
+            content={`LQGovernance's core dependencies are among the most actively maintained software projects in existence: PostgreSQL (25-year track record, timely security releases), Node.js / Express (backed by the OpenJS Foundation, millions of production deployments), React (maintained by one of the largest technology companies). These projects issue security advisories and patches on a faster cadence than most proprietary software vendors.
 
 By contrast, proprietary platforms disclose vulnerabilities only when the vendor chooses to — and customers have no way to independently verify whether a vulnerability exists, when it was discovered, or how long it took to patch.`}
             question="How long, on average, between when your team discovers a vulnerability and when your customers are notified? With open source, the answer is public record."
@@ -169,7 +169,7 @@ These controls are implemented identically regardless of whether the software is
           </div>
 
           <p className="text-xs text-[#86868b] text-center pb-8">
-            Open Board is open source under the MIT License. The complete source code, database schema, AI integration,
+            LQGovernance is open source under the MIT License. The complete source code, database schema, AI integration,
             and security architecture are available for audit at any time.
           </p>
         </div>

@@ -49,7 +49,7 @@ async function main(): Promise<void> {
     );
     if (existing.length === 0) {
       throw new Error(
-        "This database has no Open Board schema — nothing to baseline. " +
+        "This database has no LQGovernance schema — nothing to baseline. " +
           "Fresh databases are migrated automatically at boot (or run: pnpm --filter @workspace/db run migrate)."
       );
     }

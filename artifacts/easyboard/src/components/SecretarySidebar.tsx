@@ -39,7 +39,7 @@ function SidebarBody({ orgName, onNavigate, onSearch }: { orgName?: string; onNa
           <div className="flex items-center gap-2 cursor-pointer" onClick={onNavigate}>
             <div className="w-8 h-8 bg-[#0071e3] text-white rounded-lg flex items-center justify-center text-sm font-bold">✦</div>
             <div>
-              <div className="text-sm font-semibold text-[#1d1d1f] leading-tight">Open Board</div>
+              <div className="text-sm font-semibold text-[#1d1d1f] leading-tight">LQGovernance</div>
               <div className="text-xs text-[#86868b]">{orgName || ' '}</div>
             </div>
           </div>
@@ -128,7 +128,7 @@ export function SecretarySidebar() {
         </Sheet>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-[#0071e3] text-white rounded-lg flex items-center justify-center text-xs font-bold">✦</div>
-          <span className="text-sm font-semibold text-[#1d1d1f]">Open Board</span>
+          <span className="text-sm font-semibold text-[#1d1d1f]">LQGovernance</span>
         </div>
         <button aria-label="Search the board archive" onClick={() => setSearchOpen(true)} className="p-2 -mr-2 text-[#1d1d1f]"><Search size={18} /></button>
       </header>

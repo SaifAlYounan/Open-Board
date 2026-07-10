@@ -43,7 +43,7 @@ const router = Router();
 router.get("/organization", requireAuth, async (_req, res): Promise<void> => {
   const [org] = await db.select().from(organizationsTable).limit(1);
   res.json({
-    name: org?.name || "Open Board",
+    name: org?.name || "LQGovernance — Board Management Portal",
     version: process.env.APP_VERSION || "3.0.0",
   });
 });
@@ -82,7 +82,7 @@ router.get("/system/export", requireAuth, requireAdmin, async (req, res): Promis
   };
 
   await audit(req, "data_exported", undefined, undefined, { by: req.user?.email });
-  const filename = `open-board-export-${new Date().toISOString().slice(0, 10)}.json`;
+  const filename = `lqgovernance-board-export-${new Date().toISOString().slice(0, 10)}.json`;
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.send(JSON.stringify(bundle, null, 2));
