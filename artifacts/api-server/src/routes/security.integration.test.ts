@@ -50,11 +50,12 @@ d("security routes", () => {
     const auditTrailTable = dbMod.auditTrailTable;
     const hash = await bcrypt.hash(PASSWORD, 10);
     for (const p of [secretary, memberA, memberB]) {
-      // Audit rows reference people (no cascade) — clear them first so the
-      // suite is re-runnable against a persistent local database.
+      // Audit rows and board memberships reference people (no cascade) — clear
+      // them first so the suite is re-runnable against a persistent local database.
       const [existing] = await db.select().from(peopleTable).where(eq(peopleTable.email, p.email));
       if (existing) {
         await db.delete(auditTrailTable).where(eq(auditTrailTable.personId, existing.id));
+        await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.personId, existing.id));
         await db.delete(peopleTable).where(eq(peopleTable.id, existing.id));
       }
       await db.insert(peopleTable).values({ ...p, passwordHash: hash });
@@ -86,6 +87,76 @@ d("security routes", () => {
     const cookie = await cookieFor(memberA.email);
     const res = await request(app).get("/api/people").set("Cookie", cookie);
     expect(res.status).toBe(403);
+  });
+
+  describe("GET /meetings access scoping", () => {
+    const BOARD_NAME = "Meetings Access Test Board";
+    let boardId: string;
+    let meetingId: string;
+
+    beforeAll(async () => {
+      const { eq } = await import("drizzle-orm");
+      const { meetingsTable, agendaItemsTable } = await import("@workspace/db");
+
+      // Re-runnable setup: wipe any leftover board of the same name (and its
+      // meetings) from a previous local run, then build board -> membership ->
+      // meeting -> agenda items.
+      const stale = await db.select().from(boardsTable).where(eq(boardsTable.name, BOARD_NAME));
+      for (const b of stale) {
+        const staleMeetings = await db.select().from(meetingsTable).where(eq(meetingsTable.boardId, b.id));
+        for (const m of staleMeetings) await db.delete(meetingsTable).where(eq(meetingsTable.id, m.id));
+        await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, b.id));
+        await db.delete(boardsTable).where(eq(boardsTable.id, b.id));
+      }
+
+      const [board] = await db
+        .insert(boardsTable)
+        .values({ name: BOARD_NAME, abbreviation: "MTB", type: "board" })
+        .returning();
+      boardId = board.id;
+
+      const [a] = await db.select().from(peopleTable).where(eq(peopleTable.email, memberA.email));
+      await db.insert(boardMembershipsTable).values({ boardId, personId: a.id });
+
+      const [meeting] = await db
+        .insert(meetingsTable)
+        .values({ boardId, title: "Access-scoped meeting", date: new Date() })
+        .returning();
+      meetingId = meeting.id;
+      await db.insert(agendaItemsTable).values([
+        { meetingId, position: 1, title: "Item one", type: "information" },
+        { meetingId, position: 2, title: "Item two", type: "decision" },
+      ]);
+    });
+
+    it("an admin sees the meeting, enriched with board + agenda count", async () => {
+      const cookie = await cookieFor(secretary.email);
+      const res = await request(app).get("/api/meetings").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      const row = res.body.find((m: any) => m.id === meetingId);
+      expect(row).toBeTruthy();
+      expect(row.boardName).toBe(BOARD_NAME);
+      expect(row.boardAbbreviation).toBe("MTB");
+      expect(row.agendaItemCount).toBe(2);
+    });
+
+    it("a board member sees their board's meeting", async () => {
+      const cookie = await cookieFor(memberA.email);
+      const res = await request(app).get("/api/meetings").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.some((m: any) => m.id === meetingId)).toBe(true);
+    });
+
+    it("a non-member sees neither the meeting nor anything via ?boardId", async () => {
+      const cookie = await cookieFor(memberB.email);
+      const res = await request(app).get("/api/meetings").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      expect(res.body.some((m: any) => m.id === meetingId)).toBe(false);
+
+      const filtered = await request(app).get(`/api/meetings?boardId=${boardId}`).set("Cookie", cookie);
+      expect(filtered.status).toBe(200);
+      expect(filtered.body).toEqual([]);
+    });
   });
 
   it("revokes the token on logout — the old cookie is dead server-side", async () => {

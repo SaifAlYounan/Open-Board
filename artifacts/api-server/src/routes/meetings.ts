@@ -14,6 +14,7 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
+import { groupBy } from "../lib/group";
 import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
@@ -81,41 +82,56 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
   const { boardId } = req.query;
   const { limit, offset } = parsePagination(req.query);
 
-  let meetings = await db.select().from(meetingsTable).orderBy(meetingsTable.date);
-
-  if (boardId) {
-    meetings = meetings.filter((m) => m.boardId === boardId);
-  }
-
+  // Push filters + membership-scoping + pagination into SQL (was: fetch every
+  // meeting, filter/slice in JS, then one board + one agenda query per meeting).
+  const conds = [];
+  if (typeof boardId === "string") conds.push(eq(meetingsTable.boardId, boardId));
   if (user.role !== "admin") {
-    // Filter by board membership — show meetings for any board the user belongs to
+    // Non-admins see meetings of any board they belong to — same rule as before
+    // (board-less meetings stay admin-only, since inArray never matches NULL).
     const memberships = await db
-      .select()
+      .select({ boardId: boardMembershipsTable.boardId })
       .from(boardMembershipsTable)
       .where(eq(boardMembershipsTable.personId, user.id));
-    const memberBoardIds = new Set(memberships.map((m) => m.boardId));
-    meetings = meetings.filter((m) => m.boardId && memberBoardIds.has(m.boardId));
+    const memberBoardIds = [...new Set(memberships.map((m) => m.boardId).filter((v): v is string => v != null))];
+    if (memberBoardIds.length === 0) {
+      res.json([]);
+      return;
+    }
+    conds.push(inArray(meetingsTable.boardId, memberBoardIds));
   }
 
-  meetings = meetings.slice(offset, offset + limit);
+  const meetings = await db
+    .select()
+    .from(meetingsTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(meetingsTable.date)
+    .limit(limit)
+    .offset(offset);
 
-  const result = await Promise.all(
-    meetings.map(async (m) => {
-      const [board] = m.boardId
-        ? await db.select().from(boardsTable).where(eq(boardsTable.id, m.boardId))
-        : [null];
-      const items = await db
-        .select()
+  // Batch-load the enrichment — one query per relation, not one per meeting.
+  const meetingIds = meetings.map((m) => m.id);
+  const boardIds = [...new Set(meetings.map((m) => m.boardId).filter((v): v is string => v != null))];
+
+  const boards = boardIds.length ? await db.select().from(boardsTable).where(inArray(boardsTable.id, boardIds)) : [];
+  const boardById = new Map(boards.map((b) => [b.id, b]));
+  const items = meetingIds.length
+    ? await db
+        .select({ meetingId: agendaItemsTable.meetingId })
         .from(agendaItemsTable)
-        .where(eq(agendaItemsTable.meetingId, m.id));
-      return {
-        ...m,
-        boardName: board?.name || null,
-        boardAbbreviation: board?.abbreviation || null,
-        agendaItemCount: items.length,
-      };
-    })
-  );
+        .where(inArray(agendaItemsTable.meetingId, meetingIds))
+    : [];
+  const itemsByMeeting = groupBy(items, (i) => i.meetingId);
+
+  const result = meetings.map((m) => {
+    const board = m.boardId ? boardById.get(m.boardId) : null;
+    return {
+      ...m,
+      boardName: board?.name || null,
+      boardAbbreviation: board?.abbreviation || null,
+      agendaItemCount: itemsByMeeting.get(m.id)?.length ?? 0,
+    };
+  });
 
   res.json(result);
 });
