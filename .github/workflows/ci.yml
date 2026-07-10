@@ -67,8 +67,8 @@ jobs:
             exit 1
           fi
 
-      - name: Push schema to the test database
-        run: pnpm --filter @workspace/db run push-force
+      - name: Migrate the test database (fresh-DB path — what new adopters hit)
+        run: pnpm --filter @workspace/db run migrate
 
       - name: Test (unit + integration)
         run: pnpm -r --if-present run test

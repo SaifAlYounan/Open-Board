@@ -18,6 +18,9 @@ if (!process.env.DATABASE_URL) {
 
 export default defineConfig({
   schema: path.join(__dirname, "./src/schema/index.ts"),
+  // Versioned SQL migrations (issue #17). `drizzle-kit generate` writes here;
+  // boot (and CI) apply them with drizzle's journaled migrate().
+  out: path.join(__dirname, "./migrations"),
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL,

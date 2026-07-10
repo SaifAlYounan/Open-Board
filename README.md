@@ -234,7 +234,7 @@ cd Open-Board
 pnpm install
 cp .env.example .env        # set SESSION_SECRET (openssl rand -hex 32)
 docker compose up -d db     # just PostgreSQL, on localhost:5432
-pnpm db:push                # create the schema
+pnpm db:migrate             # create the schema (versioned migrations)
 pnpm dev                    # API + frontend with hot reload
 ```
 

@@ -20,11 +20,26 @@ Requirements: Node 20.12+ (24 recommended), pnpm 11, PostgreSQL 16 (a `docker-co
 pnpm install
 cp .env.example .env      # set SESSION_SECRET
 docker compose up -d db
-pnpm db:push
+pnpm db:migrate           # apply the versioned schema migrations
 pnpm dev
 ```
 
 See [Run it for development](README.md#run-it-for-development) in the README for the full walkthrough.
+
+### Changing the database schema
+
+While iterating locally you can keep using `pnpm db:push` — it diffs `lib/db/src/schema` straight
+onto your dev database, no files involved. But **a schema change only ships as a versioned
+migration**: before opening the PR, run
+
+```bash
+pnpm db:generate          # drizzle-kit generate → lib/db/migrations/NNNN_<name>.sql
+```
+
+and commit the generated SQL + `meta/` journal update together with the schema change. Boot, CI, and
+every deployment apply schema exclusively through these migrations (`drizzle migrate()`, journaled
+and transactional — see `lib/db/src/migrate.ts`), so a schema edit without a migration will simply
+never reach a real database. Don't edit an already-committed migration; add a new one.
 
 ## Before you open a pull request
 

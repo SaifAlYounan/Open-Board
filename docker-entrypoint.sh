@@ -8,13 +8,14 @@ if [ -z "$ALLOWED_ORIGIN" ] && [ -n "$RENDER_EXTERNAL_URL" ]; then
   export ALLOWED_ORIGIN="$RENDER_EXTERNAL_URL"
 fi
 
-# Apply the database schema before starting. `push-force` is non-interactive and
-# idempotent when the schema already matches (this is what CI uses). The compose
-# file gates startup on Postgres being healthy, so the DB is reachable here.
-echo "[open-board] Applying database schema (drizzle-kit push)…"
-pnpm --config.verify-deps-before-run=false --filter @workspace/db run push-force
-
-echo "[open-board] Starting the server…"
-# `seed()` runs on boot: idempotent migrations, and on a truly empty DB it creates
-# one admin and logs a one-time password (change it immediately on first sign-in).
+# Schema is applied by the server itself at boot: versioned SQL migrations
+# (lib/db/migrations) run through drizzle's journaled migrate(), serialized
+# across replicas with a Postgres advisory lock — safe when several containers
+# start at once. The compose file gates startup on Postgres being healthy, so
+# the DB is reachable here. NOTE for deployments created before v3.1 (schema
+# was push-created): run the one-time baseline first — see DEPLOY.md "Upgrading
+# an existing deployment to versioned migrations".
+echo "[open-board] Starting the server (migrations run at boot)…"
+# `seed()` runs after listen: on a truly empty DB it creates one admin and logs
+# a one-time password (change it immediately on first sign-in).
 exec node /app/artifacts/api-server/dist/index.mjs

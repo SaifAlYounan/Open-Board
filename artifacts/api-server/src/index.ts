@@ -1,5 +1,6 @@
 import "./loadEnv"; // must be first — populates process.env before app/config read it
 import http from "http";
+import { runMigrations } from "@workspace/db/migrate";
 import app, { originValidator } from "./app";
 import { logger } from "./lib/logger";
 import { logMailerStatus } from "./lib/mailer";
@@ -24,13 +25,27 @@ const server = http.createServer(app);
 // meetings, pending actions). Auth + room rules live in lib/realtime.ts.
 export const io = attachRealtime(server, originValidator);
 
-server.listen(port, async () => {
-  logger.info({ port }, "Server listening");
-  logMailerStatus();
+async function boot(): Promise<void> {
+  // Versioned migrations (issue #17): journaled, transactional, ordered — and
+  // race-safe under multiple containers via a Postgres advisory lock. The
+  // server must not accept traffic on an unmigrated schema, so this is fatal.
+  logger.info("Applying database migrations…");
+  await runMigrations();
+  logger.info("Database migrations up to date");
 
-  try {
-    await seed();
-  } catch (err) {
-    logger.error({ err }, "Seed failed — non-fatal");
-  }
+  server.listen(port, async () => {
+    logger.info({ port }, "Server listening");
+    logMailerStatus();
+
+    try {
+      await seed();
+    } catch (err) {
+      logger.error({ err }, "Seed failed — non-fatal");
+    }
+  });
+}
+
+boot().catch((err) => {
+  logger.error({ err }, "Database migration failed — refusing to start");
+  process.exit(1);
 });

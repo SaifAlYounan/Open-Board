@@ -137,6 +137,28 @@ git pull
 docker compose --profile production up -d --build   # (or without the profile for local)
 ```
 
-The container applies the schema on start with `drizzle-kit push --force`. This is safe for the normal
-case, but **back up your database before upgrading** — a schema change could otherwise drop a column.
-A move to versioned, non-destructive migrations is tracked in the issues.
+The container applies **versioned SQL migrations** at boot (drizzle's journaled `migrate()`, run
+inside a transaction and serialized across replicas with a Postgres advisory lock — starting several
+containers at once is safe). Only the pending migrations in `lib/db/migrations` run; nothing is
+diffed or force-pushed, so an upgrade can't silently drop a column. Still: **back up your database
+before upgrading** — that's just good practice.
+
+### Upgrading an existing deployment to versioned migrations (one-time)
+
+Deployments created **before v3.1** had their schema applied with `drizzle-kit push --force`. Such a
+database already has all the tables but no migration journal, so the new boot would try to re-create
+them and refuse to start. Tell it the baseline is already applied — once, before first boot of the
+new version:
+
+```bash
+# from the repo checkout, with DATABASE_URL pointing at the existing database
+DATABASE_URL=postgres://openboard:…@…/openboard \
+  pnpm --filter @workspace/db run baseline
+```
+
+(With compose: `docker compose run --rm app sh -c 'cd /app && DATABASE_URL=$DATABASE_URL pnpm --filter @workspace/db run baseline'`.)
+
+The script records the current migrations as applied in `drizzle.__drizzle_migrations` — exactly the
+convention drizzle's migrator uses — and is idempotent. It refuses to run against an empty database
+(fresh databases are simply migrated at boot). After that, `docker compose up -d --build` as usual;
+future upgrades apply their migrations automatically.
