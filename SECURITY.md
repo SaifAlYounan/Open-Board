@@ -95,8 +95,11 @@ These are real and tracked as issues — do your own review before using with pr
   not affected.
 - **Password-reset email is not wired** — the reset flow generates a hashed, single-use, 1-hour token,
   but there is no mail transport; an operator relays it out of band — [#6](https://github.com/SaifAlYounan/Open-Board/issues/6).
-- **No application-level encryption at rest.** Uploaded files and DB fields are stored unencrypted;
-  TLS is terminated at your reverse proxy and DB SSL is operator-configured — [#16](https://github.com/SaifAlYounan/Open-Board/issues/16).
+- **Encryption at rest is operator-provided, by design.** The application does not encrypt DB
+  fields or uploaded files itself — you are expected to run it on encrypted storage (encrypted
+  volumes/disks, an encrypted managed Postgres, encrypted backups). How to do that is documented in
+  [DEPLOY.md → Encryption at rest](DEPLOY.md#encryption-at-rest); TLS is terminated at your reverse
+  proxy and DB SSL is operator-configured.
 - **Weighted and proxy voting are not enforced** in tallying (schema only) —
   [#4](https://github.com/SaifAlYounan/Open-Board/issues/4), [#5](https://github.com/SaifAlYounan/Open-Board/issues/5).
 
@@ -105,6 +108,8 @@ These are real and tracked as issues — do your own review before using with pr
 - [ ] `SESSION_SECRET` is a strong random string (`openssl rand -hex 32`).
 - [ ] `NODE_ENV=production` and `ALLOWED_ORIGIN` set to your exact origin(s).
 - [ ] Postgres on a private network with SSL enabled and backups configured.
+- [ ] Encryption at rest enabled at the storage layer — encrypted volumes/managed-DB encryption and
+      encrypted backups (see [DEPLOY.md → Encryption at rest](DEPLOY.md#encryption-at-rest)).
 - [ ] HTTPS enforced at the reverse proxy; the API sits behind exactly one proxy hop (`trust proxy` = 1).
 - [ ] `DEMO_MODE` unset; demo accounts absent.
 - [ ] Consider removing the Admin → System "Reset All Data" action for production boards.

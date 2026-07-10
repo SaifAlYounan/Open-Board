@@ -99,6 +99,31 @@ Every variable is documented in [`.env.example`](.env.example). The essentials:
 
 Uploaded files persist in the `uploads` Docker volume; database data in the `db-data` volume.
 
+## Encryption at rest
+
+Open Board deliberately does **not** encrypt database fields or uploaded files itself —
+encryption at rest is **provided by the operator at the storage layer**. That is a decision, not
+an oversight: storage-layer encryption protects everything (database, uploads, temp files, WAL,
+backups) uniformly, keeps key management with your infrastructure, and avoids the false comfort of
+app-level crypto whose keys would sit on the same host anyway.
+
+What that means in practice — pick what matches your deployment:
+
+- **Encrypted disks/volumes.** Put the Docker volumes (`db-data`, `uploads`) on encrypted storage:
+  LUKS/dm-crypt on your own Linux server, or your cloud provider's encrypted block storage
+  (AWS EBS encryption, GCP persistent-disk encryption, Azure disk encryption, Hetzner/DO
+  encrypted volumes). Cloud block storage is usually a checkbox at volume creation — turn it on.
+- **Encrypted managed Postgres.** If you point `DATABASE_URL` at a managed database (RDS, Cloud
+  SQL, Azure Database, Render/Railway/Neon), enable its encryption-at-rest option — on most of
+  these it is on by default. Keep TLS to the database on too (`sslmode=require`).
+- **Encrypted backups.** Snapshots of an encrypted volume/instance are encrypted by the provider.
+  If you dump manually, encrypt the artifact before it leaves the host, e.g.
+  `pg_dump ... | gpg --symmetric` (or `age`), and store keys separately from the backups.
+- **Full-disk encryption** on the host (or the hypervisor layer of your VPS provider) covers
+  everything else — swap, logs, container layers.
+
+The pre-production checklist in [SECURITY.md](SECURITY.md) includes verifying this is in place.
+
 ## Upgrading
 
 Pull the new code and rebuild:
