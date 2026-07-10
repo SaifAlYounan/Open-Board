@@ -93,15 +93,11 @@ These are real and tracked as issues — do your own review before using with pr
 - **Short-window login rate limiting is per-process** — the 15-minute per-IP / per-email throttles
   are in-memory and reset on restart. The durable 24-hour account lockout is Postgres-backed and is
   not affected.
-- **Password-reset email is not wired** — the reset flow generates a hashed, single-use, 1-hour token,
-  but there is no mail transport; an operator relays it out of band — [#6](https://github.com/SaifAlYounan/Open-Board/issues/6).
 - **Encryption at rest is operator-provided, by design.** The application does not encrypt DB
   fields or uploaded files itself — you are expected to run it on encrypted storage (encrypted
   volumes/disks, an encrypted managed Postgres, encrypted backups). How to do that is documented in
   [DEPLOY.md → Encryption at rest](DEPLOY.md#encryption-at-rest); TLS is terminated at your reverse
   proxy and DB SSL is operator-configured.
-- **Weighted and proxy voting are not enforced** in tallying (schema only) —
-  [#4](https://github.com/SaifAlYounan/Open-Board/issues/4), [#5](https://github.com/SaifAlYounan/Open-Board/issues/5).
 
 ## Pre-production checklist
 

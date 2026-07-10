@@ -121,11 +121,26 @@ export async function seed() {
     return;
   }
 
-  await clearAll();
+  // Blast-radius guard (L4): clearAll() deletes EVERY row. We only reach here
+  // when DEMO_MODE=true and no demo dataset was found — but the database may
+  // still hold real, non-demo data (e.g. DEMO_MODE flipped on by mistake against
+  // a live DB). Refuse the destructive wipe unless the operator explicitly
+  // confirms with DEMO_MODE_FORCE_WIPE=true. seed() is non-fatal in boot(), so
+  // throwing here preserves the data and still lets the server start.
+  const existingPeople = await db.select({ id: peopleTable.id }).from(peopleTable).limit(1);
+  if (existingPeople.length > 0 && process.env.DEMO_MODE_FORCE_WIPE !== "true") {
+    throw new Error(
+      "Refusing to wipe: DEMO_MODE=true with no demo dataset present, but the database already " +
+        "contains data (people rows found). clearAll() would delete everything. If this is intentional, " +
+        "set DEMO_MODE_FORCE_WIPE=true to confirm the destructive reset; otherwise unset DEMO_MODE.",
+    );
+  }
 
   if (!PASSWORD) {
     throw new Error("SEED_PASSWORD environment variable is required when DEMO_MODE=true.");
   }
+
+  await clearAll();
 
   const [org] = await db.insert(organizationsTable).values({ name: "Meridian Energy Group" }).returning();
   const hash = await bcrypt.hash(PASSWORD, 10);

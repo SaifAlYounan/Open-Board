@@ -29,8 +29,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends poppler-utils \
   && rm -rf /var/lib/apt/lists/*
 
-# Bake pnpm into the image (the entrypoint uses it to apply the schema). A global
-# npm install is user-agnostic — no corepack fetch at container start.
+# Bake pnpm into the image. The server applies schema migrations itself at boot
+# (drizzle's migrate(), no pnpm needed), but the documented one-time baseline
+# upgrade for pre-v3.1 deployments runs `pnpm --filter @workspace/db run baseline`
+# inside this container (see DEPLOY.md), so pnpm must be present. A global npm
+# install is user-agnostic — no corepack fetch at container start.
 RUN npm install -g pnpm@11.0.9
 
 ENV NODE_ENV=production \
