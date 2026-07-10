@@ -1,13 +1,14 @@
 import crypto from "crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, peopleTable, boardMembershipsTable, boardsTable } from "@workspace/db";
+import { db, peopleTable, boardMembershipsTable, boardsTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { audit } from "../lib/auditLog";
 import { sanitizeText } from "../lib/sanitize";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
+import { mailerConfigured, sendInviteEmail } from "../lib/mailer";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
@@ -77,6 +78,20 @@ router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void
       .returning();
 
     await audit(req, "person_created", "person", person.id, { email: person.email, role: person.role });
+
+    // Invite email (additive): when we generated the password AND SMTP is
+    // configured, reuse the reset-token flow so the new user sets their own
+    // password from a link. The email NEVER carries a password; the one-time
+    // password below still goes to the Secretary exactly as before.
+    if (generated && mailerConfigured()) {
+      const inviteToken = crypto.randomBytes(32).toString("hex");
+      const inviteTokenHash = crypto.createHash("sha256").update(inviteToken).digest("hex");
+      const inviteExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 h to accept an invite
+      await db.insert(passwordResetTokensTable).values({ personId: person.id, tokenHash: inviteTokenHash, expiresAt: inviteExpiresAt });
+      // Fire-and-forget — an SMTP failure must not fail the create request.
+      void sendInviteEmail(person.email, person.name, inviteToken);
+    }
+
     const { passwordHash: _, ...safe } = person;
     // Only surface the password when we generated it (the Secretary already
     // knows one they supplied themselves).

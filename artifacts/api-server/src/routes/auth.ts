@@ -8,6 +8,7 @@ import { signToken, verifyToken, requireAuth } from "../lib/auth";
 import { loginLockout } from "../lib/loginLockout";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
+import { mailerConfigured, sendPasswordResetEmail } from "../lib/mailer";
 
 const router = Router();
 
@@ -129,8 +130,15 @@ router.post("/auth/forgot-password", loginLimiter, async (req, res): Promise<voi
 
   await db.insert(passwordResetTokensTable).values({ personId: person.id, tokenHash, expiresAt });
 
-  // No email service — log hash only; admin can retrieve token from DB if needed
-  logger.info({ email }, "Password reset token generated — relay to user via secure channel");
+  if (mailerConfigured()) {
+    // Fire-and-forget: the response must not wait on SMTP (identical timing for
+    // known and unknown emails) and a send failure must never 500 this request.
+    void sendPasswordResetEmail(person.email, person.name, token);
+    logger.info({ email }, "Password reset token generated — email delivery queued");
+  } else {
+    // No email service — log only; admin can retrieve token from DB if needed
+    logger.info({ email }, "Password reset token generated — relay to user via secure channel");
+  }
 
   res.json(FORGOT_RESPONSE);
   audit(req, "password_reset_requested", "person", person.id, { email });

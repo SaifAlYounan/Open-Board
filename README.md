@@ -239,6 +239,8 @@ are most likely to touch:
 | `ANTHROPIC_API_KEY` | No | Enables AI features. Omit to run without AI. |
 | `AI_MODEL` / `AI_LIGHT_MODEL` | No | Which Claude models to use (sensible defaults). |
 | `NODE_ENV` | No | Set to `production` for secure cookies and to require `ALLOWED_ORIGIN`. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | Outbound email for password resets and account invites. Without `SMTP_HOST`, reset links are logged to the server log instead. |
+| `APP_BASE_URL` | With SMTP | Public frontend URL used to build the reset links inside emails. |
 | `DOMAIN` / `ACME_EMAIL` | Production | Your domain and email, for automatic HTTPS via Caddy. |
 | `ALLOWED_ORIGIN` | Production | Allowed browser origin(s) for the API. |
 | `DEMO_MODE` | No | `true` seeds a fictional demo organization. Never use in production. |

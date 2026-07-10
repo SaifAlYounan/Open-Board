@@ -96,6 +96,8 @@ Every variable is documented in [`.env.example`](.env.example). The essentials:
 | `ALLOWED_ORIGIN` | Your public origin, e.g. `https://board.yourcompany.com` (auto-set on Render). |
 | `ANTHROPIC_API_KEY` | Optional — enables document classification, search, and suggestions. |
 | `POSTGRES_PASSWORD` | Optional — override the default database password. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Optional — SMTP delivery for password-reset and account-invite emails. Unset = reset links appear in the server log only (the first-boot admin one-time password is always log-only). |
+| `APP_BASE_URL` | Set alongside SMTP — the public frontend URL used inside emailed reset links. |
 
 Uploaded files persist in the `uploads` Docker volume; database data in the `db-data` volume.
 

@@ -3,6 +3,7 @@ import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import app, { originValidator } from "./app";
 import { logger } from "./lib/logger";
+import { logMailerStatus } from "./lib/mailer";
 import { seed } from "./seed";
 import { verifyToken } from "./lib/auth";
 import { db, boardMembershipsTable, accessControlTable, peopleTable } from "@workspace/db";
@@ -135,6 +136,7 @@ io.on("connection", (socket) => {
 
 server.listen(port, async () => {
   logger.info({ port }, "Server listening");
+  logMailerStatus();
 
   try {
     await seed();
