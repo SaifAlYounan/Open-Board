@@ -1,4 +1,4 @@
-# Render Blueprint — one-click deploy of Open Board (web service + managed Postgres).
+# Render Blueprint — one-click deploy of LQGovernance (web service + managed Postgres).
 # https://render.com/docs/blueprint-spec
 #
 # Deploy: push this repo to your GitHub, then in Render → "New" → "Blueprint",

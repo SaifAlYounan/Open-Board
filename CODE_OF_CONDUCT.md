@@ -2,7 +2,7 @@
 
 ## Our pledge
 
-We as members, contributors, and maintainers pledge to make participation in the Open Board
+We as members, contributors, and maintainers pledge to make participation in the LQGovernance
 community a harassment-free experience for everyone, regardless of age, body size, visible or
 invisible disability, ethnicity, sex characteristics, gender identity and expression, level of
 experience, education, socio-economic status, nationality, personal appearance, race, religion,
@@ -27,7 +27,7 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the
-project maintainers through a private [GitHub Security Advisory](https://github.com/SaifAlYounan/Open-Board/security/advisories/new)
+project maintainers through a private [GitHub Security Advisory](https://github.com/LegalQuants/LQGovernance-OpenBoard/security/advisories/new)
 or a direct message to the maintainer. All complaints will be reviewed and investigated
 promptly and fairly. Maintainers are obligated to respect the privacy and security of the
 reporter of any incident.

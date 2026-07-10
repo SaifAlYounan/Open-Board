@@ -1,4 +1,4 @@
-# ✦ Open Board
+# ✦ LQGovernance — Board Management Portal
 
 **The open-source, AI-native board management platform.** You upload a document, the AI proposes the
 next governance action (a meeting, a vote, tasks), and a human on the board secretariat approves it.
@@ -6,9 +6,9 @@ Nothing is ever created without a person signing off. It is self-hosted, so your
 on infrastructure you control.
 
 > **Beta.** It runs and it is honest about its rough edges. See [what is still stubbed](#roadmap) and
-> [report anything wrong](https://github.com/SaifAlYounan/Open-Board/issues).
+> [report anything wrong](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues).
 
-This page is a step-by-step guide to **installing** and **setting up** Open Board. For a deeper
+This page is a step-by-step guide to **installing** and **setting up** LQGovernance. For a deeper
 deployment guide (cloud, HTTPS, backups) see [DEPLOY.md](DEPLOY.md).
 
 ---
@@ -52,8 +52,8 @@ Four steps take you from nothing to a running board portal on your machine.
 ### 1. Download the code
 
 ```bash
-git clone https://github.com/SaifAlYounan/Open-Board.git
-cd Open-Board
+git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
+cd LQGovernance-OpenBoard
 ```
 
 ### 2. Create your configuration file
@@ -79,7 +79,7 @@ SESSION_SECRET=paste-the-long-random-string-here
 
 Leave every other value at its default for now.
 
-### 3. Start Open Board
+### 3. Start LQGovernance
 
 ```bash
 docker compose up -d --build
@@ -92,7 +92,7 @@ database tables on first boot. The first build takes a few minutes. Later starts
 
 Go to **http://localhost:3000** in your browser.
 
-On the very first boot, Open Board creates an admin account and prints a **one-time password** to the
+On the very first boot, LQGovernance creates an admin account and prints a **one-time password** to the
 log. Read it with:
 
 ```bash
@@ -175,7 +175,7 @@ survive restarts and rebuilds. They are removed only if you explicitly run `dock
 
 ## Everyday commands
 
-Run these from inside the `Open-Board` folder:
+Run these from inside the `LQGovernance-OpenBoard` folder:
 
 | Task | Command |
 |---|---|
@@ -190,7 +190,7 @@ Run these from inside the `Open-Board` folder:
 
 ## Deploy to production
 
-To run Open Board on a server with a real domain and automatic HTTPS, Open Board includes a Caddy
+To run LQGovernance on a server with a real domain and automatic HTTPS, LQGovernance includes a Caddy
 reverse proxy that obtains and renews a Let's Encrypt certificate for you.
 
 1. Point your domain's DNS at the server, and make sure ports 80 and 443 are open.
@@ -209,12 +209,12 @@ reverse proxy that obtains and renews a Let's Encrypt certificate for you.
    docker compose --profile production up -d --build
    ```
 
-Open Board will be live at `https://board.yourcompany.com` with a valid certificate.
+LQGovernance will be live at `https://board.yourcompany.com` with a valid certificate.
 
 **One-click cloud deploy:** the repo ships a [Render](https://render.com) blueprint (`render.yaml`) that
 provisions a managed PostgreSQL database and the web service, and generates `SESSION_SECRET` for you.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/SaifAlYounan/Open-Board)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LegalQuants/LQGovernance-OpenBoard)
 
 For the full production guide (backups, scaling, bare-metal, the complete environment reference) see
 **[DEPLOY.md](DEPLOY.md)**.
@@ -229,8 +229,8 @@ instead of the production image.
 Requirements: **Node 20.12+** (24 recommended), **pnpm 11**, and Docker (for the database).
 
 ```bash
-git clone https://github.com/SaifAlYounan/Open-Board.git
-cd Open-Board
+git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
+cd LQGovernance-OpenBoard
 pnpm install
 cp .env.example .env        # set SESSION_SECRET (openssl rand -hex 32)
 docker compose up -d db     # just PostgreSQL, on localhost:5432
@@ -269,7 +269,7 @@ are most likely to touch:
 
 ## Security
 
-Open Board is built for governance data, so security is a first-class concern: sessions are signed,
+LQGovernance is built for governance data, so security is a first-class concern: sessions are signed,
 cookies are secured in production, a tamper-evident audit trail records governance actions, access is
 controlled per object and per document, and AI proposals are validated against a strict schema and
 always require human approval. If you find a vulnerability, please follow [SECURITY.md](SECURITY.md)
@@ -277,8 +277,8 @@ rather than opening a public issue. Do your own security review before using thi
 
 ## Roadmap
 
-Open Board is beta and honest about it. The
-[open issues](https://github.com/SaifAlYounan/Open-Board/issues) track what is planned and known, and
+LQGovernance is beta and honest about it. The
+[open issues](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues) track what is planned and known, and
 [CHANGELOG.md](CHANGELOG.md) records what has shipped (recently: weighted and proxy voting, SMTP
 password-reset and invite email, real-time updates, and local / OpenAI-compatible model inference).
 

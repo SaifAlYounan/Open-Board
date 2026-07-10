@@ -1,4 +1,4 @@
-# Open Board — turnkey deployment.
+# LQGovernance — turnkey deployment.
 #
 #   Local (http on a port):
 #     cp .env.example .env   # set SESSION_SECRET (openssl rand -hex 32)

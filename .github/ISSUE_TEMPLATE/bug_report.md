@@ -17,7 +17,7 @@ What you expected to happen instead.
 3. See the error
 
 **Environment**
-- Open Board version / commit:
+- LQGovernance version / commit:
 - Deployment: self-hosted / local dev
 - Browser (if a UI bug):
 - AI enabled (ANTHROPIC_API_KEY set): yes / no

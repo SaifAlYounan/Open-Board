@@ -1,6 +1,6 @@
-# Contributing to Open Board
+# Contributing to LQGovernance
 
-Thanks for your interest. Open Board was built by a governance professional to solve
+Thanks for your interest. LQGovernance was built by a governance professional to solve
 real board-secretariat problems, and contributions from people who work in board
 administration, legal, compliance, or corporate-secretarial roles are especially welcome —
 domain feedback is as valuable as code.

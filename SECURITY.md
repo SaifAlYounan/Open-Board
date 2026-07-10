@@ -1,21 +1,21 @@
 # Security Policy
 
-Open Board handles board-governance data — minutes, resolutions, votes, and confidential documents.
+LQGovernance handles board-governance data — minutes, resolutions, votes, and confidential documents.
 Security is a first-class concern. This document explains how to report a vulnerability, what the
 platform does to protect data, and where the current limitations are.
 
 ## Reporting a vulnerability
 
-The canonical repository is **[github.com/SaifAlYounan/Open-Board](https://github.com/SaifAlYounan/Open-Board)**.
+The canonical repository is **[github.com/LegalQuants/LQGovernance-OpenBoard](https://github.com/LegalQuants/LQGovernance-OpenBoard)**.
 
-**For private disclosure, [open a GitHub Security Advisory](https://github.com/SaifAlYounan/Open-Board/security/advisories/new)**
+**For private disclosure, [open a GitHub Security Advisory](https://github.com/LegalQuants/LQGovernance-OpenBoard/security/advisories/new)**
 ("Report a vulnerability"). This keeps the report confidential until a fix is released and lets us
 collaborate on it privately.
 
 If the advisory form is unavailable to you, contact the maintainer privately through their
 [GitHub profile](https://github.com/SaifAlYounan) rather than filing a public issue.
 
-For non-sensitive matters you may instead [open a public issue](https://github.com/SaifAlYounan/Open-Board/issues) —
+For non-sensitive matters you may instead [open a public issue](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues) —
 this is an open-source project and its code, issues, and known gaps are all public.
 
 Please include:

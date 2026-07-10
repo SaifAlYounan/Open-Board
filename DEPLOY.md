@@ -1,6 +1,6 @@
-# Deploying Open Board
+# Deploying LQGovernance
 
-Open Board ships as a **single Docker image** that serves both the API and the web app, plus a
+LQGovernance ships as a **single Docker image** that serves both the API and the web app, plus a
 `docker-compose.yml` that adds PostgreSQL and (optionally) automatic HTTPS. Pick the path that fits.
 
 - [Turnkey with automatic HTTPS](#turnkey-with-automatic-https) — one command, your domain, real cert.
@@ -19,8 +19,8 @@ password; you'll be required to set a new one immediately.
 Requirements: a server with Docker, a domain pointed at it (an `A` record), and ports 80 + 443 open.
 
 ```bash
-git clone https://github.com/SaifAlYounan/Open-Board.git
-cd Open-Board
+git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
+cd LQGovernance-OpenBoard
 cp .env.example .env
 ```
 
@@ -60,7 +60,7 @@ Open `http://localhost:3000`. (No Caddy, plain http — for evaluation, not prod
 
 ## One-click on Render
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/SaifAlYounan/Open-Board)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LegalQuants/LQGovernance-OpenBoard)
 
 The repo includes a [`render.yaml`](render.yaml) blueprint. In Render → **New → Blueprint**, pick your
 fork of this repo. Render builds the Dockerfile, provisions a managed PostgreSQL, generates
@@ -105,7 +105,7 @@ Uploaded files persist in the `uploads` Docker volume; database data in the `db-
 
 ## Encryption at rest
 
-Open Board deliberately does **not** encrypt database fields or uploaded files itself —
+LQGovernance deliberately does **not** encrypt database fields or uploaded files itself —
 encryption at rest is **provided by the operator at the storage layer**. That is a decision, not
 an oversight: storage-layer encryption protects everything (database, uploads, temp files, WAL,
 backups) uniformly, keeps key management with your infrastructure, and avoids the false comfort of
