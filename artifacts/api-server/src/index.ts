@@ -5,6 +5,7 @@ import app, { originValidator } from "./app";
 import { logger } from "./lib/logger";
 import { logMailerStatus } from "./lib/mailer";
 import { attachRealtime } from "./lib/realtime";
+import { checkStartupConfig } from "./lib/startupChecks";
 import { seed } from "./seed";
 
 const rawPort = process.env["PORT"];
@@ -26,6 +27,11 @@ const server = http.createServer(app);
 export const io = attachRealtime(server, originValidator);
 
 async function boot(): Promise<void> {
+  // Fail fast on unsafe production configuration (default DB password, or a
+  // DOMAIN set without NODE_ENV=production). Must run before we touch the DB or
+  // accept traffic.
+  checkStartupConfig();
+
   // Versioned migrations (issue #17): journaled, transactional, ordered — and
   // race-safe under multiple containers via a Postgres advisory lock. The
   // server must not accept traffic on an unmigrated schema, so this is fatal.

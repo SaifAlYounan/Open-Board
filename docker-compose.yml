@@ -23,9 +23,11 @@ services:
       POSTGRES_DB: openboard
     volumes:
       - db-data:/var/lib/postgresql/data
-    # Published for the `pnpm dev` flow; harmless for the containerized app.
+    # Published on loopback only for the `pnpm dev` flow — never expose Postgres
+    # to the network. The default password is dev-grade; binding to 127.0.0.1
+    # keeps it off any public interface (H1).
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openboard"]
       interval: 5s
@@ -61,8 +63,13 @@ services:
       SEED_PASSWORD: ${SEED_PASSWORD:-}
     volumes:
       - uploads:/app/uploads
+    # Bind to loopback by default (M2). The turnkey `docker compose up` stays
+    # reachable at http://localhost:${APP_PORT} on the host; the production
+    # profile's Caddy reaches the app as `app:3000` over the compose network, so
+    # the host port never needs a public bind. To expose the app directly (no
+    # reverse proxy), set APP_BIND=0.0.0.0 in .env.
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000"
     healthcheck:
       test:
         - CMD

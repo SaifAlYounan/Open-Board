@@ -53,4 +53,9 @@ RUN chmod +x /usr/local/bin/open-board-entrypoint.sh \
 
 USER app
 EXPOSE 3000
+
+# Liveness probe for `docker run` parity with the compose healthcheck (L2).
+HEALTHCHECK --interval=10s --timeout=5s --start-period=40s --retries=10 \
+  CMD node -e "require('http').get('http://localhost:3000/api/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+
 ENTRYPOINT ["/usr/local/bin/open-board-entrypoint.sh"]

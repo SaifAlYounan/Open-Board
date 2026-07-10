@@ -74,3 +74,15 @@ overrides:
   lodash: "^4.18.0"
   path-to-regexp: "^8.4.0"
   picomatch: "^4.0.4"
+  # Security bumps (audit 2026-07-10). Justified security overrides — if any
+  # target is younger than the minimumReleaseAge floor it is still the right
+  # call for a fix-in-place of a known-exploitable transitive dependency.
+  # @xmldom/xmldom: XML injection / uncontrolled recursion (<0.8.13) — reachable
+  #   server-side via mammoth's DOCX upload parsing.
+  "@xmldom/xmldom": ">=0.8.13 <0.9.0"
+  # multer: DoS via deeply nested / malformed multipart (<2.2.0) — upload middleware.
+  multer: ">=2.2.0"
+  # ws: memory-exhaustion DoS (<8.21.0) — transitive via socket.io (engine.io / adapter).
+  ws: ">=8.21.0"
+  # linkify-it: quadratic scan-loop ReDoS (<=5.0.0) — transitive via the tiptap editor.
+  linkify-it: ">=5.0.1"
