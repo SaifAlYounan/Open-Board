@@ -365,6 +365,19 @@ d("votes — weighted voting", () => {
       adminCookie = await cookieFor(secretary.email);
     });
 
+    it("totalVoters counts only eligible voters, excluding the observer", async () => {
+      // This board has 3 voting members + 1 observer (4 memberships). The
+      // displayed totalVoters must be the eligible-voter head count (3) — the
+      // same set totalWeight is summed over — not members.length (4).
+      const vote = await createVote(adminCookie, boardId);
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.boardMembers).toHaveLength(4);
+      expect(res.body.totalVoters).toBe(3);
+      expect(res.body.totalWeight).toBe(3);
+      expect(res.body.totalVoters).toBe(res.body.totalWeight);
+    });
+
     it("only an admin can record a proxy grant", async () => {
       const vote = await createVote(adminCookie, boardId);
       const memberCookie = await cookieFor(m1.email);

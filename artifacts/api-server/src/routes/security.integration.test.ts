@@ -89,6 +89,16 @@ d("security routes", () => {
     expect(res.status).toBe(403);
   });
 
+  it("returns 400 (not 500) for a syntactically-invalid JSON body", async () => {
+    const res = await request(app)
+      .post("/api/auth/login")
+      .set("X-Forwarded-For", `10.99.0.${++ipCounter}`)
+      .set("Content-Type", "application/json")
+      .send('{"email": "a@test.local", "password":'); // truncated → parse failure
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty("error");
+  });
+
   describe("GET /meetings access scoping", () => {
     const BOARD_NAME = "Meetings Access Test Board";
     let boardId: string;

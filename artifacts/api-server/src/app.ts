@@ -120,6 +120,18 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     res.status(413).json({ error: "Request body too large. Maximum size is 1MB." });
     return;
   }
+  // A syntactically-invalid JSON body makes express.json throw a SyntaxError
+  // (type "entity.parse.failed", status 400) before any route runs. That is a
+  // client error, not a server fault — return 400 in the API's { error } shape
+  // instead of letting it fall through to the generic 500.
+  const bodyErr = err as { type?: string; status?: number; statusCode?: number } | undefined;
+  if (
+    bodyErr?.type === "entity.parse.failed" ||
+    (err instanceof SyntaxError && (bodyErr?.status === 400 || bodyErr?.statusCode === 400))
+  ) {
+    res.status(400).json({ error: "Malformed JSON in request body." });
+    return;
+  }
   logger.error({ err }, "Unhandled error");
   res.status(500).json({ error: "Internal server error" });
 });

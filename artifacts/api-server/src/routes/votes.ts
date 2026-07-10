@@ -80,17 +80,29 @@ type MembershipRow = { personId: string | null; roleInBoard: string | null; voti
 type BallotRow = { personId: string | null; decision: string; weight: number };
 
 /**
+ * The single eligibility predicate for who may vote on a resolution: every
+ * board member except observers and board secretaries. Reused everywhere a
+ * voter set is derived (the weighted tally, the cast path, workflow stats) so
+ * head counts and weight sums always describe the SAME set of people.
+ */
+function isEligibleVoter(m: { roleInBoard: string | null }): boolean {
+  return m.roleInBoard !== "observer" && m.roleInBoard !== "secretary";
+}
+
+/**
  * Weighted aggregates for a vote's API payloads, computed the same way the
  * evaluation path computes them: over eligible voting members (no observers,
  * no board secretaries, no recused members). On an unweighted board these
- * equal the eligible head counts.
+ * equal the eligible head counts. `totalVoters` is the eligible head count from
+ * the same tally — it must never be `members.length` (which includes observers
+ * and secretaries), or it would disagree with `totalWeight`.
  */
 function weightedFields(boardMembers: MembershipRow[], voteRecords: BallotRow[], recusedIds: ReadonlySet<string | null> = new Set()) {
   const eligible = boardMembers
-    .filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary")
+    .filter(isEligibleVoter)
     .map((m) => ({ personId: m.personId, weight: m.votingWeight }));
   const t = computeTally(eligible, voteRecords, recusedIds);
-  return { totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight };
+  return { totalVoters: t.totalVoters, totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight };
 }
 
 function buildApprovalSummary(rule: {
@@ -221,9 +233,11 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
       ...v,
       boardName: board?.name || null,
       boardAbbreviation: board?.abbreviation || null,
-      totalVoters: boardMembers.length,
       votescast: voteRecords.length,
       approvalsCount: approvals,
+      // totalVoters comes from weightedFields — the eligible-voter head count,
+      // consistent with totalWeight (was boardMembers.length, which wrongly
+      // counted observers/secretaries).
       ...weightedFields(boardMembers, voteRecords, recusedIds),
       hasVoted: !!myRecord,
       myProxies: (grantsByVote.get(v.id) ?? []).map((g) => ({
@@ -315,9 +329,9 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
     ...vote,
     boardName: board?.name || null,
     boardAbbreviation: board?.abbreviation || null,
-    totalVoters: members.length,
     votescast: 0,
     approvalsCount: 0,
+    // totalVoters comes from weightedFields (eligible-voter head count).
     ...weightedFields(members, [], new Set(rule?.recusedIds ?? [])),
     hasVoted: false,
     documentCount: 0,
@@ -471,7 +485,9 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
               return {
                 votesCast: recs.length,
                 approvalsCount: recs.filter((r) => r.decision.startsWith("approved")).length,
-                totalVoters: mems.length,
+                // Eligible voters only (exclude observers/secretaries), so this
+                // stat matches the tally definition used everywhere else.
+                totalVoters: mems.filter(isEligibleVoter).length,
               };
             })()
           : null;
@@ -508,9 +524,9 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
     ...vote,
     boardName: board?.name || null,
     boardAbbreviation: board?.abbreviation || null,
-    totalVoters: members.length,
     votescast: records.length,
     approvalsCount: approvals,
+    // totalVoters comes from weightedFields (eligible-voter head count).
     ...weightedFields(members, records, new Set(ruleRecusals.map((r) => r.personId))),
     hasVoted: !!myRecord,
     myVote: myRecord
@@ -616,9 +632,9 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     ...vote,
     boardName: board?.name,
     boardAbbreviation: board?.abbreviation,
-    totalVoters: members.length,
     votescast: records.length,
     approvalsCount: approvals,
+    // totalVoters comes from weightedFields (eligible-voter head count).
     ...weightedFields(members, records),
     hasVoted: false,
   });
@@ -820,7 +836,7 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
 
     if (vote.boardId) {
       const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
-      const eligibleMembers = allMembers.filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary");
+      const eligibleMembers = allMembers.filter(isEligibleVoter);
 
       // Fetch the approval rule and recusals so we can exclude recused members from quorum
       const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
