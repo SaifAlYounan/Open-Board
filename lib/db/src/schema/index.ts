@@ -21,5 +21,6 @@ export * from "./pendingActions";
 export * from "./auditTrail";
 export * from "./approvalWorkflows";
 export * from "./passwordResetTokens";
+export * from "./loginLockouts";
 export * from "./aiUsage";
 export * from "./deletedRecords";

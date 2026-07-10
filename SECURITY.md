@@ -70,6 +70,9 @@ proposes actions — it never executes them. Each proposal is validated against 
   field-allowlisting to prevent mass assignment.
 - `sanitize-html` on the backend and DOMPurify on the frontend for any rendered rich text.
 - Multi-layer rate limiting: per-IP + per-email on login, per-user on AI and write endpoints.
+- **Durable account lockout**: 30 failed password attempts lock the account for 24 hours. The
+  counter lives in Postgres (atomic increments), so it survives restarts and is shared across
+  every app process; expired entries are cleaned up opportunistically.
 - CORS requires an explicit `ALLOWED_ORIGIN` allowlist in production (no wildcard fallback); dev
   accepts localhost only.
 - File uploads are limited by size and MIME/extension; downloads are path-traversal-contained to the
@@ -87,7 +90,9 @@ proposes actions — it never executes them. Each proposal is validated against 
 
 These are real and tracked as issues — do your own review before using with production board data:
 
-- **Account lockout is in-memory** (per-process, resets on restart) — [#7](https://github.com/SaifAlYounan/Open-Board/issues/7).
+- **Short-window login rate limiting is per-process** — the 15-minute per-IP / per-email throttles
+  are in-memory and reset on restart. The durable 24-hour account lockout is Postgres-backed and is
+  not affected.
 - **Password-reset email is not wired** — the reset flow generates a hashed, single-use, 1-hour token,
   but there is no mail transport; an operator relays it out of band — [#6](https://github.com/SaifAlYounan/Open-Board/issues/6).
 - **No application-level encryption at rest.** Uploaded files and DB fields are stored unencrypted;

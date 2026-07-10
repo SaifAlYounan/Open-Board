@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { db, peopleTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { signToken, verifyToken, requireAuth } from "../lib/auth";
+import { loginLockout } from "../lib/loginLockout";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 
@@ -31,9 +32,9 @@ const loginLimiterByEmail = rateLimit({
   message: { error: "Too many login attempts for this account. Try again later." },
 });
 
-const loginAttempts = new Map<string, { count: number; lockedUntil: number | null }>();
-const MAX_FAILURES = 30;
-const LOCKOUT_MS = 24 * 60 * 60 * 1000;
+// Account lockout (30 failures → 24 h) lives in Postgres — see lib/loginLockout.ts.
+// It survives restarts and is shared across processes; the two express-rate-limit
+// windows above remain the short-window per-IP / per-email throttle in front of it.
 
 router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): Promise<void> => {
   const { email, password } = req.body;
@@ -50,17 +51,14 @@ router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): 
     return;
   }
 
-  const attempts = loginAttempts.get(email) ?? { count: 0, lockedUntil: null };
-  if (attempts.lockedUntil && Date.now() < attempts.lockedUntil) {
+  if (await loginLockout.isLocked(email)) {
     res.status(403).json({ error: "Account temporarily locked. Try again later." });
     return;
   }
 
   const valid = await bcrypt.compare(password, person.passwordHash);
   if (!valid) {
-    const updated = { count: attempts.count + 1, lockedUntil: null as number | null };
-    if (updated.count >= MAX_FAILURES) updated.lockedUntil = Date.now() + LOCKOUT_MS;
-    loginAttempts.set(email, updated);
+    await loginLockout.recordFailure(email);
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }
@@ -70,7 +68,7 @@ router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): 
     return;
   }
 
-  loginAttempts.delete(email);
+  await loginLockout.clear(email);
 
   const token = signToken({ userId: person.id, email: person.email, role: person.role, tokenVersion: person.tokenVersion });
   const { passwordHash: _, ...safeUser } = person;
