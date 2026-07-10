@@ -1067,12 +1067,159 @@ function SystemTab() {
   );
 }
 
+// ─── Recycle Bin Tab (issue #11) ─────────────────────────────────────────────
+
+const ENTITY_META: Record<string, { label: string; icon: any; color: string }> = {
+  vote: { label: "Vote", icon: Vote, color: "#5856d6" },
+  meeting: { label: "Meeting", icon: CalendarDays, color: "#0071e3" },
+  task: { label: "Task", icon: CheckSquare, color: "#ff9500" },
+  document: { label: "Document", icon: FileText, color: "#34c759" },
+};
+
+function RecycleBinTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${API_BASE}/api/deleted-records?limit=200`, { credentials: "include" })
+      .then(r => r.json())
+      .then(data => setRows(Array.isArray(data?.items) ? data.items : []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, [refreshKey]);
+
+  async function restore(row: any) {
+    setRestoringId(row.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/deleted-records/${row.id}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Restore failed");
+      // The restored record re-enters its source table — refresh everything so
+      // its list page shows it again.
+      await queryClient.invalidateQueries();
+      toast({ title: "Record restored", description: `${ENTITY_META[row.entityType]?.label || row.entityType}: ${row.title}` });
+      setRefreshKey(k => k + 1);
+    } catch (err: any) {
+      toast({ title: "Could not restore", description: err.message, variant: "destructive" });
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-[#e5e5e7] rounded-2xl p-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-[#5856d615] text-[#5856d6] rounded-xl flex items-center justify-center flex-shrink-0">
+            <Trash2 size={16} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold text-[#1d1d1f]">Deleted records</h3>
+            <p className="text-xs text-[#86868b] mt-0.5">
+              Every deleted vote, meeting, task, and document is snapshotted here. Restore brings it back into its list; the deletion stays on the audit trail.
+            </p>
+          </div>
+          <button
+            onClick={() => setRefreshKey(k => k + 1)}
+            className="p-2 rounded-xl border border-[#e5e5e7] text-[#86868b] hover:bg-[#f5f5f7] transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-[#e5e5e7] rounded-2xl overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-sm text-[#86868b]">Loading recycle bin...</div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 text-[#86868b]">
+            <Trash2 size={28} className="mb-2 opacity-30" />
+            <p className="text-sm">Nothing has been deleted</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#e5e5e7] bg-[#f5f5f7]">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide w-32">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide">Record</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide w-44">Deleted</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-[#86868b] uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-[#86868b] uppercase tracking-wide w-32">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f5f5f7]">
+                {rows.map(row => {
+                  const meta = ENTITY_META[row.entityType] || { label: row.entityType, icon: ClipboardList, color: "#86868b" };
+                  const Icon = meta.icon;
+                  return (
+                    <tr key={row.id} className="hover:bg-[#f9f9fb] transition-colors" data-testid={`deleted-record-${row.id}`}>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium" style={{ color: meta.color }}>
+                          <Icon size={13} />
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[#1d1d1f]">{row.title}</td>
+                      <td className="px-4 py-3">
+                        <div className="text-xs text-[#86868b] whitespace-nowrap font-mono">{formatTs(row.deletedAt)}</div>
+                        {row.deletedBy && <div className="text-[10px] text-[#86868b]">by {row.deletedBy.name}</div>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.restoredAt ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-[#34c759]">
+                            <Check size={12} /> Restored{row.restoredBy ? ` by ${row.restoredBy.name}` : ""}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[#86868b]">In bin</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {row.restoredAt ? (
+                          <span className="text-xs text-[#c7c7cc]">—</span>
+                        ) : (
+                          <ConfirmButton
+                            onConfirm={() => restore(row)}
+                            title="Restore this record?"
+                            description={`${meta.label} "${row.title}" will be re-inserted into its list. The deletion stays recorded on the audit trail.`}
+                            confirmLabel={restoringId === row.id ? "Restoring..." : "Restore"}
+                            destructive={false}
+                            ariaLabel="Restore record"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#0071e3] border border-[#0071e3]/30 rounded-lg hover:bg-[#0071e3]/5 transition-colors"
+                          >
+                            <RotateCcw size={13} /> Restore
+                          </ConfirmButton>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Panel ─────────────────────────────────────────────────────────
 
 const TABS = [
   { id: "people", label: "People", icon: Users },
   { id: "boards", label: "Board Memberships", icon: Layout },
   { id: "audit", label: "Audit Log", icon: ClipboardList },
+  { id: "recycle-bin", label: "Recycle Bin", icon: Trash2 },
   { id: "system", label: "System", icon: Settings2 },
 ];
 
@@ -1116,6 +1263,7 @@ export default function SecretaryAdmin() {
           {activeTab === "people" && <PeopleTab />}
           {activeTab === "boards" && <BoardMembersTab />}
           {activeTab === "audit" && <AuditTab />}
+          {activeTab === "recycle-bin" && <RecycleBinTab />}
           {activeTab === "system" && <SystemTab />}
         </div>
       </main>

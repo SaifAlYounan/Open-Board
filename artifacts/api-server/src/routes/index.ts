@@ -13,6 +13,7 @@ import aiRouter from "./ai";
 import dashboardRouter from "./dashboard";
 import systemRouter from "./system";
 import auditLogRouter from "./auditLog";
+import deletedRecordsRouter from "./deletedRecords";
 import workflowsRouter from "./workflows";
 import graphRouter from "./graph";
 
@@ -32,6 +33,7 @@ router.use(aiRouter);
 router.use(dashboardRouter);
 router.use(systemRouter);
 router.use(auditLogRouter);
+router.use(deletedRecordsRouter);
 router.use(workflowsRouter);
 router.use(graphRouter);
 

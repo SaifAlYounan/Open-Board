@@ -46,6 +46,7 @@ import type {
   CreateTaskBody,
   CreateVoteBody,
   DashboardSummary,
+  DeletedRecordsList,
   Document,
   DocumentAccessEntry,
   ErrorResponse,
@@ -58,6 +59,7 @@ import type {
   GraphSummary,
   HealthStatus,
   ListAuditEntriesParams,
+  ListDeletedRecordsParams,
   ListDocumentsParams,
   ListMeetingsParams,
   ListMinutesParams,
@@ -82,6 +84,7 @@ import type {
   ResetDataResponse,
   ResetPasswordBody,
   ResolveCommentBody,
+  RestoreResult,
   ReviewEvidenceBody,
   SearchGraphParams,
   SystemExportBundle,
@@ -5732,6 +5735,187 @@ export function useListAuditPeople<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary List deleted governance records (recycle bin, admin only)
+ */
+export const getListDeletedRecordsUrl = (params?: ListDeletedRecordsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/deleted-records?${stringifiedParams}`
+    : `/api/deleted-records`;
+};
+
+export const listDeletedRecords = async (
+  params?: ListDeletedRecordsParams,
+  options?: RequestInit,
+): Promise<DeletedRecordsList> => {
+  return customFetch<DeletedRecordsList>(getListDeletedRecordsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListDeletedRecordsQueryKey = (
+  params?: ListDeletedRecordsParams,
+) => {
+  return [`/api/deleted-records`, ...(params ? [params] : [])] as const;
+};
+
+export const getListDeletedRecordsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDeletedRecords>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListDeletedRecordsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDeletedRecords>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDeletedRecordsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDeletedRecords>>
+  > = ({ signal }) => listDeletedRecords(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDeletedRecords>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDeletedRecordsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDeletedRecords>>
+>;
+export type ListDeletedRecordsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List deleted governance records (recycle bin, admin only)
+ */
+
+export function useListDeletedRecords<
+  TData = Awaited<ReturnType<typeof listDeletedRecords>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListDeletedRecordsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDeletedRecords>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDeletedRecordsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Restore a deleted governance record back into its source table (admin only)
+ */
+export const getRestoreDeletedRecordUrl = (id: string) => {
+  return `/api/deleted-records/${id}/restore`;
+};
+
+export const restoreDeletedRecord = async (
+  id: string,
+  options?: RequestInit,
+): Promise<RestoreResult> => {
+  return customFetch<RestoreResult>(getRestoreDeletedRecordUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRestoreDeletedRecordMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreDeletedRecord>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof restoreDeletedRecord>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["restoreDeletedRecord"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof restoreDeletedRecord>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return restoreDeletedRecord(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RestoreDeletedRecordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof restoreDeletedRecord>>
+>;
+
+export type RestoreDeletedRecordMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Restore a deleted governance record back into its source table (admin only)
+ */
+export const useRestoreDeletedRecord = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof restoreDeletedRecord>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof restoreDeletedRecord>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getRestoreDeletedRecordMutationOptions(options));
+};
 
 /**
  * @summary Upload a document (PDF, DOCX, or TXT; max 10 MB) — AI classification runs in the background

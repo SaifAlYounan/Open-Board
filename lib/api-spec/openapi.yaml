@@ -34,6 +34,8 @@ tags:
     description: Dashboard aggregates
   - name: audit
     description: Audit trail
+  - name: deleted-records
+    description: Recycle bin — restore of deleted governance records
   - name: graph
     description: Governance graph and search
   - name: workflows
@@ -1411,6 +1413,62 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuditPerson"
+
+  # ── Deleted records: recycle bin + restore (issue #11) ──
+  /deleted-records:
+    get:
+      operationId: listDeletedRecords
+      tags: [deleted-records]
+      summary: List deleted governance records (recycle bin, admin only)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted records, newest deletion first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedRecordsList"
+
+  /deleted-records/{id}/restore:
+    post:
+      operationId: restoreDeletedRecord
+      tags: [deleted-records]
+      summary: Restore a deleted governance record back into its source table (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The record was restored; the deletion row is stamped restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreResult"
+        "404":
+          description: No such deleted record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Already restored, a live record holds the id/unique key, or the parent is gone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # ── Documents: upload / download / per-person access ──
   /documents/upload:
@@ -3421,6 +3479,84 @@ components:
         - name
         - email
         - role
+
+    # ── Deleted records (recycle bin, issue #11) ──
+    DeletedRecordPerson:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name
+
+    DeletedRecordSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        title:
+          type: string
+        deletedAt:
+          type: string
+        deletedBy:
+          oneOf:
+            - $ref: "#/components/schemas/DeletedRecordPerson"
+            - type: "null"
+        restoredAt:
+          type: ["string", "null"]
+        restoredBy:
+          oneOf:
+            - $ref: "#/components/schemas/DeletedRecordPerson"
+            - type: "null"
+        restorable:
+          type: boolean
+      required:
+        - id
+        - entityType
+        - entityId
+        - title
+        - deletedAt
+        - restorable
+
+    DeletedRecordsList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeletedRecordSummary"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+      required:
+        - items
+        - total
+        - limit
+        - offset
+
+    RestoreResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        entityType:
+          type: string
+        entityId:
+          type: string
+      required:
+        - success
+        - entityType
+        - entityId
 
     # ── Uploads ──
     UploadFileBody:

@@ -1148,6 +1148,37 @@ export interface AuditEntry {
   person?: AuditPerson | null;
 }
 
+export interface DeletedRecordPerson {
+  id: string;
+  name: string;
+}
+
+export interface DeletedRecordSummary {
+  id: string;
+  entityType: string;
+  entityId: string;
+  title: string;
+  deletedAt: string;
+  deletedBy?: DeletedRecordPerson | null;
+  /** @nullable */
+  restoredAt?: string | null;
+  restoredBy?: DeletedRecordPerson | null;
+  restorable: boolean;
+}
+
+export interface DeletedRecordsList {
+  items: DeletedRecordSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface RestoreResult {
+  success: boolean;
+  entityType: string;
+  entityId: string;
+}
+
 export interface UploadFileBody {
   file: Blob;
 }
@@ -1440,6 +1471,11 @@ export type ListAuditEntriesParams = {
   personId?: string;
   action?: string;
   search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type ListDeletedRecordsParams = {
   limit?: number;
   offset?: number;
 };
