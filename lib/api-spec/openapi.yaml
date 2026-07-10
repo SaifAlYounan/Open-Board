@@ -32,6 +32,14 @@ tags:
     description: AI features
   - name: dashboard
     description: Dashboard aggregates
+  - name: audit
+    description: Audit trail
+  - name: graph
+    description: Governance graph and search
+  - name: workflows
+    description: Multi-stage approval workflows
+  - name: system
+    description: Organization identity, export, and reset
 
 paths:
   /healthz:
@@ -1262,6 +1270,637 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiStatusResponse"
+
+
+  # ── Auth (self-service) ──
+  /auth/refresh:
+    get:
+      operationId: refreshToken
+      tags: [auth]
+      summary: Re-issue the session cookie for the authenticated user
+      responses:
+        "200":
+          description: Fresh token set as an HttpOnly cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Request a password-reset link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordBody"
+      responses:
+        "200":
+          description: Uniform response, whether or not the email is registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Set a new password with a reset token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordBody"
+      responses:
+        "200":
+          description: Password reset; all previously issued tokens are revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Invalid or expired token, or password too short
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change the authenticated user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordBody"
+      responses:
+        "200":
+          description: Password changed; a fresh session cookie is issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Current password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Audit trail (admin) ──
+  /audit:
+    get:
+      operationId: listAuditEntries
+      tags: [audit]
+      summary: List audit-trail entries (admin only)
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Audit entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+  /audit/people:
+    get:
+      operationId: listAuditPeople
+      tags: [audit]
+      summary: List people for the audit filter dropdown (admin only)
+      responses:
+        "200":
+          description: People
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditPerson"
+
+  # ── Documents: upload / download / per-person access ──
+  /documents/upload:
+    post:
+      operationId: uploadDocument
+      tags: [documents]
+      summary: Upload a document (PDF, DOCX, or TXT; max 10 MB) — AI classification runs in the background
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadFileBody"
+      responses:
+        "200":
+          description: Stored document; `classifying` says whether AI classification was queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadDocumentResponse"
+        "400":
+          description: Missing file, disallowed type, or too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /documents/{id}/download:
+    get:
+      operationId: downloadDocument
+      tags: [documents]
+      summary: Download the original file (requires access to the document)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /documents/{id}/access:
+    get:
+      operationId: getDocumentAccess
+      tags: [documents]
+      summary: List per-person access for a document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Access entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentAccessEntry"
+    patch:
+      operationId: updateDocumentAccess
+      tags: [documents]
+      summary: Grant or revoke one person's access to a document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDocumentAccessBody"
+      responses:
+        "200":
+          description: Updated access entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDocumentAccessResponse"
+        "404":
+          description: Document, or access record for that person, not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Governance graph ──
+  /graph:
+    get:
+      operationId: getGraph
+      tags: [graph]
+      summary: Get the governance graph for the user's accessible boards
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Nodes and deduplicated edges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphResponse"
+
+  /graph/summary:
+    get:
+      operationId: getGraphSummary
+      tags: [graph]
+      summary: Aggregate governance statistics, project rollups, and vote timeline
+      parameters:
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSummary"
+
+  /graph/search:
+    get:
+      operationId: searchGraph
+      tags: [graph]
+      summary: Search entities and return matches with a 1-hop neighborhood graph
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: boardId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matches plus surrounding graph
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSearchResponse"
+
+  # ── Meetings: agenda item CRUD ──
+  /meetings/{id}/agenda:
+    post:
+      operationId: addAgendaItem
+      tags: [meetings]
+      summary: Append an agenda item to a meeting (admin only; position is assigned server-side)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAgendaItemBody"
+      responses:
+        "201":
+          description: Created agenda item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgendaItem"
+        "409":
+          description: The meeting is cancelled and immutable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /meetings/{id}/agenda/{itemId}:
+    patch:
+      operationId: updateAgendaItem
+      tags: [meetings]
+      summary: Update an agenda item (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgendaItemBody"
+      responses:
+        "200":
+          description: Updated agenda item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgendaItem"
+        "404":
+          description: Agenda item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAgendaItem
+      tags: [meetings]
+      summary: Delete an agenda item (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  # ── Tasks: evidence submission ──
+  /tasks/{id}/evidence:
+    post:
+      operationId: submitTaskEvidence
+      tags: [tasks]
+      summary: Submit evidence for a task (assignee or admin) — AI pre-review runs when configured
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadFileBody"
+      responses:
+        "200":
+          description: Stored evidence, including any AI verdict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskEvidence"
+        "403":
+          description: Only the assignee (or an admin) may submit evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Votes: certificate verification and supporting documents ──
+  /votes/{id}/certificate/verify:
+    get:
+      operationId: verifyVoteCertificate
+      tags: [votes]
+      summary: Recompute and verify the tamper-evidence hash of a closed vote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Verification result (hashVersion 2 = weighted/proxy era, 1 = legacy)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CertificateVerification"
+
+  /votes/{id}/documents:
+    get:
+      operationId: listVoteDocuments
+      tags: [votes]
+      summary: List supporting documents attached to a vote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Supporting documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VoteDocument"
+    post:
+      operationId: uploadVoteDocument
+      tags: [votes]
+      summary: Attach a supporting document to a vote (requires access to the vote)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadVoteDocumentBody"
+      responses:
+        "201":
+          description: Stored supporting document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoteDocument"
+
+  /votes/{id}/documents/{docId}:
+    delete:
+      operationId: deleteVoteDocument
+      tags: [votes]
+      summary: Delete a supporting document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /votes/{id}/documents/{docId}/download:
+    get:
+      operationId: downloadVoteDocument
+      tags: [votes]
+      summary: Download a supporting document (requires access to the vote)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  # ── Approval workflows (admin) ──
+  /workflows:
+    get:
+      operationId: listWorkflows
+      tags: [workflows]
+      summary: List approval workflows with their stages (admin only)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Workflows with stages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+
+  /workflows/{id}:
+    get:
+      operationId: getWorkflow
+      tags: [workflows]
+      summary: Get one workflow with per-stage vote details (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDetail"
+        "404":
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── System: identity, export, reset ──
+  /organization:
+    get:
+      operationId: getOrganization
+      tags: [system]
+      summary: Get the organization's display identity
+      responses:
+        "200":
+          description: Organization name and app version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationInfo"
+
+  /system/export:
+    get:
+      operationId: exportSystemData
+      tags: [system]
+      summary: Export the complete governance dataset as one JSON bundle (admin only; no password hashes)
+      responses:
+        "200":
+          description: JSON export, served as an attachment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemExportBundle"
+
+  /system/reset-data:
+    post:
+      operationId: resetSystemData
+      tags: [system]
+      summary: Delete all transactional data (admin only; requires confirm token and the admin's password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetDataBody"
+      responses:
+        "200":
+          description: Data cleared (organization, people, and boards preserved)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetDataResponse"
+        "403":
+          description: Admin password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
   schemas:
@@ -2609,10 +3248,16 @@ components:
       properties:
         configured:
           type: boolean
+        provider:
+          type: string
+          enum: [anthropic, openai-compatible]
+        model:
+          type: ["string", "null"]
         message:
           type: ["string", "null"]
       required:
         - configured
+        - provider
 
     # Dashboard
     DashboardSummary:
@@ -2675,3 +3320,538 @@ components:
         - icon
         - title
         - detail
+
+    # ── Shared small responses ──
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    # ── Auth (self-service) ──
+    ForgotPasswordBody:
+      type: object
+      properties:
+        email:
+          type: string
+      required:
+        - email
+
+    ResetPasswordBody:
+      type: object
+      properties:
+        token:
+          type: string
+        newPassword:
+          type: string
+          minLength: 12
+      required:
+        - token
+        - newPassword
+
+    ChangePasswordBody:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 12
+      required:
+        - currentPassword
+        - newPassword
+
+    # ── Audit ──
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        personId:
+          type: ["string", "null"]
+        action:
+          type: string
+        actionLabel:
+          type: string
+        entityType:
+          type: ["string", "null"]
+        entityId:
+          type: ["string", "null"]
+        details:
+          type: ["object", "null"]
+        ipAddress:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        person:
+          oneOf:
+            - $ref: "#/components/schemas/AuditPerson"
+            - type: "null"
+      required:
+        - id
+        - action
+        - actionLabel
+        - createdAt
+
+    AuditPerson:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        avatarColor:
+          type: ["string", "null"]
+      required:
+        - id
+        - name
+        - email
+        - role
+
+    # ── Uploads ──
+    UploadFileBody:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+        - file
+
+    UploadVoteDocumentBody:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+        title:
+          type: string
+      required:
+        - file
+
+    UploadDocumentResponse:
+      type: object
+      properties:
+        document:
+          $ref: "#/components/schemas/Document"
+        classifying:
+          type: boolean
+      required:
+        - document
+        - classifying
+
+    # ── Document access ──
+    DocumentAccessEntry:
+      type: object
+      properties:
+        personId:
+          type: ["string", "null"]
+        hasAccess:
+          type: boolean
+        personName:
+          type: ["string", "null"]
+        personEmail:
+          type: ["string", "null"]
+        personRole:
+          type: ["string", "null"]
+      required:
+        - hasAccess
+
+    UpdateDocumentAccessBody:
+      type: object
+      properties:
+        personId:
+          type: string
+        hasAccess:
+          type: boolean
+      required:
+        - personId
+        - hasAccess
+
+    UpdateDocumentAccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        personId:
+          type: string
+        hasAccess:
+          type: boolean
+      required:
+        - success
+        - personId
+        - hasAccess
+
+    # ── Graph ──
+    GraphNode:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [board, person, vote, meeting, minutes, document, task]
+        label:
+          type: string
+        status:
+          type: ["string", "null"]
+        date:
+          type: ["string", "null"]
+        boardId:
+          type: ["string", "null"]
+        role:
+          type: ["string", "null"]
+      required:
+        - id
+        - type
+        - label
+
+    GraphEdge:
+      type: object
+      properties:
+        source:
+          type: string
+        target:
+          type: string
+        relationship:
+          type: string
+      required:
+        - source
+        - target
+        - relationship
+
+    GraphResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+      required:
+        - nodes
+        - edges
+
+    GraphSummary:
+      type: object
+      description: Aggregate counters per entity family, keyword-derived project rollups, and a chronological vote timeline.
+      properties:
+        votes:
+          type: object
+          additionalProperties: true
+        meetings:
+          type: object
+          additionalProperties: true
+        documents:
+          type: object
+          additionalProperties: true
+        tasks:
+          type: object
+          additionalProperties: true
+        minutes:
+          type: object
+          additionalProperties: true
+        people:
+          type: object
+          additionalProperties: true
+        projects:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphTimelineEntry"
+      required:
+        - votes
+        - meetings
+        - documents
+        - tasks
+        - minutes
+        - people
+        - projects
+        - timeline
+
+    GraphTimelineEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: ["string", "null"]
+        date:
+          type: ["string", "null"]
+        board:
+          type: string
+        resolutionNumber:
+          type: ["string", "null"]
+      required:
+        - id
+        - title
+        - board
+
+    GraphSearchResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        summary:
+          type: string
+      required:
+        - nodes
+        - edges
+        - matches
+        - summary
+
+    # ── Agenda items ──
+    UpdateAgendaItemBody:
+      type: object
+      properties:
+        title:
+          type: string
+        type:
+          type: string
+          enum: [information, discussion, decision]
+        description:
+          type: string
+
+    AddAgendaItemBody:
+      type: object
+      properties:
+        title:
+          type: string
+        type:
+          type: string
+          enum: [information, discussion, decision]
+        description:
+          type: string
+      required:
+        - title
+        - type
+
+    # ── Vote certificates and documents ──
+    CertificateVerification:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        reason:
+          type: string
+          description: Present when verification was not possible (e.g. not_finalized).
+        storedHash:
+          type: string
+        recomputedHash:
+          type: string
+        hashVersion:
+          type: ["integer", "null"]
+          description: 2 = weighted/proxy hash, 1 = legacy pre-weighted hash, null = mismatch.
+      required:
+        - verified
+
+    VoteDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        voteId:
+          type: string
+        title:
+          type: ["string", "null"]
+        filename:
+          type: string
+        fileSize:
+          type: ["integer", "null"]
+        mimeType:
+          type: ["string", "null"]
+        uploadedBy:
+          type: ["string", "null"]
+        uploaderName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - voteId
+        - filename
+        - createdAt
+
+    # ── Workflows ──
+    Workflow:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        status:
+          type: string
+        boardId:
+          type: ["string", "null"]
+        sourceDocumentId:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStage"
+      required:
+        - id
+        - title
+        - status
+        - createdAt
+        - stages
+
+    WorkflowStage:
+      type: object
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        stageIndex:
+          type: integer
+        stageGroup:
+          type: integer
+        title:
+          type: ["string", "null"]
+        status:
+          type: string
+        boardId:
+          type: ["string", "null"]
+        boardName:
+          type: ["string", "null"]
+        boardAbbreviation:
+          type: ["string", "null"]
+        approvalType:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        voteId:
+          type: ["string", "null"]
+      required:
+        - id
+        - workflowId
+        - stageIndex
+        - status
+
+    WorkflowDetail:
+      allOf:
+        - $ref: "#/components/schemas/Workflow"
+        - type: object
+          properties:
+            boardName:
+              type: ["string", "null"]
+            stages:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowStageDetail"
+
+    WorkflowStageDetail:
+      allOf:
+        - $ref: "#/components/schemas/WorkflowStage"
+        - type: object
+          properties:
+            vote:
+              oneOf:
+                - $ref: "#/components/schemas/Vote"
+                - type: "null"
+            voteStats:
+              oneOf:
+                - $ref: "#/components/schemas/WorkflowVoteStats"
+                - type: "null"
+
+    WorkflowVoteStats:
+      type: object
+      properties:
+        totalVoters:
+          type: integer
+        votesCast:
+          type: integer
+        approvalsCount:
+          type: integer
+      required:
+        - totalVoters
+        - votesCast
+        - approvalsCount
+
+    # ── System ──
+    OrganizationInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+      required:
+        - name
+        - version
+
+    SystemExportBundle:
+      type: object
+      description: One JSON bundle containing every governance table (people without password hashes).
+      additionalProperties: true
+      properties:
+        exportedAt:
+          type: string
+        schemaVersion:
+          type: string
+      required:
+        - exportedAt
+        - schemaVersion
+
+    ResetDataBody:
+      type: object
+      properties:
+        confirm:
+          type: string
+          description: Must be the literal string RESET.
+        password:
+          type: string
+          description: The requesting admin's own password, re-verified server-side.
+      required:
+        - confirm
+        - password
+
+    ResetDataResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+      required:
+        - ok
+        - message

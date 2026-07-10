@@ -3,38 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Guards against OpenAPI drift: every Express route mounted under /api must be
-// documented in lib/api-spec/openapi.yaml, OR listed in KNOWN_UNDOCUMENTED
-// below. This test does NOT retroactively force the whole spec to be complete —
-// it locks in the current known gaps so that NEW routes can't silently ship
-// undocumented. To clear a gap: document the path in openapi.yaml and delete it
-// from this list.
-const KNOWN_UNDOCUMENTED = new Set<string>([
-  "/audit",
-  "/audit/people",
-  "/auth/change-password",
-  "/auth/forgot-password",
-  "/auth/refresh",
-  "/auth/reset-password",
-  "/documents/upload",
-  "/documents/{id}/access",
-  "/documents/{id}/download",
-  "/graph",
-  "/graph/search",
-  "/graph/summary",
-  "/meetings/{id}/agenda",
-  "/meetings/{id}/agenda/{itemId}",
-  "/organization",
-  "/system/export",
-  "/system/reset-data",
-  "/tasks/{id}/evidence",
-  "/votes/{id}/certificate/verify",
-  "/votes/{id}/documents",
-  "/votes/{id}/documents/{docId}",
-  "/votes/{id}/documents/{docId}/download",
-  "/workflows",
-  "/workflows/{id}",
-]);
+// Guards against OpenAPI drift: EVERY Express route mounted under /api must be
+// documented in lib/api-spec/openapi.yaml. The spec reached full coverage with
+// issue #12 (the last 24 known gaps were documented and the escape-hatch list
+// emptied) — new routes must ship with their spec entry in the same change.
+const KNOWN_UNDOCUMENTED = new Set<string>([]);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const routesDir = here;

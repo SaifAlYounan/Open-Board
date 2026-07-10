@@ -37,7 +37,10 @@ pnpm build                # both the API and the frontend must build
 ```
 
 If you change API routes, keep the OpenAPI spec (`lib/api-spec/openapi.yaml`) and the generated
-client in sync (`pnpm --filter @workspace/api-spec run codegen`) — CI checks for drift.
+client in sync (`pnpm --filter @workspace/api-spec run codegen`) — CI checks for drift, including
+the orval-maintained barrels, so never hand-edit anything under `lib/*/src/generated` or the
+`lib/api-zod/src/index.ts` export list. The spec has **full route coverage** (enforced by
+`openapiCoverage.test.ts`): a new Express route must ship with its `openapi.yaml` entry.
 
 ## Pull request guidelines
 

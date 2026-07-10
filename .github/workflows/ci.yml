@@ -55,11 +55,15 @@ jobs:
         run: pnpm run typecheck
 
       - name: Check generated API client is in sync with the OpenAPI spec
+        # The whole src trees (not just generated/) are checked so the
+        # orval-maintained workspace barrels (src/index.ts) are covered too —
+        # codegen must be a no-op on a clean checkout, with no manual fixups.
         run: |
           pnpm --filter @workspace/api-spec run codegen
-          if ! git diff --quiet -- lib/api-zod/src/generated lib/api-client-react/src/generated; then
+          if [ -n "$(git status --porcelain -- lib/api-zod/src lib/api-client-react/src)" ]; then
             echo "::error::Generated API code is out of sync with openapi.yaml. Run 'pnpm --filter @workspace/api-spec run codegen' and commit the result."
-            git --no-pager diff --stat -- lib/api-zod/src/generated lib/api-client-react/src/generated
+            git status --porcelain -- lib/api-zod/src lib/api-client-react/src
+            git --no-pager diff --stat -- lib/api-zod/src lib/api-client-react/src
             exit 1
           fi
 

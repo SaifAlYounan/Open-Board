@@ -1042,8 +1042,19 @@ export interface AiSearchResponse {
   error?: string | null;
 }
 
+export type AiStatusResponseProvider =
+  (typeof AiStatusResponseProvider)[keyof typeof AiStatusResponseProvider];
+
+export const AiStatusResponseProvider = {
+  anthropic: "anthropic",
+  "openai-compatible": "openai-compatible",
+} as const;
+
 export interface AiStatusResponse {
   configured: boolean;
+  provider: AiStatusResponseProvider;
+  /** @nullable */
+  model?: string | null;
   /** @nullable */
   message?: string | null;
 }
@@ -1081,6 +1092,322 @@ export interface AiInsightsResponse {
   error?: string | null;
 }
 
+export interface OkResponse {
+  ok: boolean;
+}
+
+export interface MessageResponse {
+  message: string;
+}
+
+export interface ForgotPasswordBody {
+  email: string;
+}
+
+export interface ResetPasswordBody {
+  token: string;
+  /** @minLength 12 */
+  newPassword: string;
+}
+
+export interface ChangePasswordBody {
+  currentPassword: string;
+  /** @minLength 12 */
+  newPassword: string;
+}
+
+/**
+ * @nullable
+ */
+export type AuditEntryDetails = { [key: string]: unknown } | null;
+
+export interface AuditPerson {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  /** @nullable */
+  avatarColor?: string | null;
+}
+
+export interface AuditEntry {
+  id: string;
+  /** @nullable */
+  personId?: string | null;
+  action: string;
+  actionLabel: string;
+  /** @nullable */
+  entityType?: string | null;
+  /** @nullable */
+  entityId?: string | null;
+  /** @nullable */
+  details?: AuditEntryDetails;
+  /** @nullable */
+  ipAddress?: string | null;
+  createdAt: string;
+  person?: AuditPerson | null;
+}
+
+export interface UploadFileBody {
+  file: Blob;
+}
+
+export interface UploadVoteDocumentBody {
+  file: Blob;
+  title?: string;
+}
+
+export interface UploadDocumentResponse {
+  document: Document;
+  classifying: boolean;
+}
+
+export interface DocumentAccessEntry {
+  /** @nullable */
+  personId?: string | null;
+  hasAccess: boolean;
+  /** @nullable */
+  personName?: string | null;
+  /** @nullable */
+  personEmail?: string | null;
+  /** @nullable */
+  personRole?: string | null;
+}
+
+export interface UpdateDocumentAccessBody {
+  personId: string;
+  hasAccess: boolean;
+}
+
+export interface UpdateDocumentAccessResponse {
+  success: boolean;
+  personId: string;
+  hasAccess: boolean;
+}
+
+export type GraphNodeType = (typeof GraphNodeType)[keyof typeof GraphNodeType];
+
+export const GraphNodeType = {
+  board: "board",
+  person: "person",
+  vote: "vote",
+  meeting: "meeting",
+  minutes: "minutes",
+  document: "document",
+  task: "task",
+} as const;
+
+export interface GraphNode {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  /** @nullable */
+  status?: string | null;
+  /** @nullable */
+  date?: string | null;
+  /** @nullable */
+  boardId?: string | null;
+  /** @nullable */
+  role?: string | null;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  relationship: string;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export type GraphSummaryVotes = { [key: string]: unknown };
+
+export type GraphSummaryMeetings = { [key: string]: unknown };
+
+export type GraphSummaryDocuments = { [key: string]: unknown };
+
+export type GraphSummaryTasks = { [key: string]: unknown };
+
+export type GraphSummaryMinutes = { [key: string]: unknown };
+
+export type GraphSummaryPeople = { [key: string]: unknown };
+
+export type GraphSummaryProjectsItem = { [key: string]: unknown };
+
+export interface GraphTimelineEntry {
+  id: string;
+  title: string;
+  /** @nullable */
+  status?: string | null;
+  /** @nullable */
+  date?: string | null;
+  board: string;
+  /** @nullable */
+  resolutionNumber?: string | null;
+}
+
+/**
+ * Aggregate counters per entity family, keyword-derived project rollups, and a chronological vote timeline.
+ */
+export interface GraphSummary {
+  votes: GraphSummaryVotes;
+  meetings: GraphSummaryMeetings;
+  documents: GraphSummaryDocuments;
+  tasks: GraphSummaryTasks;
+  minutes: GraphSummaryMinutes;
+  people: GraphSummaryPeople;
+  projects: GraphSummaryProjectsItem[];
+  timeline: GraphTimelineEntry[];
+}
+
+export interface GraphSearchResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  matches: GraphNode[];
+  summary: string;
+}
+
+export type UpdateAgendaItemBodyType =
+  (typeof UpdateAgendaItemBodyType)[keyof typeof UpdateAgendaItemBodyType];
+
+export const UpdateAgendaItemBodyType = {
+  information: "information",
+  discussion: "discussion",
+  decision: "decision",
+} as const;
+
+export interface UpdateAgendaItemBody {
+  title?: string;
+  type?: UpdateAgendaItemBodyType;
+  description?: string;
+}
+
+export type AddAgendaItemBodyType =
+  (typeof AddAgendaItemBodyType)[keyof typeof AddAgendaItemBodyType];
+
+export const AddAgendaItemBodyType = {
+  information: "information",
+  discussion: "discussion",
+  decision: "decision",
+} as const;
+
+export interface AddAgendaItemBody {
+  title: string;
+  type: AddAgendaItemBodyType;
+  description?: string;
+}
+
+export interface CertificateVerification {
+  verified: boolean;
+  /** Present when verification was not possible (e.g. not_finalized). */
+  reason?: string;
+  storedHash?: string;
+  recomputedHash?: string;
+  /**
+   * 2 = weighted/proxy hash, 1 = legacy pre-weighted hash, null = mismatch.
+   * @nullable
+   */
+  hashVersion?: number | null;
+}
+
+export interface VoteDocument {
+  id: string;
+  voteId: string;
+  /** @nullable */
+  title?: string | null;
+  filename: string;
+  /** @nullable */
+  fileSize?: number | null;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  uploadedBy?: string | null;
+  /** @nullable */
+  uploaderName?: string | null;
+  createdAt: string;
+}
+
+export interface WorkflowStage {
+  id: string;
+  workflowId: string;
+  stageIndex: number;
+  stageGroup?: number;
+  /** @nullable */
+  title?: string | null;
+  status: string;
+  /** @nullable */
+  boardId?: string | null;
+  /** @nullable */
+  boardName?: string | null;
+  /** @nullable */
+  boardAbbreviation?: string | null;
+  /** @nullable */
+  approvalType?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  voteId?: string | null;
+}
+
+export interface Workflow {
+  id: string;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  status: string;
+  /** @nullable */
+  boardId?: string | null;
+  /** @nullable */
+  sourceDocumentId?: string | null;
+  createdAt: string;
+  stages: WorkflowStage[];
+}
+
+export interface WorkflowVoteStats {
+  totalVoters: number;
+  votesCast: number;
+  approvalsCount: number;
+}
+
+export type WorkflowStageDetail = WorkflowStage & {
+  vote?: Vote | null;
+  voteStats?: WorkflowVoteStats | null;
+};
+
+export type WorkflowDetail = Workflow & {
+  /** @nullable */
+  boardName?: string | null;
+  stages?: WorkflowStageDetail[];
+};
+
+export interface OrganizationInfo {
+  name: string;
+  version: string;
+}
+
+/**
+ * One JSON bundle containing every governance table (people without password hashes).
+ */
+export interface SystemExportBundle {
+  exportedAt: string;
+  schemaVersion: string;
+  [key: string]: unknown;
+}
+
+export interface ResetDataBody {
+  /** Must be the literal string RESET. */
+  confirm: string;
+  /** The requesting admin's own password, re-verified server-side. */
+  password: string;
+}
+
+export interface ResetDataResponse {
+  ok: boolean;
+  message: string;
+}
+
 export type ListMeetingsParams = {
   boardId?: string;
 };
@@ -1107,4 +1434,30 @@ export type ListTasksParams = {
 
 export type ListPendingActionsParams = {
   status?: string;
+};
+
+export type ListAuditEntriesParams = {
+  personId?: string;
+  action?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type GetGraphParams = {
+  boardId?: string;
+};
+
+export type GetGraphSummaryParams = {
+  boardId?: string;
+};
+
+export type SearchGraphParams = {
+  q: string;
+  boardId?: string;
+};
+
+export type ListWorkflowsParams = {
+  limit?: number;
+  offset?: number;
 };

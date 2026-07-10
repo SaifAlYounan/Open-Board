@@ -1694,5 +1694,677 @@ export const AiSearchResponse = zod.object({
  */
 export const GetAiStatusResponse = zod.object({
   configured: zod.boolean(),
+  provider: zod.enum(["anthropic", "openai-compatible"]),
+  model: zod.string().nullish(),
   message: zod.string().nullish(),
+});
+
+/**
+ * @summary Re-issue the session cookie for the authenticated user
+ */
+export const RefreshTokenResponse = zod.object({
+  ok: zod.boolean(),
+});
+
+/**
+ * @summary Request a password-reset link
+ */
+export const ForgotPasswordBody = zod.object({
+  email: zod.string(),
+});
+
+export const ForgotPasswordResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Set a new password with a reset token
+ */
+export const resetPasswordBodyNewPasswordMin = 12;
+
+export const ResetPasswordBody = zod.object({
+  token: zod.string(),
+  newPassword: zod.string().min(resetPasswordBodyNewPasswordMin),
+});
+
+export const ResetPasswordResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary Change the authenticated user's password
+ */
+export const changePasswordBodyNewPasswordMin = 12;
+
+export const ChangePasswordBody = zod.object({
+  currentPassword: zod.string(),
+  newPassword: zod.string().min(changePasswordBodyNewPasswordMin),
+});
+
+export const ChangePasswordResponse = zod.object({
+  message: zod.string(),
+});
+
+/**
+ * @summary List audit-trail entries (admin only)
+ */
+export const ListAuditEntriesQueryParams = zod.object({
+  personId: zod.coerce.string().optional(),
+  action: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const ListAuditEntriesResponseItem = zod.object({
+  id: zod.string(),
+  personId: zod.string().nullish(),
+  action: zod.string(),
+  actionLabel: zod.string(),
+  entityType: zod.string().nullish(),
+  entityId: zod.string().nullish(),
+  details: zod.object({}).passthrough().nullish(),
+  ipAddress: zod.string().nullish(),
+  createdAt: zod.string(),
+  person: zod
+    .union([
+      zod.object({
+        id: zod.string(),
+        name: zod.string(),
+        email: zod.string(),
+        role: zod.string(),
+        avatarColor: zod.string().nullish(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+});
+export const ListAuditEntriesResponse = zod.array(ListAuditEntriesResponseItem);
+
+/**
+ * @summary List people for the audit filter dropdown (admin only)
+ */
+export const ListAuditPeopleResponseItem = zod.object({
+  id: zod.string(),
+  name: zod.string(),
+  email: zod.string(),
+  role: zod.string(),
+  avatarColor: zod.string().nullish(),
+});
+export const ListAuditPeopleResponse = zod.array(ListAuditPeopleResponseItem);
+
+/**
+ * @summary Upload a document (PDF, DOCX, or TXT; max 10 MB) — AI classification runs in the background
+ */
+export const UploadDocumentBody = zod.object({
+  file: zod.instanceof(File),
+});
+
+export const UploadDocumentResponse = zod.object({
+  document: zod.object({
+    id: zod.string(),
+    boardId: zod.string().nullish(),
+    title: zod.string(),
+    filename: zod.string(),
+    fileSize: zod.number().nullish(),
+    mimeType: zod.string().nullish(),
+    aiClassification: zod.object({}).passthrough().nullish(),
+    uploadedBy: zod.string().nullish(),
+    uploaderName: zod.string().nullish(),
+    createdAt: zod.string(),
+  }),
+  classifying: zod.boolean(),
+});
+
+/**
+ * @summary Download the original file (requires access to the document)
+ */
+export const DownloadDocumentParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * @summary List per-person access for a document (admin only)
+ */
+export const GetDocumentAccessParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetDocumentAccessResponseItem = zod.object({
+  personId: zod.string().nullish(),
+  hasAccess: zod.boolean(),
+  personName: zod.string().nullish(),
+  personEmail: zod.string().nullish(),
+  personRole: zod.string().nullish(),
+});
+export const GetDocumentAccessResponse = zod.array(
+  GetDocumentAccessResponseItem,
+);
+
+/**
+ * @summary Grant or revoke one person's access to a document (admin only)
+ */
+export const UpdateDocumentAccessParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateDocumentAccessBody = zod.object({
+  personId: zod.string(),
+  hasAccess: zod.boolean(),
+});
+
+export const UpdateDocumentAccessResponse = zod.object({
+  success: zod.boolean(),
+  personId: zod.string(),
+  hasAccess: zod.boolean(),
+});
+
+/**
+ * @summary Get the governance graph for the user's accessible boards
+ */
+export const GetGraphQueryParams = zod.object({
+  boardId: zod.coerce.string().optional(),
+});
+
+export const GetGraphResponse = zod.object({
+  nodes: zod.array(
+    zod.object({
+      id: zod.string(),
+      type: zod.enum([
+        "board",
+        "person",
+        "vote",
+        "meeting",
+        "minutes",
+        "document",
+        "task",
+      ]),
+      label: zod.string(),
+      status: zod.string().nullish(),
+      date: zod.string().nullish(),
+      boardId: zod.string().nullish(),
+      role: zod.string().nullish(),
+    }),
+  ),
+  edges: zod.array(
+    zod.object({
+      source: zod.string(),
+      target: zod.string(),
+      relationship: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Aggregate governance statistics, project rollups, and vote timeline
+ */
+export const GetGraphSummaryQueryParams = zod.object({
+  boardId: zod.coerce.string().optional(),
+});
+
+export const GetGraphSummaryResponse = zod
+  .object({
+    votes: zod.record(zod.string(), zod.unknown()),
+    meetings: zod.record(zod.string(), zod.unknown()),
+    documents: zod.record(zod.string(), zod.unknown()),
+    tasks: zod.record(zod.string(), zod.unknown()),
+    minutes: zod.record(zod.string(), zod.unknown()),
+    people: zod.record(zod.string(), zod.unknown()),
+    projects: zod.array(zod.record(zod.string(), zod.unknown())),
+    timeline: zod.array(
+      zod.object({
+        id: zod.string(),
+        title: zod.string(),
+        status: zod.string().nullish(),
+        date: zod.string().nullish(),
+        board: zod.string(),
+        resolutionNumber: zod.string().nullish(),
+      }),
+    ),
+  })
+  .describe(
+    "Aggregate counters per entity family, keyword-derived project rollups, and a chronological vote timeline.",
+  );
+
+/**
+ * @summary Search entities and return matches with a 1-hop neighborhood graph
+ */
+export const SearchGraphQueryParams = zod.object({
+  q: zod.coerce.string(),
+  boardId: zod.coerce.string().optional(),
+});
+
+export const SearchGraphResponse = zod.object({
+  nodes: zod.array(
+    zod.object({
+      id: zod.string(),
+      type: zod.enum([
+        "board",
+        "person",
+        "vote",
+        "meeting",
+        "minutes",
+        "document",
+        "task",
+      ]),
+      label: zod.string(),
+      status: zod.string().nullish(),
+      date: zod.string().nullish(),
+      boardId: zod.string().nullish(),
+      role: zod.string().nullish(),
+    }),
+  ),
+  edges: zod.array(
+    zod.object({
+      source: zod.string(),
+      target: zod.string(),
+      relationship: zod.string(),
+    }),
+  ),
+  matches: zod.array(
+    zod.object({
+      id: zod.string(),
+      type: zod.enum([
+        "board",
+        "person",
+        "vote",
+        "meeting",
+        "minutes",
+        "document",
+        "task",
+      ]),
+      label: zod.string(),
+      status: zod.string().nullish(),
+      date: zod.string().nullish(),
+      boardId: zod.string().nullish(),
+      role: zod.string().nullish(),
+    }),
+  ),
+  summary: zod.string(),
+});
+
+/**
+ * @summary Append an agenda item to a meeting (admin only; position is assigned server-side)
+ */
+export const AddAgendaItemParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const AddAgendaItemBody = zod.object({
+  title: zod.string(),
+  type: zod.enum(["information", "discussion", "decision"]),
+  description: zod.string().optional(),
+});
+
+/**
+ * @summary Update an agenda item (admin only)
+ */
+export const UpdateAgendaItemParams = zod.object({
+  id: zod.coerce.string(),
+  itemId: zod.coerce.string(),
+});
+
+export const UpdateAgendaItemBody = zod.object({
+  title: zod.string().optional(),
+  type: zod.enum(["information", "discussion", "decision"]).optional(),
+  description: zod.string().optional(),
+});
+
+export const UpdateAgendaItemResponse = zod.object({
+  id: zod.string(),
+  meetingId: zod.string(),
+  position: zod.number(),
+  title: zod.string(),
+  type: zod.enum(["information", "discussion", "decision"]),
+  description: zod.string().nullish(),
+  voteId: zod.string().nullish(),
+  documents: zod.array(
+    zod.object({
+      id: zod.string(),
+      boardId: zod.string().nullish(),
+      title: zod.string(),
+      filename: zod.string(),
+      fileSize: zod.number().nullish(),
+      mimeType: zod.string().nullish(),
+      aiClassification: zod.object({}).passthrough().nullish(),
+      uploadedBy: zod.string().nullish(),
+      uploaderName: zod.string().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Delete an agenda item (admin only)
+ */
+export const DeleteAgendaItemParams = zod.object({
+  id: zod.coerce.string(),
+  itemId: zod.coerce.string(),
+});
+
+/**
+ * @summary Submit evidence for a task (assignee or admin) — AI pre-review runs when configured
+ */
+export const SubmitTaskEvidenceParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SubmitTaskEvidenceBody = zod.object({
+  file: zod.instanceof(File),
+});
+
+export const SubmitTaskEvidenceResponse = zod.object({
+  id: zod.string(),
+  taskId: zod.string(),
+  submittedBy: zod.string().nullish(),
+  fileName: zod.string().nullish(),
+  fileSize: zod.number().nullish(),
+  aiVerdict: zod
+    .union([
+      zod.literal("approved"),
+      zod.literal("rejected"),
+      zod.literal("pending"),
+      zod.literal(null),
+    ])
+    .nullish(),
+  aiReasoning: zod.string().nullish(),
+  aiMissing: zod.object({}).passthrough().nullish(),
+  secretaryDecision: zod
+    .union([
+      zod.literal("confirmed"),
+      zod.literal("rejected"),
+      zod.literal("pending"),
+      zod.literal(null),
+    ])
+    .nullish(),
+  secretaryComment: zod.string().nullish(),
+  submittedAt: zod.string(),
+  reviewedAt: zod.string().nullish(),
+  submitter: zod.object({
+    id: zod.string(),
+    email: zod.string(),
+    name: zod.string(),
+    role: zod.enum(["admin", "member", "observer", "management"]),
+    title: zod.string().nullish(),
+    avatarColor: zod.string().nullish(),
+    createdAt: zod.string(),
+  }),
+});
+
+/**
+ * @summary Recompute and verify the tamper-evidence hash of a closed vote
+ */
+export const VerifyVoteCertificateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const VerifyVoteCertificateResponse = zod.object({
+  verified: zod.boolean(),
+  reason: zod
+    .string()
+    .optional()
+    .describe(
+      "Present when verification was not possible (e.g. not_finalized).",
+    ),
+  storedHash: zod.string().optional(),
+  recomputedHash: zod.string().optional(),
+  hashVersion: zod
+    .number()
+    .nullish()
+    .describe(
+      "2 = weighted\/proxy hash, 1 = legacy pre-weighted hash, null = mismatch.",
+    ),
+});
+
+/**
+ * @summary List supporting documents attached to a vote
+ */
+export const ListVoteDocumentsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListVoteDocumentsResponseItem = zod.object({
+  id: zod.string(),
+  voteId: zod.string(),
+  title: zod.string().nullish(),
+  filename: zod.string(),
+  fileSize: zod.number().nullish(),
+  mimeType: zod.string().nullish(),
+  uploadedBy: zod.string().nullish(),
+  uploaderName: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListVoteDocumentsResponse = zod.array(
+  ListVoteDocumentsResponseItem,
+);
+
+/**
+ * @summary Attach a supporting document to a vote (requires access to the vote)
+ */
+export const UploadVoteDocumentParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UploadVoteDocumentBody = zod.object({
+  file: zod.instanceof(File),
+  title: zod.string().optional(),
+});
+
+/**
+ * @summary Delete a supporting document (admin only)
+ */
+export const DeleteVoteDocumentParams = zod.object({
+  id: zod.coerce.string(),
+  docId: zod.coerce.string(),
+});
+
+/**
+ * @summary Download a supporting document (requires access to the vote)
+ */
+export const DownloadVoteDocumentParams = zod.object({
+  id: zod.coerce.string(),
+  docId: zod.coerce.string(),
+});
+
+/**
+ * @summary List approval workflows with their stages (admin only)
+ */
+export const ListWorkflowsQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const ListWorkflowsResponseItem = zod.object({
+  id: zod.string(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  status: zod.string(),
+  boardId: zod.string().nullish(),
+  sourceDocumentId: zod.string().nullish(),
+  createdAt: zod.string(),
+  stages: zod.array(
+    zod.object({
+      id: zod.string(),
+      workflowId: zod.string(),
+      stageIndex: zod.number(),
+      stageGroup: zod.number().optional(),
+      title: zod.string().nullish(),
+      status: zod.string(),
+      boardId: zod.string().nullish(),
+      boardName: zod.string().nullish(),
+      boardAbbreviation: zod.string().nullish(),
+      approvalType: zod.string().nullish(),
+      description: zod.string().nullish(),
+      voteId: zod.string().nullish(),
+    }),
+  ),
+});
+export const ListWorkflowsResponse = zod.array(ListWorkflowsResponseItem);
+
+/**
+ * @summary Get one workflow with per-stage vote details (admin only)
+ */
+export const GetWorkflowParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetWorkflowResponse = zod
+  .object({
+    id: zod.string(),
+    title: zod.string(),
+    description: zod.string().nullish(),
+    status: zod.string(),
+    boardId: zod.string().nullish(),
+    sourceDocumentId: zod.string().nullish(),
+    createdAt: zod.string(),
+    stages: zod.array(
+      zod.object({
+        id: zod.string(),
+        workflowId: zod.string(),
+        stageIndex: zod.number(),
+        stageGroup: zod.number().optional(),
+        title: zod.string().nullish(),
+        status: zod.string(),
+        boardId: zod.string().nullish(),
+        boardName: zod.string().nullish(),
+        boardAbbreviation: zod.string().nullish(),
+        approvalType: zod.string().nullish(),
+        description: zod.string().nullish(),
+        voteId: zod.string().nullish(),
+      }),
+    ),
+  })
+  .and(
+    zod.object({
+      boardName: zod.string().nullish(),
+      stages: zod
+        .array(
+          zod
+            .object({
+              id: zod.string(),
+              workflowId: zod.string(),
+              stageIndex: zod.number(),
+              stageGroup: zod.number().optional(),
+              title: zod.string().nullish(),
+              status: zod.string(),
+              boardId: zod.string().nullish(),
+              boardName: zod.string().nullish(),
+              boardAbbreviation: zod.string().nullish(),
+              approvalType: zod.string().nullish(),
+              description: zod.string().nullish(),
+              voteId: zod.string().nullish(),
+            })
+            .and(
+              zod.object({
+                vote: zod
+                  .union([
+                    zod.object({
+                      id: zod.string(),
+                      boardId: zod.string(),
+                      meetingId: zod.string().nullish(),
+                      resolutionNumber: zod.string(),
+                      title: zod.string(),
+                      resolutionText: zod.string(),
+                      type: zod.enum(["meeting", "circulation"]),
+                      deadline: zod.string().nullish(),
+                      status: zod.enum([
+                        "open",
+                        "approved",
+                        "rejected",
+                        "lapsed",
+                        "cancelled",
+                      ]),
+                      boardName: zod.string().nullish(),
+                      boardAbbreviation: zod.string().nullish(),
+                      totalVoters: zod.number(),
+                      votescast: zod.number(),
+                      approvalsCount: zod.number(),
+                      totalWeight: zod
+                        .number()
+                        .describe(
+                          "Summed voting weight of eligible (non-recused) voting members.",
+                        ),
+                      castWeight: zod
+                        .number()
+                        .describe(
+                          "Summed voting weight of valid ballots cast.",
+                        ),
+                      approvalsWeight: zod
+                        .number()
+                        .describe(
+                          'Summed voting weight of valid \"approved\" ballots.',
+                        ),
+                      hasVoted: zod.boolean(),
+                      myProxies: zod
+                        .array(
+                          zod.object({
+                            proxyId: zod.string(),
+                            principalId: zod.string(),
+                            principalName: zod.string().nullish(),
+                            hasVoted: zod
+                              .boolean()
+                              .describe(
+                                "True once a ballot exists for the principal (own or proxy-cast).",
+                              ),
+                          }),
+                        )
+                        .optional()
+                        .describe(
+                          "Proxy grants the current user holds on this vote.",
+                        ),
+                      createdAt: zod.string(),
+                    }),
+                    zod.null(),
+                  ])
+                  .optional(),
+                voteStats: zod
+                  .union([
+                    zod.object({
+                      totalVoters: zod.number(),
+                      votesCast: zod.number(),
+                      approvalsCount: zod.number(),
+                    }),
+                    zod.null(),
+                  ])
+                  .optional(),
+              }),
+            ),
+        )
+        .optional(),
+    }),
+  );
+
+/**
+ * @summary Get the organization's display identity
+ */
+export const GetOrganizationResponse = zod.object({
+  name: zod.string(),
+  version: zod.string(),
+});
+
+/**
+ * @summary Export the complete governance dataset as one JSON bundle (admin only; no password hashes)
+ */
+export const ExportSystemDataResponse = zod
+  .object({
+    exportedAt: zod.string(),
+    schemaVersion: zod.string(),
+  })
+  .describe(
+    "One JSON bundle containing every governance table (people without password hashes).",
+  );
+
+/**
+ * @summary Delete all transactional data (admin only; requires confirm token and the admin's password)
+ */
+export const ResetSystemDataBody = zod.object({
+  confirm: zod.string().describe("Must be the literal string RESET."),
+  password: zod
+    .string()
+    .describe("The requesting admin's own password, re-verified server-side."),
+});
+
+export const ResetSystemDataResponse = zod.object({
+  ok: zod.boolean(),
+  message: zod.string(),
 });
