@@ -14,5 +14,7 @@ export const TaskStatus = {
   evidence_submitted: "evidence_submitted",
   pending_review: "pending_review",
   done: "done",
+  blocked: "blocked",
   overdue: "overdue",
+  cancelled: "cancelled",
 } as const;

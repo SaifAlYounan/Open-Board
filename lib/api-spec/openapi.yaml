@@ -455,6 +455,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Meeting"
+        "409":
+          description: Illegal state transition or edit of a non-scheduled/cancelled meeting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     delete:
       operationId: deleteMeeting
       tags: [meetings]
@@ -594,6 +600,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Vote"
+        "409":
+          description: The vote is closed — closed votes are immutable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     delete:
       operationId: deleteVote
       tags: [votes]
@@ -1082,6 +1094,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+        "409":
+          description: The task is in a terminal state (done/cancelled) — edit not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     delete:
       operationId: deleteTask
       tags: [tasks]
@@ -1489,7 +1507,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [scheduled, concluded]
+          enum: [scheduled, concluded, cancelled]
         boardName:
           type: ["string", "null"]
         boardAbbreviation:
@@ -1644,6 +1662,11 @@ components:
           type: ["string", "null"]
         status:
           type: ["string", "null"]
+          enum: [scheduled, concluded, cancelled, null]
+          description: >
+            Legal transitions: scheduled → concluded|cancelled, concluded →
+            scheduled (reopen). cancelled is terminal — the record is kept
+            (cancel, not delete). Content edits require a scheduled meeting.
 
     UpdateAttendanceBody:
       type: object
@@ -1689,7 +1712,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [open, approved, rejected, lapsed]
+          enum: [open, approved, rejected, lapsed, cancelled]
         boardName:
           type: ["string", "null"]
         boardAbbreviation:
@@ -2038,6 +2061,14 @@ components:
           type: ["string", "null"]
         status:
           type: ["string", "null"]
+          enum: [open, lapsed, cancelled, null]
+          description: >
+            approved/rejected are OUTCOMES set only by the evaluation path
+            (403 if forced). A closed vote is immutable (409); an open vote may
+            be lapsed or cancelled — cancel keeps the full record and audit
+            trail.
+        secret:
+          type: ["boolean", "null"]
 
     CastVoteBody:
       type: object
@@ -2287,7 +2318,7 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [todo, in_progress, evidence_submitted, pending_review, done, overdue]
+          enum: [todo, in_progress, evidence_submitted, pending_review, done, blocked, overdue, cancelled]
         dueDate:
           type: ["string", "null"]
         aiExtracted:
@@ -2426,6 +2457,11 @@ components:
           type: ["string", "null"]
         status:
           type: ["string", "null"]
+          enum: [todo, in_progress, done, blocked, evidence_submitted, pending_review, overdue, cancelled, null]
+          description: >
+            cancelled is terminal (the task becomes immutable; cancel, not
+            delete). A done task is content-immutable; the only legal move out
+            of done is a pure reopen to todo/in_progress.
         dueDate:
           type: ["string", "null"]
 

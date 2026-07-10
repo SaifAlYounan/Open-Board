@@ -5,6 +5,7 @@
  * Open Board API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateVoteBodyStatus } from "./updateVoteBodyStatus";
 
 export interface UpdateVoteBody {
   /** @nullable */
@@ -13,6 +14,12 @@ export interface UpdateVoteBody {
   resolutionText?: string | null;
   /** @nullable */
   deadline?: string | null;
+  /**
+   * approved/rejected are OUTCOMES set only by the evaluation path (403 if forced). A closed vote is immutable (409); an open vote may be lapsed or cancelled — cancel keeps the full record and audit trail.
+
+   * @nullable
+   */
+  status?: UpdateVoteBodyStatus;
   /** @nullable */
-  status?: string | null;
+  secret?: boolean | null;
 }

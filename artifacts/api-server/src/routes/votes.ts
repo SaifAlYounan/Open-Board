@@ -21,6 +21,7 @@ import {
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { createVoteBody, updateVoteBody, parseBody } from "../lib/governanceSchemas";
 import { evaluateByRule, computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
@@ -239,46 +240,13 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   res.json(result);
 });
 
-const VALID_VOTE_STATUSES = ["open", "approved", "rejected", "lapsed", "cancelled"];
-
 router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
-  const { boardId, meetingId, resolutionNumber: rawResolutionNumber, title, resolutionText, type, deadline, approvalRule, secret } = pick(req.body, ["boardId", "meetingId", "resolutionNumber", "title", "resolutionText", "type", "deadline", "approvalRule", "secret"] as (keyof typeof req.body)[]) as { boardId?: string; meetingId?: string; resolutionNumber?: string; title?: string; resolutionText?: string; type?: string; deadline?: string; approvalRule?: unknown; secret?: boolean };
-  if (!boardId || !title || !resolutionText || !type) {
-    res.status(400).json({ error: "Required: boardId, title, resolutionText, type" });
-    return;
-  }
-
-  const VALID_VOTE_TYPES = ["circulation", "meeting", "simple", "resolution", "election", "special"] as const;
-  type VoteType = (typeof VALID_VOTE_TYPES)[number];
-  if (!VALID_VOTE_TYPES.includes(type as VoteType)) {
-    res.status(400).json({ error: `Invalid vote type. Must be one of: ${VALID_VOTE_TYPES.join(", ")}` });
-    return;
-  }
-
-  // Validate the approval rule shape up front — an unknown rule type otherwise
-  // falls through to the majority default at evaluation time (finding L5).
-  const VALID_RULE_TYPES = ["unanimous", "majority", "two_thirds", "three_quarters", "custom"] as const;
-  type RuleType = (typeof VALID_RULE_TYPES)[number];
-  const VALID_DEADLINE_BEHAVIORS = ["lapse", "extend", "notify"] as const;
-  type DeadlineBehavior = (typeof VALID_DEADLINE_BEHAVIORS)[number];
-  interface ApprovalRuleInput {
-    type?: string;
-    minApprovals?: number;
-    quorum?: number;
-    weighted?: boolean;
-    deadlineBehavior?: string;
-    requiredVoterIds?: string[];
-    recusedIds?: string[];
-  }
-  const rule = approvalRule as ApprovalRuleInput | undefined;
-  if (rule?.type != null && !VALID_RULE_TYPES.includes(rule.type as RuleType)) {
-    res.status(400).json({ error: `Invalid approval rule type. Must be one of: ${VALID_RULE_TYPES.join(", ")}` });
-    return;
-  }
-  if (rule?.deadlineBehavior != null && !VALID_DEADLINE_BEHAVIORS.includes(rule.deadlineBehavior as DeadlineBehavior)) {
-    res.status(400).json({ error: `Invalid deadlineBehavior. Must be one of: ${VALID_DEADLINE_BEHAVIORS.join(", ")}` });
-    return;
-  }
+  // Shared contract with the AI-approval path (same size limits, enum-checked
+  // vote type + approval rule shape — an unknown rule type must not fall
+  // through to the majority default at evaluation time, finding L5).
+  const parsed = parseBody(createVoteBody, req.body, res);
+  if (!parsed) return;
+  const { boardId, meetingId, resolutionNumber: rawResolutionNumber, title, resolutionText, type, deadline, secret, approvalRule: rule } = parsed;
 
   const cleanTitle = sanitizeText(title);
   const cleanResolutionText = sanitizeText(resolutionText);
@@ -298,7 +266,7 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
       resolutionNumber,
       title: cleanTitle,
       resolutionText: cleanResolutionText,
-      type: type as VoteType,
+      type,
       deadline: deadline ? new Date(deadline) : null,
       secret: secret === true,
     })
@@ -309,11 +277,11 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
       .insert(approvalRulesTable)
       .values({
         voteId: vote.id,
-        type: (rule.type as RuleType) || "majority",
+        type: rule.type || "majority",
         minApprovals: rule.minApprovals,
         quorum: rule.quorum,
         weighted: rule.weighted || false,
-        deadlineBehavior: (rule.deadlineBehavior as DeadlineBehavior) || "lapse",
+        deadlineBehavior: rule.deadlineBehavior || "lapse",
       })
       .returning();
 
@@ -571,11 +539,10 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, resolutionText, deadline, status, secret } = pick(req.body, ["title", "resolutionText", "deadline", "status", "secret"] as (keyof typeof req.body)[]) as { title?: string; resolutionText?: string; deadline?: string; status?: string; secret?: boolean };
-  if (status != null && !VALID_VOTE_STATUSES.includes(status)) {
-    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_VOTE_STATUSES.join(", ")}` });
-    return;
-  }
+  // Shared contract with the AI-approval path (same size limits, enum-checked status).
+  const parsed = parseBody(updateVoteBody, pick(req.body, ["title", "resolutionText", "deadline", "status", "secret"] as (keyof typeof req.body)[]), res);
+  if (!parsed) return;
+  const { title, resolutionText, deadline, status, secret } = parsed;
   // Governance integrity: "approved"/"rejected" are OUTCOMES — they may only be
   // set by the vote-evaluation path (all eligible members voted → evaluateByRule),
   // never forced directly by an admin. An admin may still cancel or lapse an open vote.
@@ -584,16 +551,17 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     res.status(403).json({ error: "A vote's approved/rejected outcome is determined by the votes cast, not set manually. You can cancel or lapse an open vote." });
     return;
   }
-  if (status != null && ["lapsed", "cancelled"].includes(status)) {
-    const [current] = await db.select({ status: votesTable.status }).from(votesTable).where(eq(votesTable.id, id));
-    if (!current) {
-      res.status(404).json({ error: "Vote not found" });
-      return;
-    }
-    if (current.status !== "open") {
-      res.status(409).json({ error: `Cannot change status of a vote that is already closed (current status: ${current.status})` });
-      return;
-    }
+  const [current] = await db.select({ status: votesTable.status }).from(votesTable).where(eq(votesTable.id, id));
+  if (!current) {
+    res.status(404).json({ error: "Vote not found" });
+    return;
+  }
+  // State machine (issue #13): a closed vote (approved/rejected/lapsed/cancelled)
+  // is immutable — its content is part of the governance record. Status can only
+  // move open → lapsed/cancelled; content edits require an open vote.
+  if (current.status !== "open") {
+    res.status(409).json({ error: `A closed vote is immutable (current status: ${current.status})` });
+    return;
   }
   const updates: Record<string, unknown> = {};
   if (title != null) updates.title = sanitizeText(title);
@@ -621,6 +589,11 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
   }
 
   await audit(req, "vote_updated", "vote", id, { changed: Object.keys(updates), status: status ?? undefined });
+  if (status === "cancelled") {
+    // Distinct audit event for the lifecycle cancel (cancel ≠ delete — every
+    // cast ballot and the vote row itself stay on the record).
+    await audit(req, "vote_cancelled", "vote", id, { title: vote.title, resolutionNumber: vote.resolutionNumber });
+  }
   emitInvalidate("votes", { boardId: vote.boardId, id });
 
   if (status && ["approved", "rejected"].includes(status)) {

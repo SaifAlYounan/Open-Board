@@ -12,6 +12,7 @@ import {
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { createMeetingBody, updateMeetingBody, parseBody, MEETING_TRANSITIONS } from "../lib/governanceSchemas";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
 import { groupBy } from "../lib/group";
@@ -138,12 +139,10 @@ router.get("/meetings", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
-  const body = pick(req.body, ["boardId", "title", "date", "location", "agendaItems"] as (keyof typeof req.body)[]);
-  const { boardId, title, date, location, agendaItems } = body as { boardId?: string; title?: string; date?: string; location?: string; agendaItems?: { position: number; title: string; type: AgendaType; description?: string }[] };
-  if (!boardId || !title || !date) {
-    res.status(400).json({ error: "Required: boardId, title, date" });
-    return;
-  }
+  // Shared contract with the AI-approval path (same size limits, typed agenda items).
+  const parsed = parseBody(createMeetingBody, pick(req.body, ["boardId", "title", "date", "location", "agendaItems"] as (keyof typeof req.body)[]), res);
+  if (!parsed) return;
+  const { boardId, title, date, location, agendaItems } = parsed;
 
   const cleanTitle = sanitizeText(title);
   const cleanLocation = location ? sanitizeText(location) : undefined;
@@ -228,12 +227,36 @@ router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, date, location, status } = pick(req.body, ["title", "date", "location", "status"] as (keyof typeof req.body)[]) as { title?: string; date?: string; location?: string; status?: string };
-  const VALID_MEETING_STATUSES = ["scheduled", "in_progress", "adjourned", "cancelled", "completed"];
-  if (status != null && !VALID_MEETING_STATUSES.includes(status)) {
-    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_MEETING_STATUSES.join(", ")}` });
+  // Shared contract with the AI-approval path (same size limits, enum-checked
+  // status — this also fixes the old mismatch where the route rejected the
+  // "concluded" status the schema and UI actually use).
+  const parsed = parseBody(updateMeetingBody, pick(req.body, ["title", "date", "location", "status"] as (keyof typeof req.body)[]), res);
+  if (!parsed) return;
+  const { title, date, location, status } = parsed;
+
+  // State machine (issue #13): scheduled → concluded|cancelled, concluded →
+  // scheduled (reopen). `cancelled` is terminal and immutable (cancel ≠ delete).
+  const [current] = await db.select({ status: meetingsTable.status }).from(meetingsTable).where(eq(meetingsTable.id, id));
+  if (!current) {
+    res.status(404).json({ error: "Meeting not found" });
     return;
   }
+  const currentStatus = current.status ?? "scheduled";
+  if (currentStatus === "cancelled") {
+    res.status(409).json({ error: "A cancelled meeting is immutable" });
+    return;
+  }
+  if (status != null && status !== currentStatus && !MEETING_TRANSITIONS[currentStatus]?.includes(status)) {
+    res.status(409).json({ error: `Cannot move a ${currentStatus} meeting to ${status}` });
+    return;
+  }
+  // Content edits require a scheduled meeting; a concluded one must be reopened first.
+  const contentEdit = title != null || date != null || location != null;
+  if (contentEdit && currentStatus !== "scheduled") {
+    res.status(409).json({ error: `A ${currentStatus} meeting's details cannot be edited — reopen it first` });
+    return;
+  }
+
   const updates: Record<string, unknown> = {};
   if (title != null) updates.title = sanitizeText(title);
   if (date != null) updates.date = new Date(date);
@@ -252,6 +275,11 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (re
 
   const updatedItems = await db.select().from(agendaItemsTable).where(eq(agendaItemsTable.meetingId, id));
   audit(req, "meeting_updated", "meeting", id, { title: meeting.title });
+  if (status === "cancelled") {
+    // Distinct audit event for the lifecycle cancel (cancel ≠ delete — the
+    // meeting, agenda, and attendance stay on the record).
+    await audit(req, "meeting_cancelled", "meeting", id, { title: meeting.title });
+  }
   emitInvalidate("meetings", { boardId: meeting.boardId, id });
   res.json({ ...meeting, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: updatedItems.length });
 });
@@ -271,6 +299,16 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
   const { title, type, description } = pick(req.body, ["title", "type", "description"] as (keyof typeof req.body)[]) as { title?: string; type?: string; description?: string };
   if (!title || !type) {
     res.status(400).json({ error: "title and type required" });
+    return;
+  }
+
+  const [agendaMeeting] = await db.select({ status: meetingsTable.status }).from(meetingsTable).where(eq(meetingsTable.id, id));
+  if (!agendaMeeting) {
+    res.status(404).json({ error: "Meeting not found" });
+    return;
+  }
+  if (agendaMeeting.status === "cancelled") {
+    res.status(409).json({ error: "A cancelled meeting is immutable" });
     return;
   }
 

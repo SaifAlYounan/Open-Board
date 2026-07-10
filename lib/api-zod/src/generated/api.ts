@@ -61,7 +61,7 @@ export const GetDashboardSummaryResponse = zod.object({
       title: zod.string(),
       date: zod.string(),
       location: zod.string().nullish(),
-      status: zod.enum(["scheduled", "concluded"]),
+      status: zod.enum(["scheduled", "concluded", "cancelled"]),
       boardName: zod.string().nullish(),
       boardAbbreviation: zod.string().nullish(),
       agendaItemCount: zod.number(),
@@ -352,7 +352,7 @@ export const ListMeetingsResponseItem = zod.object({
   title: zod.string(),
   date: zod.string(),
   location: zod.string().nullish(),
-  status: zod.enum(["scheduled", "concluded"]),
+  status: zod.enum(["scheduled", "concluded", "cancelled"]),
   boardName: zod.string().nullish(),
   boardAbbreviation: zod.string().nullish(),
   agendaItemCount: zod.number(),
@@ -452,7 +452,17 @@ export const UpdateMeetingBody = zod.object({
   title: zod.string().nullish(),
   date: zod.string().nullish(),
   location: zod.string().nullish(),
-  status: zod.string().nullish(),
+  status: zod
+    .union([
+      zod.literal("scheduled"),
+      zod.literal("concluded"),
+      zod.literal("cancelled"),
+      zod.literal(null),
+    ])
+    .nullish()
+    .describe(
+      "Legal transitions: scheduled → concluded|cancelled, concluded → scheduled (reopen). cancelled is terminal — the record is kept (cancel, not delete). Content edits require a scheduled meeting.\n",
+    ),
 });
 
 export const UpdateMeetingResponse = zod.object({
@@ -461,7 +471,7 @@ export const UpdateMeetingResponse = zod.object({
   title: zod.string(),
   date: zod.string(),
   location: zod.string().nullish(),
-  status: zod.enum(["scheduled", "concluded"]),
+  status: zod.enum(["scheduled", "concluded", "cancelled"]),
   boardName: zod.string().nullish(),
   boardAbbreviation: zod.string().nullish(),
   agendaItemCount: zod.number(),
@@ -535,7 +545,7 @@ export const ListVotesResponseItem = zod.object({
   resolutionText: zod.string(),
   type: zod.enum(["meeting", "circulation"]),
   deadline: zod.string().nullish(),
-  status: zod.enum(["open", "approved", "rejected", "lapsed"]),
+  status: zod.enum(["open", "approved", "rejected", "lapsed", "cancelled"]),
   boardName: zod.string().nullish(),
   boardAbbreviation: zod.string().nullish(),
   totalVoters: zod.number(),
@@ -759,7 +769,18 @@ export const UpdateVoteBody = zod.object({
   title: zod.string().nullish(),
   resolutionText: zod.string().nullish(),
   deadline: zod.string().nullish(),
-  status: zod.string().nullish(),
+  status: zod
+    .union([
+      zod.literal("open"),
+      zod.literal("lapsed"),
+      zod.literal("cancelled"),
+      zod.literal(null),
+    ])
+    .nullish()
+    .describe(
+      "approved\/rejected are OUTCOMES set only by the evaluation path (403 if forced). A closed vote is immutable (409); an open vote may be lapsed or cancelled — cancel keeps the full record and audit trail.\n",
+    ),
+  secret: zod.boolean().nullish(),
 });
 
 export const UpdateVoteResponse = zod.object({
@@ -771,7 +792,7 @@ export const UpdateVoteResponse = zod.object({
   resolutionText: zod.string(),
   type: zod.enum(["meeting", "circulation"]),
   deadline: zod.string().nullish(),
-  status: zod.enum(["open", "approved", "rejected", "lapsed"]),
+  status: zod.enum(["open", "approved", "rejected", "lapsed", "cancelled"]),
   boardName: zod.string().nullish(),
   boardAbbreviation: zod.string().nullish(),
   totalVoters: zod.number(),
@@ -1292,7 +1313,9 @@ export const ListTasksResponseItem = zod.object({
     "evidence_submitted",
     "pending_review",
     "done",
+    "blocked",
     "overdue",
+    "cancelled",
   ]),
   dueDate: zod.string().nullish(),
   aiExtracted: zod.boolean(),
@@ -1414,7 +1437,22 @@ export const UpdateTaskBody = zod.object({
   title: zod.string().nullish(),
   description: zod.string().nullish(),
   assigneeId: zod.string().nullish(),
-  status: zod.string().nullish(),
+  status: zod
+    .union([
+      zod.literal("todo"),
+      zod.literal("in_progress"),
+      zod.literal("done"),
+      zod.literal("blocked"),
+      zod.literal("evidence_submitted"),
+      zod.literal("pending_review"),
+      zod.literal("overdue"),
+      zod.literal("cancelled"),
+      zod.literal(null),
+    ])
+    .nullish()
+    .describe(
+      "cancelled is terminal (the task becomes immutable; cancel, not delete). A done task is content-immutable; the only legal move out of done is a pure reopen to todo\/in_progress.\n",
+    ),
   dueDate: zod.string().nullish(),
 });
 
@@ -1431,7 +1469,9 @@ export const UpdateTaskResponse = zod.object({
     "evidence_submitted",
     "pending_review",
     "done",
+    "blocked",
     "overdue",
+    "cancelled",
   ]),
   dueDate: zod.string().nullish(),
   aiExtracted: zod.boolean(),

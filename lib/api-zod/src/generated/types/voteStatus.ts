@@ -13,4 +13,5 @@ export const VoteStatus = {
   approved: "approved",
   rejected: "rejected",
   lapsed: "lapsed",
+  cancelled: "cancelled",
 } as const;

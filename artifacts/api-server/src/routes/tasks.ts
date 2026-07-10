@@ -13,6 +13,7 @@ import {
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
+import { createTaskBody, updateTaskBody, parseBody } from "../lib/governanceSchemas";
 import { parsePagination } from "../lib/pagination";
 import { pick } from "../lib/pick";
 import { callAI, REVIEW_PROMPT } from "../lib/ai";
@@ -121,11 +122,10 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
-  const { boardId, title, description, assigneeId, sourceMeetingId, sourceMinutesId, dueDate, sourceParagraph } = pick(req.body, ["boardId", "title", "description", "assigneeId", "sourceMeetingId", "sourceMinutesId", "dueDate", "sourceParagraph"] as (keyof typeof req.body)[]) as { boardId?: string; title?: string; description?: string; assigneeId?: string; sourceMeetingId?: string; sourceMinutesId?: string; dueDate?: string; sourceParagraph?: string };
-  if (!title) {
-    res.status(400).json({ error: "title required" });
-    return;
-  }
+  // Shared contract with the AI-approval path (same size limits/types).
+  const parsed = parseBody(createTaskBody, pick(req.body, ["boardId", "title", "description", "assigneeId", "sourceMeetingId", "sourceMinutesId", "dueDate", "sourceParagraph"] as (keyof typeof req.body)[]), res);
+  if (!parsed) return;
+  const { boardId, title, description, assigneeId, sourceMeetingId, sourceMinutesId, dueDate, sourceParagraph } = parsed;
 
   const taskNumber = await getNextTaskNumber();
   const [task] = await db
@@ -212,12 +212,32 @@ router.get("/tasks/:id", requireAuth, async (req, res): Promise<void> => {
 
 router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { title, description, assigneeId, status, dueDate } = pick(req.body, ["title", "description", "assigneeId", "status", "dueDate"] as (keyof typeof req.body)[]) as { title?: string; description?: string; assigneeId?: string; status?: string; dueDate?: string };
-  const VALID_TASK_STATUSES = ["todo", "in_progress", "done", "blocked"];
-  if (status != null && !VALID_TASK_STATUSES.includes(status)) {
-    res.status(400).json({ error: `Invalid status. Must be one of: ${VALID_TASK_STATUSES.join(", ")}` });
+  // Shared contract with the AI-approval path (same size limits, enum-checked status).
+  const parsed = parseBody(updateTaskBody, pick(req.body, ["title", "description", "assigneeId", "status", "dueDate"] as (keyof typeof req.body)[]), res);
+  if (!parsed) return;
+  const { title, description, assigneeId, status, dueDate } = parsed;
+
+  // State machine (issue #13): `cancelled` is terminal — a cancelled task is
+  // immutable. A `done` task keeps its content immutable too; the only legal
+  // move out of `done` is a pure reopen (status → todo/in_progress).
+  const [current] = await db.select({ status: tasksTable.status }).from(tasksTable).where(eq(tasksTable.id, id));
+  if (!current) {
+    res.status(404).json({ error: "Task not found" });
     return;
   }
+  const contentEdit = title != null || description != null || assigneeId != null || dueDate != null;
+  if (current.status === "cancelled") {
+    res.status(409).json({ error: "A cancelled task is immutable" });
+    return;
+  }
+  if (current.status === "done") {
+    const isPureReopen = !contentEdit && (status === "todo" || status === "in_progress");
+    if (!isPureReopen) {
+      res.status(409).json({ error: "A completed task is immutable — reopen it (status: todo or in_progress) before editing" });
+      return;
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (title != null) updates.title = sanitizeText(title);
   if (description != null) updates.description = sanitizeText(description);
@@ -237,6 +257,11 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
 
   audit(req, "task_updated", "task", id, { status: task.status });
+  if (status === "cancelled") {
+    // Distinct audit event for the lifecycle cancel (cancel ≠ delete — the
+    // task row and its history stay on the record).
+    await audit(req, "task_cancelled", "task", id, { title: task.title, taskNumber: task.taskNumber });
+  }
   emitInvalidate("tasks", { boardId: task.boardId, id, userIds: [task.assigneeId] });
   res.json({ ...task, assignee: assignee[0] ? safeAssignee : null, sourceMeetingTitle: null });
 });

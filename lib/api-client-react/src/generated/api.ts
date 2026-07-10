@@ -1925,7 +1925,7 @@ export const updateMeeting = async (
 };
 
 export const getUpdateMeetingMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -1966,13 +1966,13 @@ export type UpdateMeetingMutationResult = NonNullable<
   Awaited<ReturnType<typeof updateMeeting>>
 >;
 export type UpdateMeetingMutationBody = BodyType<UpdateMeetingBody>;
-export type UpdateMeetingMutationError = ErrorType<unknown>;
+export type UpdateMeetingMutationError = ErrorType<ErrorResponse>;
 
 /**
  * @summary Update a meeting
  */
 export const useUpdateMeeting = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -2528,7 +2528,7 @@ export const updateVote = async (
 };
 
 export const getUpdateVoteMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -2569,13 +2569,13 @@ export type UpdateVoteMutationResult = NonNullable<
   Awaited<ReturnType<typeof updateVote>>
 >;
 export type UpdateVoteMutationBody = BodyType<UpdateVoteBody>;
-export type UpdateVoteMutationError = ErrorType<unknown>;
+export type UpdateVoteMutationError = ErrorType<ErrorResponse>;
 
 /**
  * @summary Update a vote (admin only)
  */
 export const useUpdateVote = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -4441,7 +4441,7 @@ export const updateTask = async (
 };
 
 export const getUpdateTaskMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -4482,13 +4482,13 @@ export type UpdateTaskMutationResult = NonNullable<
   Awaited<ReturnType<typeof updateTask>>
 >;
 export type UpdateTaskMutationBody = BodyType<UpdateTaskBody>;
-export type UpdateTaskMutationError = ErrorType<unknown>;
+export type UpdateTaskMutationError = ErrorType<ErrorResponse>;
 
 /**
  * @summary Update a task (admin only)
  */
 export const useUpdateTask = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<

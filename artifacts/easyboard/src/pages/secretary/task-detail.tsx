@@ -15,7 +15,11 @@ const STATUS_COLORS: Record<string, { color: string; label: string }> = {
   pending_review:     { color: '#5856d6', label: 'Pending Review' },
   done:               { color: '#34c759', label: 'Done' },
   overdue:            { color: '#ff3b30', label: 'Overdue' },
+  cancelled:          { color: '#86868b', label: 'Cancelled' },
 };
+
+// Terminal states are immutable server-side (a done task must be reopened first).
+const TERMINAL = ['done', 'cancelled'];
 
 
 export default function SecretaryTaskDetail() {
@@ -41,6 +45,29 @@ export default function SecretaryTaskDetail() {
       assigneeId: t.assigneeId || '',
       dueDate: t.dueDate ? t.dueDate.slice(0, 10) : '',
     });
+  }
+
+  const isTerminal = TERMINAL.includes(t?.status);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  async function cancelTask() {
+    setSaving(true);
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ status: 'cancelled' }),
+    });
+    setSaving(false);
+    setConfirmCancel(false);
+    if (res.ok) {
+      toast({ title: 'Task cancelled', description: 'The task and its history stay on the record.' });
+      queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
+      refetch();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast({ title: 'Cancel failed', description: err.error, variant: 'destructive' });
+    }
   }
 
   async function saveEdit() {
@@ -103,9 +130,20 @@ export default function SecretaryTaskDetail() {
                 </div>
                 <h1 className="text-xl font-semibold text-[#1d1d1f]">{t.title}</h1>
               </div>
-              {!editForm && (
-                <button onClick={startEdit}
-                  className="text-sm text-[#0071e3] hover:underline ml-4 flex-shrink-0">Edit</button>
+              {!editForm && !isTerminal && (
+                <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+                  <button onClick={startEdit}
+                    className="text-sm text-[#0071e3] hover:underline">Edit</button>
+                  {!confirmCancel ? (
+                    <button onClick={() => setConfirmCancel(true)} data-testid="btn-cancel-task"
+                      className="text-sm text-[#ff9500] hover:underline">Cancel Task</button>
+                  ) : (
+                    <button onClick={cancelTask} disabled={saving} data-testid="btn-confirm-cancel-task"
+                      className="text-sm text-white bg-[#ff9500] px-3 py-1 rounded-lg disabled:opacity-50">
+                      {saving ? 'Cancelling…' : 'Confirm cancel'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -126,7 +164,7 @@ export default function SecretaryTaskDetail() {
                     <label htmlFor="task-status" className="text-xs font-medium text-[#86868b] mb-1 block">Status</label>
                     <select id="task-status" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
                       className="w-full px-3 py-2 bg-[#f5f5f7] rounded-xl text-sm border-0 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30">
-                      {Object.entries(STATUS_COLORS).filter(([key]) => key !== 'overdue').map(([key, { label }]) => (
+                      {Object.entries(STATUS_COLORS).filter(([key]) => !['overdue', 'cancelled'].includes(key)).map(([key, { label }]) => (
                         <option key={key} value={key}>{label}</option>
                       ))}
                     </select>

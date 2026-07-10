@@ -7,7 +7,7 @@ export const meetingsTable = pgTable("meetings", {
   title: text("title").notNull(),
   date: timestamp("date", { withTimezone: true }).notNull(),
   location: text("location"),
-  status: text("status", { enum: ["scheduled", "concluded"] }).default("scheduled"),
+  status: text("status", { enum: ["scheduled", "concluded", "cancelled"] }).default("scheduled"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   boardIdx: index("meetings_board_id_idx").on(t.boardId),

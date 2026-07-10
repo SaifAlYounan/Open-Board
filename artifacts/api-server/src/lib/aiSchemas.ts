@@ -25,11 +25,14 @@ export const ACTION_TYPES = [
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
-const dateStr = z.string().max(64);
-const short = z.string().max(300);
-const med = z.string().max(2000);
-const long = z.string().max(50000);
-const idStr = z.string().max(120);
+// Shared field primitives — the SAME size contract is applied to AI-proposed
+// actions (below) and to the manual REST create/edit path (governanceSchemas.ts),
+// so the manual path can never become a validation bypass.
+export const dateStr = z.string().max(64);
+export const short = z.string().max(300);
+export const med = z.string().max(2000);
+export const long = z.string().max(50000);
+export const idStr = z.string().max(120);
 
 const agendaItemSchema = z.object({
   title: short.nullish(),

@@ -5,6 +5,7 @@
  * Open Board API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateTaskBodyStatus } from "./updateTaskBodyStatus";
 
 export interface UpdateTaskBody {
   /** @nullable */
@@ -13,8 +14,12 @@ export interface UpdateTaskBody {
   description?: string | null;
   /** @nullable */
   assigneeId?: string | null;
-  /** @nullable */
-  status?: string | null;
+  /**
+   * cancelled is terminal (the task becomes immutable; cancel, not delete). A done task is content-immutable; the only legal move out of done is a pure reopen to todo/in_progress.
+
+   * @nullable
+   */
+  status?: UpdateTaskBodyStatus;
   /** @nullable */
   dueDate?: string | null;
 }

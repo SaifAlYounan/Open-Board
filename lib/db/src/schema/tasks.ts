@@ -13,7 +13,7 @@ export const tasksTable = pgTable("tasks", {
   sourceMeetingId: uuid("source_meeting_id").references(() => meetingsTable.id),
   sourceMinutesId: uuid("source_minutes_id").references(() => minutesTable.id),
   taskNumber: text("task_number").unique(),
-  status: text("status", { enum: ["todo", "in_progress", "done", "blocked", "evidence_submitted", "pending_review", "overdue"] }).default("todo"),
+  status: text("status", { enum: ["todo", "in_progress", "done", "blocked", "evidence_submitted", "pending_review", "overdue", "cancelled"] }).default("todo"),
   dueDate: date("due_date"),
   aiExtracted: boolean("ai_extracted").default(false),
   sourceParagraph: text("source_paragraph"),

@@ -22,6 +22,7 @@ const ATTENDANCE_CONFIG: Record<string, { label: string; color: string }> = {
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   scheduled: { label: 'Scheduled', color: '#0071e3' },
   concluded:  { label: 'Concluded', color: '#86868b' },
+  cancelled:  { label: 'Cancelled', color: '#ff9500' },
 };
 
 function useCustomFetch() {
@@ -61,6 +62,7 @@ export default function SecretaryMeetingDetail() {
 
   const [newAgendaItem, setNewAgendaItem] = useState({ title: '', type: 'information', description: '' });
   const [showAddAgenda, setShowAddAgenda] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [addingAgenda, setAddingAgenda] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
 
@@ -214,6 +216,20 @@ export default function SecretaryMeetingDetail() {
                       {savingStatus ? 'Saving…' : 'Mark Concluded'}
                     </button>
                   )}
+                  {(!meeting.status || meeting.status === 'scheduled') && (
+                    !confirmCancel ? (
+                      <button data-testid="btn-cancel-meeting" onClick={() => setConfirmCancel(true)} disabled={savingStatus}
+                        className="px-4 py-2 bg-white border border-[#ff9500] text-[#ff9500] rounded-xl text-sm font-medium hover:bg-[#fff8f0] transition-colors disabled:opacity-50">
+                        Cancel Meeting
+                      </button>
+                    ) : (
+                      <button data-testid="btn-confirm-cancel-meeting" disabled={savingStatus}
+                        onClick={async () => { await handleStatusChange('cancelled'); setConfirmCancel(false); }}
+                        className="px-4 py-2 bg-[#ff9500] text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50">
+                        {savingStatus ? 'Cancelling…' : 'Confirm cancel — record is kept'}
+                      </button>
+                    )
+                  )}
                   {meeting.status === 'concluded' && (
                     <button onClick={() => handleStatusChange('scheduled')} disabled={savingStatus}
                       className="px-4 py-2 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl text-sm font-medium hover:bg-[#ebebed] transition-colors disabled:opacity-50">
@@ -229,10 +245,12 @@ export default function SecretaryMeetingDetail() {
           <div className="bg-white rounded-2xl border border-[#e5e5e7] p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-[#1d1d1f]">Agenda</h2>
-              <button onClick={() => setShowAddAgenda(!showAddAgenda)}
-                className="flex items-center gap-1.5 text-sm text-[#0071e3] hover:text-[#0077ed] font-medium">
-                <Plus size={15} /> Add Item
-              </button>
+              {meeting.status !== 'cancelled' && (
+                <button onClick={() => setShowAddAgenda(!showAddAgenda)}
+                  className="flex items-center gap-1.5 text-sm text-[#0071e3] hover:text-[#0077ed] font-medium">
+                  <Plus size={15} /> Add Item
+                </button>
+              )}
             </div>
 
             {(meeting.agendaItems || []).length === 0 && !showAddAgenda && (

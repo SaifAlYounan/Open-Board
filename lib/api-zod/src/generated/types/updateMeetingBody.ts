@@ -5,6 +5,7 @@
  * Open Board API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateMeetingBodyStatus } from "./updateMeetingBodyStatus";
 
 export interface UpdateMeetingBody {
   /** @nullable */
@@ -13,6 +14,10 @@ export interface UpdateMeetingBody {
   date?: string | null;
   /** @nullable */
   location?: string | null;
-  /** @nullable */
-  status?: string | null;
+  /**
+   * Legal transitions: scheduled → concluded|cancelled, concluded → scheduled (reopen). cancelled is terminal — the record is kept (cancel, not delete). Content edits require a scheduled meeting.
+
+   * @nullable
+   */
+  status?: UpdateMeetingBodyStatus;
 }

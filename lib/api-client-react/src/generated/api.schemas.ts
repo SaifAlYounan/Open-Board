@@ -172,6 +172,7 @@ export type MeetingStatus = (typeof MeetingStatus)[keyof typeof MeetingStatus];
 export const MeetingStatus = {
   scheduled: "scheduled",
   concluded: "concluded",
+  cancelled: "cancelled",
 } as const;
 
 export interface Meeting {
@@ -298,6 +299,21 @@ export interface CreateMeetingBody {
   agendaItems?: CreateAgendaItemBody[];
 }
 
+/**
+ * Legal transitions: scheduled → concluded|cancelled, concluded → scheduled (reopen). cancelled is terminal — the record is kept (cancel, not delete). Content edits require a scheduled meeting.
+
+ * @nullable
+ */
+export type UpdateMeetingBodyStatus =
+  | (typeof UpdateMeetingBodyStatus)[keyof typeof UpdateMeetingBodyStatus]
+  | null;
+
+export const UpdateMeetingBodyStatus = {
+  scheduled: "scheduled",
+  concluded: "concluded",
+  cancelled: "cancelled",
+} as const;
+
 export interface UpdateMeetingBody {
   /** @nullable */
   title?: string | null;
@@ -305,8 +321,12 @@ export interface UpdateMeetingBody {
   date?: string | null;
   /** @nullable */
   location?: string | null;
-  /** @nullable */
-  status?: string | null;
+  /**
+   * Legal transitions: scheduled → concluded|cancelled, concluded → scheduled (reopen). cancelled is terminal — the record is kept (cancel, not delete). Content edits require a scheduled meeting.
+
+   * @nullable
+   */
+  status?: UpdateMeetingBodyStatus;
 }
 
 export type UpdateAttendanceBodyUpdatesItemStatus =
@@ -344,6 +364,7 @@ export const VoteStatus = {
   approved: "approved",
   rejected: "rejected",
   lapsed: "lapsed",
+  cancelled: "cancelled",
 } as const;
 
 export interface MyVoteProxy {
@@ -564,6 +585,21 @@ export interface CreateVoteBody {
   approvalRule?: CreateApprovalRuleBody;
 }
 
+/**
+ * approved/rejected are OUTCOMES set only by the evaluation path (403 if forced). A closed vote is immutable (409); an open vote may be lapsed or cancelled — cancel keeps the full record and audit trail.
+
+ * @nullable
+ */
+export type UpdateVoteBodyStatus =
+  | (typeof UpdateVoteBodyStatus)[keyof typeof UpdateVoteBodyStatus]
+  | null;
+
+export const UpdateVoteBodyStatus = {
+  open: "open",
+  lapsed: "lapsed",
+  cancelled: "cancelled",
+} as const;
+
 export interface UpdateVoteBody {
   /** @nullable */
   title?: string | null;
@@ -571,8 +607,14 @@ export interface UpdateVoteBody {
   resolutionText?: string | null;
   /** @nullable */
   deadline?: string | null;
+  /**
+   * approved/rejected are OUTCOMES set only by the evaluation path (403 if forced). A closed vote is immutable (409); an open vote may be lapsed or cancelled — cancel keeps the full record and audit trail.
+
+   * @nullable
+   */
+  status?: UpdateVoteBodyStatus;
   /** @nullable */
-  status?: string | null;
+  secret?: boolean | null;
 }
 
 export type CastVoteBodyDecision =
@@ -718,7 +760,9 @@ export const TaskStatus = {
   evidence_submitted: "evidence_submitted",
   pending_review: "pending_review",
   done: "done",
+  blocked: "blocked",
   overdue: "overdue",
+  cancelled: "cancelled",
 } as const;
 
 export interface Task {
@@ -850,6 +894,26 @@ export interface CreateTaskBody {
   sourceParagraph?: string | null;
 }
 
+/**
+ * cancelled is terminal (the task becomes immutable; cancel, not delete). A done task is content-immutable; the only legal move out of done is a pure reopen to todo/in_progress.
+
+ * @nullable
+ */
+export type UpdateTaskBodyStatus =
+  | (typeof UpdateTaskBodyStatus)[keyof typeof UpdateTaskBodyStatus]
+  | null;
+
+export const UpdateTaskBodyStatus = {
+  todo: "todo",
+  in_progress: "in_progress",
+  done: "done",
+  blocked: "blocked",
+  evidence_submitted: "evidence_submitted",
+  pending_review: "pending_review",
+  overdue: "overdue",
+  cancelled: "cancelled",
+} as const;
+
 export interface UpdateTaskBody {
   /** @nullable */
   title?: string | null;
@@ -857,8 +921,12 @@ export interface UpdateTaskBody {
   description?: string | null;
   /** @nullable */
   assigneeId?: string | null;
-  /** @nullable */
-  status?: string | null;
+  /**
+   * cancelled is terminal (the task becomes immutable; cancel, not delete). A done task is content-immutable; the only legal move out of done is a pure reopen to todo/in_progress.
+
+   * @nullable
+   */
+  status?: UpdateTaskBodyStatus;
   /** @nullable */
   dueDate?: string | null;
 }

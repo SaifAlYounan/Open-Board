@@ -11,4 +11,5 @@ export type MeetingStatus = (typeof MeetingStatus)[keyof typeof MeetingStatus];
 export const MeetingStatus = {
   scheduled: "scheduled",
   concluded: "concluded",
+  cancelled: "cancelled",
 } as const;
