@@ -23,6 +23,7 @@ import {
   SUGGEST_PROMPT,
 } from "../lib/ai";
 import { validateActionData, type CommandResponse } from "../lib/aiSchemas";
+import { emitInvalidate } from "../lib/realtime";
 
 const router = Router();
 
@@ -101,6 +102,7 @@ router.post("/ai/command", requireAuth, requireAdmin, aiRateLimit, async (req, r
         .values(rows.map((r) => ({ actionType: r.actionType as any, actionData: r.actionData, status: "pending" as const })))
         .returning();
       pendingActionIds = actions.map((a) => a.id);
+      emitInvalidate("pendingActions", {});
     }
   }
 

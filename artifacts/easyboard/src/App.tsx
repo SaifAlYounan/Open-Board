@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { useRealtime } from "@/hooks/use-realtime";
 import NotFound from "@/pages/not-found";
 
 import Landing from "@/pages/landing";
@@ -300,10 +301,19 @@ function Router() {
   );
 }
 
+// Mounted once inside the providers: subscribes every signed-in session to the
+// server's real-time invalidation stream (pure enhancement — no-op when the
+// socket can't connect). Covers all list + detail pages via query-key prefixes.
+function RealtimeInvalidator() {
+  useRealtime();
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <RealtimeInvalidator />
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <Router />

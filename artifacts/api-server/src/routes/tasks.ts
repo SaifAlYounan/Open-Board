@@ -22,6 +22,7 @@ import { audit } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
+import { emitInvalidate } from "../lib/realtime";
 
 const upload = multer({
   dest: UPLOADS_DIR,
@@ -153,6 +154,7 @@ router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res):
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
 
   audit(req, "task_created", "task", task.id, { title: task.title, taskNumber: task.taskNumber });
+  emitInvalidate("tasks", { boardId: task.boardId, id: task.id, userIds: [task.assigneeId] });
   res.status(201).json({
     ...task,
     assignee: assignee[0] ? safeAssignee : null,
@@ -235,6 +237,7 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
 
   audit(req, "task_updated", "task", id, { status: task.status });
+  emitInvalidate("tasks", { boardId: task.boardId, id, userIds: [task.assigneeId] });
   res.json({ ...task, assignee: assignee[0] ? safeAssignee : null, sourceMeetingTitle: null });
 });
 
@@ -244,6 +247,7 @@ router.delete("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req,
   if (task) await retainDeleted(req, "task", id, task);
   await db.delete(tasksTable).where(eq(tasksTable.id, id));
   await audit(req, "task_deleted", "task", id, { title: task?.title });
+  emitInvalidate("tasks", { boardId: task?.boardId, id, userIds: [task?.assigneeId] });
   res.sendStatus(204);
 });
 
@@ -333,6 +337,7 @@ ${evidenceText}`;
 
   const [updatedEvidence] = await db.select().from(taskEvidenceTable).where(eq(taskEvidenceTable.id, evidence.id));
   const { passwordHash: _, ...safePerson } = user;
+  emitInvalidate("tasks", { boardId: task.boardId, id: taskId, userIds: [task.assigneeId] });
   res.json({ ...updatedEvidence, submitter: safePerson });
 });
 
@@ -368,6 +373,7 @@ router.post("/tasks/:id/evidence/review", requireAuth, requireAdmin, writeLimite
     await db.update(tasksTable).set({ status: "in_progress" }).where(eq(tasksTable.id, taskId));
   }
   await audit(req, "task_evidence_reviewed", "task", taskId, { evidenceId, decision });
+  emitInvalidate("tasks", { id: taskId, userIds: [evidence.submittedBy] });
 
   const submitter = evidence.submittedBy
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, evidence.submittedBy))

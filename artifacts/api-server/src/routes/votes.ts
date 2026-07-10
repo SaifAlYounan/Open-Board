@@ -32,6 +32,7 @@ import { retainDeleted } from "../lib/retention";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
+import { emitInvalidate } from "../lib/realtime";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const router = Router();
@@ -339,6 +340,7 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
     : [];
 
   audit(req, "vote_created", "vote", vote.id, { title: vote.title, resolutionNumber: vote.resolutionNumber, boardName: board?.name });
+  emitInvalidate("votes", { boardId, id: vote.id });
   res.status(201).json({
     ...vote,
     boardName: board?.name || null,
@@ -619,6 +621,7 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
   }
 
   await audit(req, "vote_updated", "vote", id, { changed: Object.keys(updates), status: status ?? undefined });
+  emitInvalidate("votes", { boardId: vote.boardId, id });
 
   if (status && ["approved", "rejected"].includes(status)) {
     setImmediate(() => triggerWorkflowNextStage(id, status).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
@@ -689,6 +692,7 @@ router.delete("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req,
 
   audit(req, "vote_deleted", "vote", id, { title: vote.title });
   await db.delete(votesTable).where(eq(votesTable.id, id));
+  emitInvalidate("votes", { boardId: vote.boardId, id });
   res.sendStatus(204);
 });
 
@@ -896,6 +900,7 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, ballotOwnerId));
     const { passwordHash: _, ...safePerson } = person;
     audit(req, "vote_cast", "vote", id, { decision, voteTitle: vote.title, ...(castBy ? { asProxyFor: ballotOwnerId } : {}) });
+    emitInvalidate("votes", { boardId: vote.boardId, id });
     res.json({ ...record, person: safePerson });
   } catch (err: unknown) {
     const anyErr = err as { code?: string; message?: string; cause?: { code?: string } };
@@ -1012,6 +1017,7 @@ router.post("/votes/:id/proxies", requireAuth, requireAdmin, writeLimiter, async
   const nameOf = (pid: string) => namedPeople.find((p) => p.id === pid)?.name ?? null;
 
   await audit(req, "vote_proxy_granted", "vote", id, { principalId, holderId, voteTitle: vote.title });
+  emitInvalidate("votes", { boardId: vote.boardId, id, userIds: [principalId, holderId] });
   res.status(201).json({ ...proxy, principalName: nameOf(principalId), holderName: nameOf(holderId), used: false });
 });
 
@@ -1047,6 +1053,7 @@ router.delete("/votes/:id/proxies/:proxyId", requireAuth, requireAdmin, writeLim
 
   await db.delete(voteProxiesTable).where(eq(voteProxiesTable.id, proxyId));
   await audit(req, "vote_proxy_revoked", "vote", id, { principalId: proxy.principalId, holderId: proxy.holderId });
+  emitInvalidate("votes", { boardId: vote.boardId, id, userIds: [proxy.principalId, proxy.holderId] });
   res.sendStatus(204);
 });
 

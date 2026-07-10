@@ -19,6 +19,7 @@ import { grantDefaultAccess } from "../lib/access";
 import { audit } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
 import { writeLimiter } from "../lib/rateLimiters";
+import { emitInvalidate } from "../lib/realtime";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AGENDA_TYPES = ["information", "discussion", "decision"] as const;
@@ -198,6 +199,7 @@ router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, re
     agendaItemCount: agendaItems?.length || 0,
   });
   audit(req, "meeting_created", "meeting", meeting.id, { title: meeting.title, boardName: board?.name });
+  emitInvalidate("meetings", { boardId, id: meeting.id });
 });
 
 router.get("/meetings/:id", requireAuth, async (req, res): Promise<void> => {
@@ -250,6 +252,7 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (re
 
   const updatedItems = await db.select().from(agendaItemsTable).where(eq(agendaItemsTable.meetingId, id));
   audit(req, "meeting_updated", "meeting", id, { title: meeting.title });
+  emitInvalidate("meetings", { boardId: meeting.boardId, id });
   res.json({ ...meeting, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: updatedItems.length });
 });
 
@@ -259,6 +262,7 @@ router.delete("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (r
   if (meeting) await retainDeleted(req, "meeting", id, meeting);
   await db.delete(meetingsTable).where(eq(meetingsTable.id, id));
   await audit(req, "meeting_deleted", "meeting", id, { title: meeting?.title });
+  emitInvalidate("meetings", { boardId: meeting?.boardId, id });
   res.sendStatus(204);
 });
 
@@ -284,6 +288,8 @@ router.post("/meetings/:id/agenda", requireAuth, requireAdmin, writeLimiter, asy
     .values({ meetingId: id, position, title: sanitizeText(title), type: type as AgendaType, description: description ? sanitizeText(description) : undefined })
     .returning();
 
+  const [parentMeeting] = await db.select({ boardId: meetingsTable.boardId }).from(meetingsTable).where(eq(meetingsTable.id, id));
+  emitInvalidate("meetings", { boardId: parentMeeting?.boardId, id });
   res.status(201).json(item);
 });
 
@@ -297,12 +303,19 @@ router.patch("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, writeLim
 
   const [item] = await db.update(agendaItemsTable).set(updates).where(eq(agendaItemsTable.id, itemId)).returning();
   if (!item) { res.status(404).json({ error: "Agenda item not found" }); return; }
+  const [parentMeeting] = item.meetingId
+    ? await db.select({ boardId: meetingsTable.boardId }).from(meetingsTable).where(eq(meetingsTable.id, item.meetingId))
+    : [null];
+  emitInvalidate("meetings", { boardId: parentMeeting?.boardId, id: item.meetingId });
   res.json(item);
 });
 
 router.delete("/meetings/:id/agenda/:itemId", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
   await db.delete(agendaItemsTable).where(eq(agendaItemsTable.id, itemId));
+  const meetingId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const [parentMeeting] = await db.select({ boardId: meetingsTable.boardId }).from(meetingsTable).where(eq(meetingsTable.id, meetingId));
+  emitInvalidate("meetings", { boardId: parentMeeting?.boardId, id: meetingId });
   res.sendStatus(204);
 });
 
@@ -363,6 +376,8 @@ router.patch("/meetings/:id/attendance", requireAuth, requireAdmin, writeLimiter
       });
   }
 
+  const [parentMeeting] = await db.select({ boardId: meetingsTable.boardId }).from(meetingsTable).where(eq(meetingsTable.id, id));
+  emitInvalidate("meetings", { boardId: parentMeeting?.boardId, id });
   res.json({ ok: true });
 });
 

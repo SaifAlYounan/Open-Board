@@ -27,6 +27,7 @@ import { writeLimiter } from "../lib/rateLimiters";
 import { validateActionData } from "../lib/aiSchemas";
 import { ActionError } from "../lib/errors";
 import { nextResolutionNumber, nextTaskNumber, type DbClient } from "../lib/numbering";
+import { emitInvalidate, type RealtimeResource } from "../lib/realtime";
 
 /**
  * Parse an AI-proposed date string treating it as wall-clock time (no timezone conversion).
@@ -653,6 +654,23 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimi
       actionType: action.actionType,
       modified: !!overrideData,
     });
+    emitInvalidate("pendingActions", { id });
+    // Also invalidate the entity the approval just created/changed.
+    const RESOURCE_BY_ACTION: Record<string, RealtimeResource> = {
+      create_meeting: "meetings",
+      create_vote: "votes",
+      create_task: "tasks",
+      close_task: "tasks",
+      create_minutes: "minutes",
+      create_workflow: "votes",
+      attach_to_meeting: "meetings",
+      flag_confidential: "documents",
+    };
+    const resource = RESOURCE_BY_ACTION[action.actionType];
+    if (resource) {
+      const entityBoardId = (entity as { boardId?: string | null } | null)?.boardId ?? null;
+      emitInvalidate(resource, { boardId: entityBoardId });
+    }
     res.json({ action: updated, createdEntity: entity });
   } catch (err: unknown) {
     if (err instanceof ActionError) {
@@ -687,6 +705,7 @@ router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, writeLimit
     .returning();
 
   await audit(req, "pending_action_rejected", "pending_action", id, { actionType: updated.actionType });
+  emitInvalidate("pendingActions", { id });
   res.json(updated);
 });
 

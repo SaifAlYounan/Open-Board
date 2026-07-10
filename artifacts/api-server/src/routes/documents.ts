@@ -20,6 +20,7 @@ import { audit } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
+import { emitInvalidate } from "../lib/realtime";
 
 const upload = multer({
   dest: UPLOADS_DIR,
@@ -104,7 +105,10 @@ async function classifyDocument(docId: string, filePath: string, mimeType: strin
         status: "pending" as const,
       }))
     );
+    emitInvalidate("pendingActions", {});
   }
+  // Classification finished — the document row changed either way.
+  emitInvalidate("documents", { id: docId });
 
   // Board assignment happens when Secretary approves AI-proposed actions.
   // No automatic access grant here — prevents prompt injection via document content.
@@ -172,6 +176,7 @@ router.post("/documents/upload", requireAuth, writeLimiter, (req, res, next) => 
   // Respond immediately — don't wait for AI
   res.json({ document: doc, classifying: !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY) });
   audit(req, "document_uploaded", "document", doc.id, { filename: originalname, fileSize: size });
+  emitInvalidate("documents", { id: doc.id });
 
   // AI Classification runs in background; classifyDocument records every
   // failure into aiClassification so the client polling sees the real state.
@@ -418,6 +423,7 @@ router.delete("/documents/:id", requireAuth, requireAdmin, writeLimiter, async (
   if (doc) await retainDeleted(req, "document", id, doc);
   await db.delete(documentsTable).where(eq(documentsTable.id, id));
   await audit(req, "document_deleted", "document", id, { filename: doc?.filename });
+  emitInvalidate("documents", { boardId: doc?.boardId, id });
   res.sendStatus(204);
 });
 
