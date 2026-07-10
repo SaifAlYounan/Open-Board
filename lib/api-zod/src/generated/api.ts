@@ -1794,6 +1794,62 @@ export const ListAuditPeopleResponseItem = zod.object({
 export const ListAuditPeopleResponse = zod.array(ListAuditPeopleResponseItem);
 
 /**
+ * @summary List deleted governance records (recycle bin, admin only)
+ */
+export const ListDeletedRecordsQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+  offset: zod.coerce.number().optional(),
+});
+
+export const ListDeletedRecordsResponse = zod.object({
+  items: zod.array(
+    zod.object({
+      id: zod.string(),
+      entityType: zod.string(),
+      entityId: zod.string(),
+      title: zod.string(),
+      deletedAt: zod.string(),
+      deletedBy: zod
+        .union([
+          zod.object({
+            id: zod.string(),
+            name: zod.string(),
+          }),
+          zod.null(),
+        ])
+        .optional(),
+      restoredAt: zod.string().nullish(),
+      restoredBy: zod
+        .union([
+          zod.object({
+            id: zod.string(),
+            name: zod.string(),
+          }),
+          zod.null(),
+        ])
+        .optional(),
+      restorable: zod.boolean(),
+    }),
+  ),
+  total: zod.number(),
+  limit: zod.number(),
+  offset: zod.number(),
+});
+
+/**
+ * @summary Restore a deleted governance record back into its source table (admin only)
+ */
+export const RestoreDeletedRecordParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RestoreDeletedRecordResponse = zod.object({
+  success: zod.boolean(),
+  entityType: zod.string(),
+  entityId: zod.string(),
+});
+
+/**
  * @summary Upload a document (PDF, DOCX, or TXT; max 10 MB) — AI classification runs in the background
  */
 export const UploadDocumentBody = zod.object({
