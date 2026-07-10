@@ -24,8 +24,14 @@ d("security routes", () => {
   const memberB = { email: "b@test.local", name: "Member B", role: "member" as const };
   const PASSWORD = "correct-horse-battery";
 
+  // Each login gets a distinct client IP (the app trusts one proxy hop) so the
+  // suite never trips the per-IP login rate limit as tests accumulate.
+  let ipCounter = 0;
   async function cookieFor(email: string): Promise<string> {
-    const res = await request(app).post("/api/auth/login").send({ email, password: PASSWORD });
+    const res = await request(app)
+      .post("/api/auth/login")
+      .set("X-Forwarded-For", `10.99.0.${++ipCounter}`)
+      .send({ email, password: PASSWORD });
     expect(res.status).toBe(200);
     const setCookie = res.headers["set-cookie"];
     return (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
@@ -41,9 +47,16 @@ d("security routes", () => {
     app = (await import("../app")).default;
 
     const { eq } = await import("drizzle-orm");
+    const auditTrailTable = dbMod.auditTrailTable;
     const hash = await bcrypt.hash(PASSWORD, 10);
     for (const p of [secretary, memberA, memberB]) {
-      await db.delete(peopleTable).where(eq(peopleTable.email, p.email));
+      // Audit rows reference people (no cascade) — clear them first so the
+      // suite is re-runnable against a persistent local database.
+      const [existing] = await db.select().from(peopleTable).where(eq(peopleTable.email, p.email));
+      if (existing) {
+        await db.delete(auditTrailTable).where(eq(auditTrailTable.personId, existing.id));
+        await db.delete(peopleTable).where(eq(peopleTable.id, existing.id));
+      }
       await db.insert(peopleTable).values({ ...p, passwordHash: hash });
     }
   });
@@ -73,6 +86,26 @@ d("security routes", () => {
     const cookie = await cookieFor(memberA.email);
     const res = await request(app).get("/api/people").set("Cookie", cookie);
     expect(res.status).toBe(403);
+  });
+
+  it("revokes the token on logout — the old cookie is dead server-side", async () => {
+    const cookie = await cookieFor(memberB.email);
+    const before = await request(app).get("/api/auth/me").set("Cookie", cookie);
+    expect(before.status).toBe(200);
+
+    const out = await request(app).post("/api/auth/logout").set("Cookie", cookie);
+    expect(out.status).toBe(200);
+
+    // A captured copy of the pre-logout token must no longer authenticate.
+    const stale = await request(app).get("/api/auth/me").set("Cookie", cookie);
+    expect(stale.status).toBe(401);
+  });
+
+  it("logout without a valid session still succeeds (idempotent)", async () => {
+    const res = await request(app).post("/api/auth/logout");
+    expect(res.status).toBe(200);
+    const garbage = await request(app).post("/api/auth/logout").set("Cookie", "token=not-a-jwt");
+    expect(garbage.status).toBe(200);
   });
 
   it("invalidates the session after a password change", async () => {

@@ -45,7 +45,8 @@ proposes actions — it never executes them. Each proposal is validated against 
 - JWTs are stored in **HttpOnly cookies** (`SameSite=Strict`, `Secure` in production) — never in
   localStorage. `Authorization: Bearer` is also accepted for programmatic access.
 - A per-user **token version** invalidates every outstanding JWT the moment a password is changed or
-  reset, or an account is deactivated. Sockets re-check role/active/version against the DB, not the token.
+  reset, an account is deactivated, or the user logs out — logout revokes server-side, not just
+  cookie-clearing. Sockets re-check role/active/version against the DB, not the token.
 - `SESSION_SECRET` is mandatory — the server refuses to start without it. Passwords are bcrypt (cost 10)
   with a 12-character minimum; first-boot and newly created accounts use one-time passwords and are
   forced to reset on first sign-in.
@@ -87,8 +88,6 @@ proposes actions — it never executes them. Each proposal is validated against 
 These are real and tracked as issues — do your own review before using with production board data:
 
 - **Account lockout is in-memory** (per-process, resets on restart) — [#7](https://github.com/SaifAlYounan/Open-Board/issues/7).
-- **Logout does not revoke the token** — it clears the cookie, but a token captured before logout
-  remains valid until its 7-day expiry — [#14](https://github.com/SaifAlYounan/Open-Board/issues/14).
 - **Password-reset email is not wired** — the reset flow generates a hashed, single-use, 1-hour token,
   but there is no mail transport; an operator relays it out of band — [#6](https://github.com/SaifAlYounan/Open-Board/issues/6).
 - **No application-level encryption at rest.** Uploaded files and DB fields are stored unencrypted;

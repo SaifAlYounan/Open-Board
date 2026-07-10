@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { db, peopleTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import { signToken, requireAuth } from "../lib/auth";
+import { signToken, verifyToken, requireAuth } from "../lib/auth";
 import { audit } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 
@@ -219,7 +219,31 @@ router.post("/auth/change-password", requireAuth, async (req, res): Promise<void
   res.json({ message: "Password changed successfully" });
 });
 
-router.post("/auth/logout", async (_req, res): Promise<void> => {
+router.post("/auth/logout", async (req, res): Promise<void> => {
+  // Revoke server-side, don't just clear the cookie: bump tokenVersion so every
+  // JWT issued before this logout fails requireAuth's version check. The version
+  // is per-user, not per-session, so an explicit logout ends ALL of the user's
+  // sessions — standard behavior for a revocation-by-version scheme.
+  // Best-effort on purpose: a missing/expired/garbage token still gets a 200 and
+  // a cleared cookie, so the client can always complete its logout.
+  const cookieToken = (req as any).cookies?.token as string | undefined;
+  const headerToken = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7)
+    : undefined;
+  const token = cookieToken || headerToken;
+  if (token) {
+    try {
+      const payload = verifyToken(token);
+      await db
+        .update(peopleTable)
+        .set({ tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
+        .where(eq(peopleTable.id, payload.userId));
+      audit(req, "logout", "person", payload.userId, {});
+    } catch {
+      // Invalid or expired token — nothing to revoke.
+    }
+  }
+
   const isProd = process.env.NODE_ENV === "production";
   res.clearCookie("token", {
     httpOnly: true,
