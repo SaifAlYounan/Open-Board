@@ -28,6 +28,7 @@ import { validateActionData } from "../lib/aiSchemas";
 import { ActionError } from "../lib/errors";
 import { nextResolutionNumber, nextTaskNumber, type DbClient } from "../lib/numbering";
 import { emitInvalidate, type RealtimeResource } from "../lib/realtime";
+import { sanitizeText } from "../lib/sanitize";
 
 /**
  * Parse an AI-proposed date string treating it as wall-clock time (no timezone conversion).
@@ -277,7 +278,10 @@ async function executeAction(
         ? (await dbc.select().from(boardsTable).where(eq(boardsTable.id, resolvedBoardId)))[0]?.abbreviation || "GEN"
         : "GEN";
 
-      const resNum = resolution_number || (await nextResolutionNumber(dbc, abbrev));
+      // Sanitize a caller-/model-supplied resolution number (defense-in-depth
+      // against stored XSS in the certificate print view). Auto-generated
+      // numbers are already safe.
+      const resNum = resolution_number ? sanitizeText(resolution_number) : (await nextResolutionNumber(dbc, abbrev));
 
       // Extract a meaningful title from the first sentence of description or resolution_text
       const extractTitle = (text: string | undefined): string | undefined => {

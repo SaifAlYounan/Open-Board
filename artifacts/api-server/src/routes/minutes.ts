@@ -189,8 +189,14 @@ router.get("/minutes/:id", requireAuth, async (req, res): Promise<void> => {
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, meeting.boardId))
     : [null];
 
-  // Non-admin: verify board membership (management also needs to be assigned to the board)
-  if (user.role !== "admin" && meeting?.boardId) {
+  // Non-admin: verify board membership (management also needs to be assigned to
+  // the board). Fail closed on board-less minutes — with no board there is no
+  // membership to authorize against, so a non-admin must not read (F3).
+  if (user.role !== "admin") {
+    if (!meeting?.boardId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
     const membership = await db
       .select()
       .from(boardMembershipsTable)
@@ -406,17 +412,23 @@ router.get("/minutes/:id/comments", requireAuth, async (req, res): Promise<void>
     return;
   }
 
-  if (user.role !== "admin" && minutes.meetingId) {
-    const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId));
-    if (meeting?.boardId) {
-      const [membership] = await db
-        .select()
-        .from(boardMembershipsTable)
-        .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
-      if (!membership) {
-        res.status(403).json({ error: "Access denied" });
-        return;
-      }
+  // Fail closed: board-less minutes (or minutes with no meeting) have no board
+  // membership to authorize against, so a non-admin must not read comments (F3).
+  if (user.role !== "admin") {
+    const [meeting] = minutes.meetingId
+      ? await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId))
+      : [null];
+    if (!meeting?.boardId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    const [membership] = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+    if (!membership) {
+      res.status(403).json({ error: "Access denied" });
+      return;
     }
   }
 
@@ -454,20 +466,26 @@ router.post("/minutes/:id/comments", requireAuth, writeLimiter, async (req, res)
   }
 
   // Object-level authorization: only board members (or admin) may comment on a
-  // board's minutes — mirrors GET /minutes/:id/comments. Without this, any
-  // authenticated user who knows a minutes UUID could inject comments on another
-  // board's governance record.
-  if (user.role !== "admin" && minutes.meetingId) {
-    const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId));
-    if (meeting?.boardId) {
-      const [membership] = await db
-        .select()
-        .from(boardMembershipsTable)
-        .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
-      if (!membership) {
-        res.status(403).json({ error: "Access denied" });
-        return;
-      }
+  // board's minutes. Without this, any authenticated user who knows a minutes
+  // UUID could inject comments on another board's governance record.
+  //   F3: fail closed on board-less minutes (no board → no membership to check).
+  //   F2: observers are read-only everywhere else — reject them here too, mirroring
+  //       the /sign path so the policy is consistent.
+  if (user.role !== "admin") {
+    const [meeting] = minutes.meetingId
+      ? await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId))
+      : [null];
+    if (!meeting?.boardId) {
+      res.status(403).json({ error: "Access denied" });
+      return;
+    }
+    const [membership] = await db
+      .select()
+      .from(boardMembershipsTable)
+      .where(and(eq(boardMembershipsTable.boardId, meeting.boardId), eq(boardMembershipsTable.personId, user.id)));
+    if (!membership || membership.roleInBoard === "observer") {
+      res.status(403).json({ error: "Access denied" });
+      return;
     }
   }
 

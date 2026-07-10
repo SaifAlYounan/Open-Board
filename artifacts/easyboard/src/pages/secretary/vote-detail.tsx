@@ -342,7 +342,7 @@ export default function SecretaryVoteDetail() {
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Certificate — ${cert.resolutionNumber}</title>
+<title>Certificate — ${esc(cert.resolutionNumber)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; background: #fff; color: #1d1d1f; padding: 60px; max-width: 800px; margin: 0 auto; }
@@ -382,7 +382,7 @@ export default function SecretaryVoteDetail() {
   <div class="section">
     <div class="section-title">Resolution Details</div>
     <div class="info-grid">
-      <div class="info-item"><label>Resolution Number</label><p>${cert.resolutionNumber}</p></div>
+      <div class="info-item"><label>Resolution Number</label><p>${esc(cert.resolutionNumber)}</p></div>
       <div class="info-item"><label>Status</label><p style="color:${statusColor};font-weight:600;">${cert.status?.toUpperCase()}</p></div>
       <div class="info-item"><label>Deadline</label><p>${cert.deadline ? new Date(cert.deadline).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</p></div>
       <div class="info-item"><label>Closed At</label><p>${cert.closedAt ? new Date(cert.closedAt).toLocaleString('en-AU') : '—'}</p></div>

@@ -399,6 +399,33 @@ router.patch("/meetings/:id/attendance", requireAuth, requireAdmin, writeLimiter
     return;
   }
 
+  const [meeting] = await db.select({ boardId: meetingsTable.boardId }).from(meetingsTable).where(eq(meetingsTable.id, id));
+  if (!meeting) {
+    res.status(404).json({ error: "Meeting not found" });
+    return;
+  }
+
+  // Every personId / proxyHolderId must belong to the meeting's board — an
+  // attendance row (or proxy) referencing a non-member is a data-integrity hole
+  // that would let a proxy be assigned to someone outside the board.
+  if (meeting.boardId) {
+    const members = await db
+      .select({ personId: boardMembershipsTable.personId })
+      .from(boardMembershipsTable)
+      .where(eq(boardMembershipsTable.boardId, meeting.boardId));
+    const memberIds = new Set(members.map((m) => m.personId));
+    for (const update of updates) {
+      if (!update.personId || !memberIds.has(update.personId)) {
+        res.status(400).json({ error: "personId is not a member of this meeting's board" });
+        return;
+      }
+      if (update.proxyHolderId && !memberIds.has(update.proxyHolderId)) {
+        res.status(400).json({ error: "proxyHolderId is not a member of this meeting's board" });
+        return;
+      }
+    }
+  }
+
   for (const update of updates) {
     await db
       .insert(attendanceTable)
@@ -414,8 +441,7 @@ router.patch("/meetings/:id/attendance", requireAuth, requireAdmin, writeLimiter
       });
   }
 
-  const [parentMeeting] = await db.select({ boardId: meetingsTable.boardId }).from(meetingsTable).where(eq(meetingsTable.id, id));
-  emitInvalidate("meetings", { boardId: parentMeeting?.boardId, id });
+  emitInvalidate("meetings", { boardId: meeting.boardId, id });
   res.json({ ok: true });
 });
 

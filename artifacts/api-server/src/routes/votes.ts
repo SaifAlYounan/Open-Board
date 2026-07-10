@@ -251,8 +251,10 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
   const cleanTitle = sanitizeText(title);
   const cleanResolutionText = sanitizeText(resolutionText);
 
-  // Generate resolution number server-side if not provided (race-free sequence)
-  let resolutionNumber = rawResolutionNumber;
+  // Generate resolution number server-side if not provided (race-free sequence).
+  // Sanitize a caller-supplied number too (defense-in-depth against stored XSS
+  // in the certificate print view — mirrors title/resolutionText).
+  let resolutionNumber = rawResolutionNumber ? sanitizeText(rawResolutionNumber) : rawResolutionNumber;
   if (!resolutionNumber) {
     const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, boardId));
     resolutionNumber = await nextResolutionNumber(db, board?.abbreviation || "GEN");
@@ -1081,6 +1083,25 @@ router.post("/votes/:id/documents", requireAuth, writeLimiter, (req, res, next) 
     return;
   }
 
+  // Observers are read-only. Board-wide default access grants every member
+  // (observers included) read on a vote, so hasAccess alone lets an observer
+  // upload (F1). Guard explicitly at both role levels — mirrors the cast-path
+  // eligibility check. Global admins are exempt (they need not be board members).
+  if (user.role !== "admin") {
+    let isObserver = user.role === "observer";
+    if (!isObserver && vote.boardId) {
+      const [membership] = await db
+        .select()
+        .from(boardMembershipsTable)
+        .where(and(eq(boardMembershipsTable.boardId, vote.boardId), eq(boardMembershipsTable.personId, user.id)));
+      isObserver = membership?.roleInBoard === "observer";
+    }
+    if (isObserver) {
+      res.status(403).json({ error: "Observers cannot upload vote materials" });
+      return;
+    }
+  }
+
   if (!req.file) {
     res.status(400).json({ error: "No file uploaded" });
     return;
@@ -1107,10 +1128,12 @@ router.post("/votes/:id/documents", requireAuth, writeLimiter, (req, res, next) 
 });
 
 router.delete("/votes/:id/documents/:docId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const docId = Array.isArray(req.params.docId) ? req.params.docId[0] : req.params.docId;
 
   const [doc] = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
-  if (!doc) {
+  // The doc must belong to the vote in the path — never delete cross-vote by id.
+  if (!doc || doc.voteId !== id) {
     res.status(404).json({ error: "Document not found" });
     return;
   }
