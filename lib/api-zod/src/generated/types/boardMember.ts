@@ -13,5 +13,7 @@ export interface BoardMember {
   boardId: string;
   /** @nullable */
   roleInBoard?: string | null;
+  /** Voting weight of this member on this board (positive integer, default 1). */
+  votingWeight: number;
   person: Person;
 }

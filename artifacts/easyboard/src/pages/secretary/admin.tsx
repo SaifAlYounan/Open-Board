@@ -395,8 +395,9 @@ function BoardMembersTab() {
   const { toast } = useToast();
   const { data: people } = useListPeople();
   const [showAddMember, setShowAddMember] = useState(false);
-  const [addMemberForm, setAddMemberForm] = useState({ personId: "", roleInBoard: "member" });
+  const [addMemberForm, setAddMemberForm] = useState({ personId: "", roleInBoard: "member", votingWeight: "1" });
   const [saving, setSaving] = useState(false);
+  const [weightDrafts, setWeightDrafts] = useState<Record<string, string>>({});
 
   const boardList = (boards as any[]) || [];
   const selectedBoard = boardList.find((b: any) => b.id === selectedBoardId);
@@ -428,22 +429,56 @@ function BoardMembersTab() {
       toast({ title: "Select a person", variant: "destructive" });
       return;
     }
+    const weight = parseInt(addMemberForm.votingWeight, 10);
+    if (!Number.isInteger(weight) || weight < 1) {
+      toast({ title: "Voting weight must be a positive whole number", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     const res = await fetch(`${API_BASE}/api/boards/${selectedBoardId}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(addMemberForm),
+      body: JSON.stringify({ personId: addMemberForm.personId, roleInBoard: addMemberForm.roleInBoard, votingWeight: weight }),
     });
     setSaving(false);
     if (res.ok) {
       queryClient.invalidateQueries({ queryKey: getGetBoardQueryKey(selectedBoardId!) });
       queryClient.invalidateQueries({ queryKey: getListBoardsQueryKey() });
       setShowAddMember(false);
-      setAddMemberForm({ personId: "", roleInBoard: "member" });
+      setAddMemberForm({ personId: "", roleInBoard: "member", votingWeight: "1" });
       toast({ title: "Member added" });
     } else {
       toast({ title: "Failed to add", variant: "destructive" });
+    }
+  }
+
+  async function saveWeight(m: any) {
+    const draft = weightDrafts[m.personId];
+    if (draft == null) return;
+    const weight = parseInt(draft, 10);
+    if (!Number.isInteger(weight) || weight < 1) {
+      toast({ title: "Voting weight must be a positive whole number", variant: "destructive" });
+      setWeightDrafts((d) => { const n = { ...d }; delete n[m.personId]; return n; });
+      return;
+    }
+    if (weight === m.votingWeight) {
+      setWeightDrafts((d) => { const n = { ...d }; delete n[m.personId]; return n; });
+      return;
+    }
+    const res = await fetch(`${API_BASE}/api/boards/${selectedBoardId}/members/${m.personId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ votingWeight: weight }),
+    });
+    setWeightDrafts((d) => { const n = { ...d }; delete n[m.personId]; return n; });
+    if (res.ok) {
+      queryClient.invalidateQueries({ queryKey: getGetBoardQueryKey(selectedBoardId!) });
+      toast({ title: "Voting weight updated", description: "Already-cast ballots keep the weight they were cast with." });
+    } else {
+      const err = await res.json().catch(() => null);
+      toast({ title: "Failed to update weight", description: err?.error, variant: "destructive" });
     }
   }
 
@@ -530,6 +565,18 @@ function BoardMembersTab() {
                       <option value="observer">Observer</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="text-xs text-[#86868b] mb-1 block">Voting weight</label>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={addMemberForm.votingWeight}
+                      onChange={(e) => setAddMemberForm((f) => ({ ...f, votingWeight: e.target.value }))}
+                      className="h-8 w-20 px-2 rounded-lg border border-[#e5e5e7] text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3] bg-white"
+                      data-testid="input-add-member-weight"
+                    />
+                  </div>
                   <Button
                     size="sm"
                     onClick={addMember}
@@ -555,6 +602,7 @@ function BoardMembersTab() {
                       <th className="text-left px-6 py-3 text-xs font-medium text-[#86868b] uppercase tracking-wide">Member</th>
                       <th className="text-left px-6 py-3 text-xs font-medium text-[#86868b] uppercase tracking-wide">Board Role</th>
                       <th className="text-left px-6 py-3 text-xs font-medium text-[#86868b] uppercase tracking-wide">System Role</th>
+                      <th className="text-left px-6 py-3 text-xs font-medium text-[#86868b] uppercase tracking-wide">Voting Weight</th>
                       <th className="text-right px-6 py-3 text-xs font-medium text-[#86868b] uppercase tracking-wide">Remove</th>
                     </tr>
                   </thead>
@@ -593,6 +641,23 @@ function BoardMembersTab() {
                             >
                               {sysRoleInfo.label}
                             </span>
+                          </td>
+                          <td className="px-6 py-3">
+                            {m.roleInBoard === "observer" || m.roleInBoard === "secretary" ? (
+                              <span className="text-xs text-[#86868b]">—</span>
+                            ) : (
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={weightDrafts[m.personId] ?? String(m.votingWeight ?? 1)}
+                                onChange={(e) => setWeightDrafts((d) => ({ ...d, [m.personId]: e.target.value }))}
+                                onBlur={() => saveWeight(m)}
+                                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                className="h-7 w-16 px-2 rounded-lg border border-[#e5e5e7] text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3] bg-white"
+                                data-testid={`input-weight-${m.personId}`}
+                              />
+                            )}
                           </td>
                           <td className="px-6 py-3 text-right">
                             <ConfirmButton

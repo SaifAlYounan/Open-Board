@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, unique, index } from "drizzle-orm/pg-core";
 import { votesTable } from "./votes";
 import { peopleTable } from "./people";
 
@@ -9,6 +9,10 @@ export const voteRecordsTable = pgTable("vote_records", {
   decision: text("decision", { enum: ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"] }).notNull(),
   comment: text("comment"),
   proxyFor: uuid("proxy_for").references(() => peopleTable.id),
+  // Snapshot of the caster's board voting weight at the moment the ballot was
+  // cast — the tally and the certificate hash use this persisted value, so a
+  // later weight change can never silently rewrite a closed vote.
+  weight: integer("weight").notNull().default(1),
   votedAt: timestamp("voted_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   uniq: unique().on(t.voteId, t.personId),

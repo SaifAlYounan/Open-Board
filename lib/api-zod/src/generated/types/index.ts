@@ -90,6 +90,7 @@ export * from "./taskStatus";
 export * from "./updateAttendanceBody";
 export * from "./updateAttendanceBodyUpdatesItem";
 export * from "./updateAttendanceBodyUpdatesItemStatus";
+export * from "./updateBoardMemberBody";
 export * from "./updateMeetingBody";
 export * from "./updateMinutesBody";
 export * from "./updateMinutesStatusBody";

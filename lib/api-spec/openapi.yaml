@@ -308,6 +308,50 @@ paths:
         "201":
           description: Member added
 
+  /boards/{id}/members/{personId}:
+    patch:
+      operationId: updateBoardMember
+      tags: [boards]
+      summary: Update a board member's role and/or voting weight (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBoardMemberBody"
+      responses:
+        "200":
+          description: Member updated
+    delete:
+      operationId: removeBoardMember
+      tags: [boards]
+      summary: Remove a member from a board (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Member removed
+
   # Meetings
   /meetings:
     get:
@@ -1285,12 +1329,16 @@ components:
           type: string
         roleInBoard:
           type: ["string", "null"]
+        votingWeight:
+          type: integer
+          description: Voting weight of this member on this board (positive integer, default 1).
         person:
           $ref: "#/components/schemas/Person"
       required:
         - id
         - personId
         - boardId
+        - votingWeight
         - person
 
     CreateBoardBody:
@@ -1314,8 +1362,20 @@ components:
           type: string
         roleInBoard:
           type: ["string", "null"]
+        votingWeight:
+          type: ["integer", "null"]
+          description: Voting weight (positive integer). Defaults to 1.
       required:
         - personId
+
+    UpdateBoardMemberBody:
+      type: object
+      properties:
+        roleInBoard:
+          type: ["string", "null"]
+        votingWeight:
+          type: ["integer", "null"]
+          description: New voting weight (positive integer). Already-cast ballots keep their snapshotted weight.
 
     # Meeting
     Meeting:
@@ -1544,6 +1604,15 @@ components:
           type: integer
         approvalsCount:
           type: integer
+        totalWeight:
+          type: integer
+          description: Summed voting weight of eligible (non-recused) voting members.
+        castWeight:
+          type: integer
+          description: Summed voting weight of valid ballots cast.
+        approvalsWeight:
+          type: integer
+          description: Summed voting weight of valid "approved" ballots.
         hasVoted:
           type: boolean
         createdAt:
@@ -1559,6 +1628,9 @@ components:
         - totalVoters
         - votescast
         - approvalsCount
+        - totalWeight
+        - castWeight
+        - approvalsWeight
         - hasVoted
         - createdAt
 
@@ -1591,6 +1663,12 @@ components:
           type: integer
         approvalsCount:
           type: integer
+        totalWeight:
+          type: integer
+        castWeight:
+          type: integer
+        approvalsWeight:
+          type: integer
         hasVoted:
           type: boolean
         myVote:
@@ -1616,6 +1694,9 @@ components:
         - totalVoters
         - votescast
         - approvalsCount
+        - totalWeight
+        - castWeight
+        - approvalsWeight
         - hasVoted
         - voteRecords
         - createdAt
@@ -1634,6 +1715,9 @@ components:
           enum: [approved, approved_with_comments, not_approved, not_approved_with_comments]
         comment:
           type: ["string", "null"]
+        weight:
+          type: integer
+          description: Voting weight snapshotted when the ballot was cast.
         votedAt:
           type: string
         person:
@@ -1643,6 +1727,7 @@ components:
         - voteId
         - personId
         - decision
+        - weight
         - votedAt
         - person
 
@@ -1688,6 +1773,12 @@ components:
           type: ["string", "null"]
         hash:
           type: ["string", "null"]
+        totalWeight:
+          type: integer
+        castWeight:
+          type: integer
+        approvalsWeight:
+          type: integer
         voteRecords:
           type: array
           items:
@@ -1698,6 +1789,9 @@ components:
         - title
         - status
         - boardName
+        - totalWeight
+        - castWeight
+        - approvalsWeight
         - voteRecords
 
     CreateVoteBody:

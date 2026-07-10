@@ -65,6 +65,7 @@ import type {
   TaskDetail,
   TaskEvidence,
   UpdateAttendanceBody,
+  UpdateBoardMemberBody,
   UpdateMeetingBody,
   UpdateMinutesBody,
   UpdateMinutesStatusBody,
@@ -1371,6 +1372,179 @@ export const useAddBoardMember = <
   TContext
 > => {
   return useMutation(getAddBoardMemberMutationOptions(options));
+};
+
+/**
+ * @summary Update a board member's role and/or voting weight (admin only)
+ */
+export const getUpdateBoardMemberUrl = (id: string, personId: string) => {
+  return `/api/boards/${id}/members/${personId}`;
+};
+
+export const updateBoardMember = async (
+  id: string,
+  personId: string,
+  updateBoardMemberBody: UpdateBoardMemberBody,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getUpdateBoardMemberUrl(id, personId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateBoardMemberBody),
+  });
+};
+
+export const getUpdateBoardMemberMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateBoardMember>>,
+    TError,
+    { id: string; personId: string; data: BodyType<UpdateBoardMemberBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateBoardMember>>,
+  TError,
+  { id: string; personId: string; data: BodyType<UpdateBoardMemberBody> },
+  TContext
+> => {
+  const mutationKey = ["updateBoardMember"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateBoardMember>>,
+    { id: string; personId: string; data: BodyType<UpdateBoardMemberBody> }
+  > = (props) => {
+    const { id, personId, data } = props ?? {};
+
+    return updateBoardMember(id, personId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateBoardMemberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateBoardMember>>
+>;
+export type UpdateBoardMemberMutationBody = BodyType<UpdateBoardMemberBody>;
+export type UpdateBoardMemberMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a board member's role and/or voting weight (admin only)
+ */
+export const useUpdateBoardMember = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateBoardMember>>,
+    TError,
+    { id: string; personId: string; data: BodyType<UpdateBoardMemberBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateBoardMember>>,
+  TError,
+  { id: string; personId: string; data: BodyType<UpdateBoardMemberBody> },
+  TContext
+> => {
+  return useMutation(getUpdateBoardMemberMutationOptions(options));
+};
+
+/**
+ * @summary Remove a member from a board (admin only)
+ */
+export const getRemoveBoardMemberUrl = (id: string, personId: string) => {
+  return `/api/boards/${id}/members/${personId}`;
+};
+
+export const removeBoardMember = async (
+  id: string,
+  personId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getRemoveBoardMemberUrl(id, personId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRemoveBoardMemberMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeBoardMember>>,
+    TError,
+    { id: string; personId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeBoardMember>>,
+  TError,
+  { id: string; personId: string },
+  TContext
+> => {
+  const mutationKey = ["removeBoardMember"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeBoardMember>>,
+    { id: string; personId: string }
+  > = (props) => {
+    const { id, personId } = props ?? {};
+
+    return removeBoardMember(id, personId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveBoardMemberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeBoardMember>>
+>;
+
+export type RemoveBoardMemberMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a member from a board (admin only)
+ */
+export const useRemoveBoardMember = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeBoardMember>>,
+    TError,
+    { id: string; personId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeBoardMember>>,
+  TError,
+  { id: string; personId: string },
+  TContext
+> => {
+  return useMutation(getRemoveBoardMemberMutationOptions(options));
 };
 
 /**

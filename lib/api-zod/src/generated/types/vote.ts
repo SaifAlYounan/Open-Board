@@ -27,6 +27,12 @@ export interface Vote {
   totalVoters: number;
   votescast: number;
   approvalsCount: number;
+  /** Summed voting weight of eligible (non-recused) voting members. */
+  totalWeight: number;
+  /** Summed voting weight of valid ballots cast. */
+  castWeight: number;
+  /** Summed voting weight of valid "approved" ballots. */
+  approvalsWeight: number;
   hasVoted: boolean;
   createdAt: string;
 }

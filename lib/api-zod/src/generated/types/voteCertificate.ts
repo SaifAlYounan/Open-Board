@@ -17,5 +17,8 @@ export interface VoteCertificate {
   closedAt?: string | null;
   /** @nullable */
   hash?: string | null;
+  totalWeight: number;
+  castWeight: number;
+  approvalsWeight: number;
   voteRecords: VoteRecord[];
 }

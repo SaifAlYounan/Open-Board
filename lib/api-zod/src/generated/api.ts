@@ -211,6 +211,11 @@ export const GetBoardResponse = zod.object({
       personId: zod.string(),
       boardId: zod.string(),
       roleInBoard: zod.string().nullish(),
+      votingWeight: zod
+        .number()
+        .describe(
+          "Voting weight of this member on this board (positive integer, default 1).",
+        ),
       person: zod.object({
         id: zod.string(),
         email: zod.string(),
@@ -237,6 +242,11 @@ export const GetBoardMembersResponseItem = zod.object({
   personId: zod.string(),
   boardId: zod.string(),
   roleInBoard: zod.string().nullish(),
+  votingWeight: zod
+    .number()
+    .describe(
+      "Voting weight of this member on this board (positive integer, default 1).",
+    ),
   person: zod.object({
     id: zod.string(),
     email: zod.string(),
@@ -259,6 +269,36 @@ export const AddBoardMemberParams = zod.object({
 export const AddBoardMemberBody = zod.object({
   personId: zod.string(),
   roleInBoard: zod.string().nullish(),
+  votingWeight: zod
+    .number()
+    .nullish()
+    .describe("Voting weight (positive integer). Defaults to 1."),
+});
+
+/**
+ * @summary Update a board member's role and/or voting weight (admin only)
+ */
+export const UpdateBoardMemberParams = zod.object({
+  id: zod.coerce.string(),
+  personId: zod.coerce.string(),
+});
+
+export const UpdateBoardMemberBody = zod.object({
+  roleInBoard: zod.string().nullish(),
+  votingWeight: zod
+    .number()
+    .nullish()
+    .describe(
+      "New voting weight (positive integer). Already-cast ballots keep their snapshotted weight.",
+    ),
+});
+
+/**
+ * @summary Remove a member from a board (admin only)
+ */
+export const RemoveBoardMemberParams = zod.object({
+  id: zod.coerce.string(),
+  personId: zod.coerce.string(),
 });
 
 /**
@@ -463,6 +503,15 @@ export const ListVotesResponseItem = zod.object({
   totalVoters: zod.number(),
   votescast: zod.number(),
   approvalsCount: zod.number(),
+  totalWeight: zod
+    .number()
+    .describe("Summed voting weight of eligible (non-recused) voting members."),
+  castWeight: zod
+    .number()
+    .describe("Summed voting weight of valid ballots cast."),
+  approvalsWeight: zod
+    .number()
+    .describe('Summed voting weight of valid \"approved\" ballots.'),
   hasVoted: zod.boolean(),
   createdAt: zod.string(),
 });
@@ -519,6 +568,9 @@ export const GetVoteResponse = zod.object({
   totalVoters: zod.number(),
   votescast: zod.number(),
   approvalsCount: zod.number(),
+  totalWeight: zod.number(),
+  castWeight: zod.number(),
+  approvalsWeight: zod.number(),
   hasVoted: zod.boolean(),
   myVote: zod
     .object({
@@ -532,6 +584,9 @@ export const GetVoteResponse = zod.object({
         "not_approved_with_comments",
       ]),
       comment: zod.string().nullish(),
+      weight: zod
+        .number()
+        .describe("Voting weight snapshotted when the ballot was cast."),
       votedAt: zod.string(),
       person: zod.object({
         id: zod.string(),
@@ -556,6 +611,9 @@ export const GetVoteResponse = zod.object({
         "not_approved_with_comments",
       ]),
       comment: zod.string().nullish(),
+      weight: zod
+        .number()
+        .describe("Voting weight snapshotted when the ballot was cast."),
       votedAt: zod.string(),
       person: zod.object({
         id: zod.string(),
@@ -618,6 +676,15 @@ export const UpdateVoteResponse = zod.object({
   totalVoters: zod.number(),
   votescast: zod.number(),
   approvalsCount: zod.number(),
+  totalWeight: zod
+    .number()
+    .describe("Summed voting weight of eligible (non-recused) voting members."),
+  castWeight: zod
+    .number()
+    .describe("Summed voting weight of valid ballots cast."),
+  approvalsWeight: zod
+    .number()
+    .describe('Summed voting weight of valid \"approved\" ballots.'),
   hasVoted: zod.boolean(),
   createdAt: zod.string(),
 });
@@ -657,6 +724,9 @@ export const CastVoteResponse = zod.object({
     "not_approved_with_comments",
   ]),
   comment: zod.string().nullish(),
+  weight: zod
+    .number()
+    .describe("Voting weight snapshotted when the ballot was cast."),
   votedAt: zod.string(),
   person: zod.object({
     id: zod.string(),
@@ -684,6 +754,9 @@ export const GetVoteCertificateResponse = zod.object({
   boardName: zod.string(),
   closedAt: zod.string().nullish(),
   hash: zod.string().nullish(),
+  totalWeight: zod.number(),
+  castWeight: zod.number(),
+  approvalsWeight: zod.number(),
   voteRecords: zod.array(
     zod.object({
       id: zod.string(),
@@ -696,6 +769,9 @@ export const GetVoteCertificateResponse = zod.object({
         "not_approved_with_comments",
       ]),
       comment: zod.string().nullish(),
+      weight: zod
+        .number()
+        .describe("Voting weight snapshotted when the ballot was cast."),
       votedAt: zod.string(),
       person: zod.object({
         id: zod.string(),

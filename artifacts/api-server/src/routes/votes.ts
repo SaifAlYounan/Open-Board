@@ -20,7 +20,7 @@ import {
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
-import { evaluateByRule, computeCertificateHash } from "../lib/voteTally";
+import { evaluateByRule, computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -65,6 +65,23 @@ const upload = multer({
   },
 });
 
+type MembershipRow = { personId: string | null; roleInBoard: string | null; votingWeight: number };
+type BallotRow = { personId: string | null; decision: string; weight: number };
+
+/**
+ * Weighted aggregates for a vote's API payloads, computed the same way the
+ * evaluation path computes them: over eligible voting members (no observers,
+ * no board secretaries, no recused members). On an unweighted board these
+ * equal the eligible head counts.
+ */
+function weightedFields(boardMembers: MembershipRow[], voteRecords: BallotRow[], recusedIds: ReadonlySet<string | null> = new Set()) {
+  const eligible = boardMembers
+    .filter((m) => m.roleInBoard !== "observer" && m.roleInBoard !== "secretary")
+    .map((m) => ({ personId: m.personId, weight: m.votingWeight }));
+  const t = computeTally(eligible, voteRecords, recusedIds);
+  return { totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight };
+}
+
 function buildApprovalSummary(rule: {
   type: string;
   minApprovals: number | null;
@@ -89,7 +106,7 @@ function buildApprovalSummary(rule: {
   };
 
   const desc = ruleDesc[rule.type] || rule.type;
-  const quorumNote = rule.quorum ? `, quorum: ${rule.quorum}` : "";
+  const quorumNote = rule.quorum ? `, quorum: ${rule.quorum} voting weight` : "";
   const behaviorNote = behaviors[rule.deadlineBehavior] || rule.deadlineBehavior;
   return `${desc}${quorumNote}. Vote ${behaviorNote}.`;
 }
@@ -139,6 +156,13 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   const boardById = new Map(boards.map((b) => [b.id, b]));
   const records = voteIds.length ? await db.select().from(voteRecordsTable).where(inArray(voteRecordsTable.voteId, voteIds)) : [];
   const members = boardIds.length ? await db.select().from(boardMembershipsTable).where(inArray(boardMembershipsTable.boardId, boardIds)) : [];
+  // Batched (not per-vote) rule + recusal load so the weighted tally can exclude
+  // recused members, mirroring the evaluation path.
+  const rules = voteIds.length ? await db.select().from(approvalRulesTable).where(inArray(approvalRulesTable.voteId, voteIds)) : [];
+  const ruleIds = rules.map((r) => r.id);
+  const recusals = ruleIds.length ? await db.select().from(approvalRuleRecusalsTable).where(inArray(approvalRuleRecusalsTable.ruleId, ruleIds)) : [];
+  const ruleByVoteId = new Map(rules.filter((r) => r.voteId).map((r) => [r.voteId!, r]));
+  const recusalsByRule = groupBy(recusals, (r) => r.ruleId);
   const docs = voteIds.length ? await db.select().from(voteDocumentsTable).where(inArray(voteDocumentsTable.voteId, voteIds)) : [];
   const stages = voteIds.length ? await db.select().from(workflowStagesTable).where(inArray(workflowStagesTable.voteId, voteIds)) : [];
   const workflowIds = [...new Set(stages.map((s) => s.workflowId))];
@@ -157,6 +181,8 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
     const approvals = voteRecords.filter((r) => r.decision.startsWith("approved")).length;
     const boardMembers = v.boardId ? membersByBoard.get(v.boardId) ?? [] : [];
     const myRecord = voteRecords.find((r) => r.personId === user.id);
+    const rule = ruleByVoteId.get(v.id);
+    const recusedIds = new Set((rule ? recusalsByRule.get(rule.id) ?? [] : []).map((r) => r.personId));
     const stage = stageByVoteId.get(v.id);
     const workflow = stage ? workflowById.get(stage.workflowId) : null;
     const workflowStage = stage && workflow
@@ -177,6 +203,7 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
       totalVoters: boardMembers.length,
       votescast: voteRecords.length,
       approvalsCount: approvals,
+      ...weightedFields(boardMembers, voteRecords, recusedIds),
       hasVoted: !!myRecord,
       documentCount: docCountByVote.get(v.id) ?? 0,
       workflowStage,
@@ -294,6 +321,7 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
     totalVoters: members.length,
     votescast: 0,
     approvalsCount: 0,
+    ...weightedFields(members, [], new Set(rule?.recusedIds ?? [])),
     hasVoted: false,
     documentCount: 0,
   });
@@ -457,6 +485,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
     totalVoters: members.length,
     votescast: records.length,
     approvalsCount: approvals,
+    ...weightedFields(members, records, new Set(ruleRecusals.map((r) => r.personId))),
     hasVoted: !!myRecord,
     myVote: myRecord
       ? {
@@ -552,6 +581,7 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     totalVoters: members.length,
     votescast: records.length,
     approvalsCount: approvals,
+    ...weightedFields(members, records),
     hasVoted: false,
   });
 });
@@ -633,6 +663,10 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
+    // Snapshot the voter's board weight onto the ballot: the tally and the
+    // certificate hash use the persisted snapshot, so a later membership-weight
+    // edit can never rewrite a cast ballot.
+    let casterWeight = 1;
     if (vote.boardId) {
       const membership = await db
         .select()
@@ -643,12 +677,13 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
         res.status(403).json({ error: "You are not an eligible voter for this resolution" });
         return;
       }
+      casterWeight = membership[0].votingWeight ?? 1;
     }
 
     const sanitizedComment = comment ? sanitizeText(comment) : null;
     const [record] = await db
       .insert(voteRecordsTable)
-      .values({ voteId: id, personId: user.id, decision, comment: sanitizedComment })
+      .values({ voteId: id, personId: user.id, decision, comment: sanitizedComment, weight: casterWeight })
       .returning();
 
     if (vote.boardId) {
@@ -668,21 +703,27 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
         : [];
       const requiredIds = requiredVoterRows.map((r) => r.personId);
 
-      const votingMembers = eligibleMembers.filter((m) => !recusedIds.has(m.personId!));
       const allRecords = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
       const validRecords = allRecords.filter((r) => !recusedIds.has(r.personId!));
 
-      if (validRecords.length >= votingMembers.length && votingMembers.length > 0) {
-        const approvals = validRecords.filter((r) => r.decision.startsWith("approved")).length;
+      // Weighted tally: outcome and quorum are decided over voting WEIGHT.
+      // Every weight defaults to 1, so an unweighted board evaluates exactly
+      // as the old head-count tally did.
+      const tally = computeTally(
+        eligibleMembers.map((m) => ({ personId: m.personId, weight: m.votingWeight })),
+        allRecords,
+        recusedIds,
+      );
 
+      if (tally.votesCast >= tally.totalVoters && tally.totalVoters > 0) {
         let newStatus: "approved" | "rejected";
         if (requiredIds.length > 0) {
           const allRequiredApproved = requiredIds.every((pid) =>
             validRecords.some((r) => r.personId === pid && r.decision.startsWith("approved"))
           );
-          newStatus = allRequiredApproved ? evaluateByRule(rule, approvals, votingMembers.length, validRecords.length) : "rejected";
+          newStatus = allRequiredApproved ? evaluateByRule(rule, tally.approvalsWeight, tally.totalWeight, tally.castWeight) : "rejected";
         } else {
-          newStatus = evaluateByRule(rule, approvals, votingMembers.length, validRecords.length);
+          newStatus = evaluateByRule(rule, tally.approvalsWeight, tally.totalWeight, tally.castWeight);
         }
 
         // One instant for both the stored column and the certificate, so the
@@ -868,6 +909,12 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     .select()
     .from(approvalRulesTable)
     .where(eq(approvalRulesTable.voteId, id));
+  const ruleRecusals = approvalRule
+    ? await db.select().from(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, approvalRule.id))
+    : [];
+  const members = vote.boardId
+    ? await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId))
+    : [];
 
   res.json({
     voteId: vote.id,
@@ -880,6 +927,9 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     closedAt: vote.closedAt,
     deadline: vote.deadline,
     hash: vote.certificateHash,
+    // Weighted totals (safe under secret ballots — aggregates only, same
+    // disclosure level as the existing head counts).
+    ...weightedFields(members, records, new Set(ruleRecusals.map((r) => r.personId))),
     approvalRule: approvalRule ? {
       ...approvalRule,
       summaryText: buildApprovalSummary({
@@ -919,10 +969,18 @@ router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promi
 
   const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
   const recomputed = computeCertificateHash(id, vote.status ?? "", closedAt, records);
+  if (recomputed === vote.certificateHash) {
+    res.json({ verified: true, storedHash: vote.certificateHash, recomputedHash: recomputed, hashVersion: 2 });
+    return;
+  }
+  // Votes closed before weighted/proxy voting were hashed with the v1 format —
+  // fall back so those certificates still verify against their stored hash.
+  const legacy = computeLegacyCertificateHash(id, vote.status ?? "", closedAt, records);
   res.json({
-    verified: recomputed === vote.certificateHash,
+    verified: legacy === vote.certificateHash,
     storedHash: vote.certificateHash,
-    recomputedHash: recomputed,
+    recomputedHash: legacy === vote.certificateHash ? legacy : recomputed,
+    hashVersion: legacy === vote.certificateHash ? 1 : null,
   });
 });
 

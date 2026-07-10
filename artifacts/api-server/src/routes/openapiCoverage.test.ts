@@ -16,7 +16,6 @@ const KNOWN_UNDOCUMENTED = new Set<string>([
   "/auth/forgot-password",
   "/auth/refresh",
   "/auth/reset-password",
-  "/boards/{id}/members/{personId}",
   "/documents/upload",
   "/documents/{id}/access",
   "/documents/{id}/download",

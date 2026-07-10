@@ -15,6 +15,8 @@ export interface VoteRecord {
   decision: VoteRecordDecision;
   /** @nullable */
   comment?: string | null;
+  /** Voting weight snapshotted when the ballot was cast. */
+  weight: number;
   votedAt: string;
   person: Person;
 }

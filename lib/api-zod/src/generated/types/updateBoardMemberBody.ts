@@ -6,12 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AddBoardMemberBody {
-  personId: string;
+export interface UpdateBoardMemberBody {
   /** @nullable */
   roleInBoard?: string | null;
   /**
-   * Voting weight (positive integer). Defaults to 1.
+   * New voting weight (positive integer). Already-cast ballots keep their snapshotted weight.
    * @nullable
    */
   votingWeight?: number | null;

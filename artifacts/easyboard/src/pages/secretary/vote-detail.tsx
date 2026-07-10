@@ -42,7 +42,16 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function MemberRow({ record, member, isRecused, isRequired }: { record?: any; member?: any; isRecused?: boolean; isRequired?: boolean }) {
+function WeightBadge({ weight }: { weight?: number | null }) {
+  if (!weight || weight === 1) return null;
+  return (
+    <span className="text-xs px-1.5 py-0.5 rounded-full bg-[#5856d6]/10 text-[#5856d6] font-medium" title={`Voting weight ${weight}`}>
+      ×{weight}
+    </span>
+  );
+}
+
+function MemberRow({ record, member, isRecused, isRequired, weight }: { record?: any; member?: any; isRecused?: boolean; isRequired?: boolean; weight?: number | null }) {
   const name = record?.person?.name || member?.personName || member?.name || 'Unknown';
   const title = record?.person?.title || member?.personTitle || member?.title || '';
 
@@ -72,6 +81,7 @@ function MemberRow({ record, member, isRecused, isRequired }: { record?: any; me
           {title && <p className="text-xs text-[#86868b]">{title}</p>}
         </div>
         <div className="flex items-center gap-1.5">
+          <WeightBadge weight={weight} />
           {isRequired && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-medium">Key Approver</span>
           )}
@@ -97,7 +107,7 @@ function MemberRow({ record, member, isRecused, isRequired }: { record?: any; me
           {name.charAt(0)}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-[#1d1d1f]">{name}</p>
+          <p className="text-sm font-medium text-[#1d1d1f] flex items-center gap-1.5">{name} <WeightBadge weight={record.weight} /></p>
           {title && <p className="text-xs text-[#86868b]">{title}</p>}
         </div>
         <div className="text-right">
@@ -278,6 +288,12 @@ export default function SecretaryVoteDetail() {
     const against = records.filter((r: any) => r.decision?.startsWith('not_approved') || r.decision?.startsWith('rejected')).length;
     const total = records.length;
     const isSecret = cert.secret === true;
+    // Weighted totals come from the API (computed over eligible members even
+    // when individual secret-ballot records are withheld).
+    const approvalsWeight = cert.approvalsWeight ?? approvals;
+    const castWeight = cert.castWeight ?? total;
+    const totalWeight = cert.totalWeight ?? null;
+    const certIsWeighted = records.some((r: any) => (r.weight ?? 1) !== 1) || approvalsWeight !== approvals || castWeight !== total;
     const statusColor = { approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b', open: '#0071e3' }[cert.status as string] || '#86868b';
 
     const html = `<!DOCTYPE html>
@@ -348,6 +364,14 @@ export default function SecretaryVoteDetail() {
       <div class="tally-item"><div class="num" style="color:#ff3b30">${against}</div><div class="lbl">Against</div></div>
       <div class="tally-item"><div class="num">${total}</div><div class="lbl">Votes Cast</div></div>
     </div>
+    ${certIsWeighted ? `
+    <div class="tally" style="border-top:1px solid #e5e5e7;padding-top:12px;">
+      <div class="tally-item"><div class="num" style="color:#34c759">${approvalsWeight}</div><div class="lbl">For (Weight)</div></div>
+      <div class="tally-item"><div class="num" style="color:#ff3b30">${castWeight - approvalsWeight}</div><div class="lbl">Against (Weight)</div></div>
+      <div class="tally-item"><div class="num">${castWeight}${totalWeight != null ? ` / ${totalWeight}` : ''}</div><div class="lbl">Weight Cast / Eligible</div></div>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#86868b;">This board uses weighted voting — the outcome and quorum are decided over voting weight.</p>
+    ` : ''}
     ${cert.approvalRule?.summaryText ? `<p style="text-align:center;font-size:13px;color:#86868b;">${esc(cert.approvalRule.summaryText)}</p>` : ''}
   </div>
 
@@ -359,11 +383,12 @@ export default function SecretaryVoteDetail() {
     </div>
     ` : `
     <table>
-      <thead><tr><th>Member</th><th>Decision</th><th>Date & Time</th><th>Comment</th></tr></thead>
+      <thead><tr><th>Member</th>${certIsWeighted ? '<th>Weight</th>' : ''}<th>Decision</th><th>Date & Time</th><th>Comment</th></tr></thead>
       <tbody>
         ${(cert.voteRecords || []).map((r: any) => `
           <tr>
             <td>${esc(r.person?.name || 'Unknown')}</td>
+            ${certIsWeighted ? `<td>${esc(String(r.weight ?? 1))}</td>` : ''}
             <td class="${r.decision.startsWith('approved') ? 'approved' : 'rejected'}">${esc(r.decision.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))}</td>
             <td>${r.votedAt ? new Date(r.votedAt).toLocaleString('en-AU') : '—'}</td>
             <td style="font-style:italic;color:#86868b;">${esc(r.comment || '')}</td>
@@ -428,6 +453,11 @@ export default function SecretaryVoteDetail() {
   const isOpen = voteData.status === 'open';
   const isClosed = ['approved', 'rejected', 'lapsed'].includes(voteData.status);
   const hasVotes = (voteData.votescast ?? 0) > 0;
+  // A board is "weighted" when any member's voting weight differs from 1 (or a
+  // cast ballot was snapshotted with a weight other than 1).
+  const isWeighted =
+    votingBoardMembers.some((m: any) => (m.votingWeight ?? 1) !== 1) ||
+    (voteData.voteRecords || []).some((r: any) => (r.weight ?? 1) !== 1);
 
   return (
     <div className="flex h-screen bg-[#f5f5f7]">
@@ -716,6 +746,14 @@ export default function SecretaryVoteDetail() {
                   <span><strong className="text-[#86868b]">{voteData.totalVoters - voteData.votescast}</strong> pending</span>
                   <span className="ml-auto">{voteData.votescast}/{voteData.totalVoters} voted</span>
                 </div>
+                {isWeighted && (
+                  <div className="mt-2 flex items-center gap-4 text-xs text-[#86868b] bg-[#f5f5f7] rounded-lg px-3 py-2" data-testid="weighted-tally">
+                    <span className="font-medium text-[#5856d6]">Weighted tally</span>
+                    <span><strong className="text-[#34c759]">{voteData.approvalsWeight}</strong> for</span>
+                    <span><strong className="text-[#ff3b30]">{(voteData.castWeight ?? 0) - (voteData.approvalsWeight ?? 0)}</strong> against</span>
+                    <span className="ml-auto">{voteData.castWeight}/{voteData.totalWeight} weight cast</span>
+                  </div>
+                )}
               </div>
 
               {/* Resolution text */}
@@ -755,7 +793,7 @@ export default function SecretaryVoteDetail() {
                     {votingBoardMembers
                       .filter((m: any) => !recusedIds.has(m.personId) && !voteRecordsById.has(m.personId))
                       .map((m: any) => (
-                        <MemberRow key={m.personId} member={m.person} isRequired={requiredVoterIds.has(m.personId)} />
+                        <MemberRow key={m.personId} member={m.person} isRequired={requiredVoterIds.has(m.personId)} weight={m.votingWeight} />
                       ))
                     }
                   </div>

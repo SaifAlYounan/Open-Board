@@ -256,11 +256,11 @@ export default function HowItWorks() {
               <h4 className="text-[#1d1d1f] font-semibold">Approval Rules</h4>
               <div className="space-y-2 text-sm">
                 {[
-                  ["Simple Majority", "More than 50% of eligible voters must approve"],
-                  ["Two-Thirds", "At least 66.7% of eligible voters must approve"],
-                  ["Three-Quarters", "At least 75% of eligible voters must approve"],
-                  ["Unanimous", "Every eligible voter must approve"],
-                  ["Custom", "Secretary sets the exact minimum approval count and quorum"],
+                  ["Simple Majority", "More than 50% of the eligible voting weight must approve"],
+                  ["Two-Thirds", "At least 66.7% of the eligible voting weight must approve"],
+                  ["Three-Quarters", "At least 75% of the eligible voting weight must approve"],
+                  ["Unanimous", "Every eligible voter must approve (all voting weight)"],
+                  ["Custom", "Secretary sets the exact minimum approval weight and quorum"],
                 ].map(([label, desc]) => (
                   <div key={label} className="flex gap-3">
                     <span className="text-[#0071e3] font-medium w-28 flex-shrink-0">{label}</span>
@@ -272,6 +272,7 @@ export default function HowItWorks() {
             <div className="bg-white border border-[#e5e5e7] rounded-xl p-5 space-y-4">
               <h4 className="text-[#1d1d1f] font-semibold">Advanced Constraints</h4>
               <div className="space-y-3 text-sm text-[#86868b]">
+                <p><span className="text-[#1d1d1f] font-medium">Weighted Voting — </span>Every board member carries a voting weight (default 1). Tally, quorum, and thresholds are computed over weight, so a board where every weight is 1 behaves exactly like classic one-member-one-vote. Each ballot snapshots the weight it was cast with.</p>
                 <p><span className="text-[#1d1d1f] font-medium">Recused Members — </span>Members with a conflict of interest are excluded from the eligible voter pool and cannot vote on that resolution.</p>
                 <p><span className="text-[#1d1d1f] font-medium">Key Approvers — </span>Specific members whose personal approval is required for the resolution to pass, regardless of whether the majority threshold is met.</p>
                 <p><span className="text-[#1d1d1f] font-medium">Auto-close — </span>Once every eligible member has voted, the system automatically evaluates the result, closes the vote, and generates a SHA-256 certificate hash.</p>

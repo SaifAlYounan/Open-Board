@@ -137,9 +137,20 @@ router.get("/boards/:id/members", requireAuth, async (req, res): Promise<void> =
 
 const VALID_BOARD_ROLES = ["chairperson", "vice_chairperson", "member", "secretary", "observer"];
 
+// Voting weights are positive integers — exact, auditable arithmetic, and
+// weight 1 everywhere reproduces classic one-member-one-vote behavior. The cap
+// only guards against fat-fingered values.
+const MAX_VOTING_WEIGHT = 1000;
+function invalidWeight(votingWeight: unknown): string | null {
+  if (typeof votingWeight !== "number" || !Number.isInteger(votingWeight) || votingWeight < 1 || votingWeight > MAX_VOTING_WEIGHT) {
+    return `votingWeight must be an integer between 1 and ${MAX_VOTING_WEIGHT}`;
+  }
+  return null;
+}
+
 router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { personId, roleInBoard } = req.body;
+  const { personId, roleInBoard, votingWeight } = req.body;
   if (!personId || typeof personId !== "string" || !/^[0-9a-f-]{36}$/i.test(personId)) {
     res.status(400).json({ error: "personId must be a valid UUID" });
     return;
@@ -147,6 +158,13 @@ router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): 
   if (roleInBoard != null && !VALID_BOARD_ROLES.includes(roleInBoard)) {
     res.status(400).json({ error: `Invalid roleInBoard. Must be one of: ${VALID_BOARD_ROLES.join(", ")}` });
     return;
+  }
+  if (votingWeight != null) {
+    const weightError = invalidWeight(votingWeight);
+    if (weightError) {
+      res.status(400).json({ error: weightError });
+      return;
+    }
   }
   const [person] = await db.select({ id: peopleTable.id }).from(peopleTable).where(eq(peopleTable.id, personId));
   if (!person) {
@@ -156,35 +174,47 @@ router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): 
 
   await db
     .insert(boardMembershipsTable)
-    .values({ boardId, personId, roleInBoard: roleInBoard || "member" })
+    .values({ boardId, personId, roleInBoard: roleInBoard || "member", votingWeight: votingWeight ?? 1 })
     .onConflictDoNothing();
 
-  await audit(req, "board_member_added", "board", boardId, { personId, roleInBoard: roleInBoard || "member" });
+  await audit(req, "board_member_added", "board", boardId, { personId, roleInBoard: roleInBoard || "member", votingWeight: votingWeight ?? 1 });
   res.status(201).json({ ok: true });
 });
 
 router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const personId = Array.isArray(req.params.personId) ? req.params.personId[0] : req.params.personId;
-  const { roleInBoard } = req.body;
-  if (!roleInBoard) {
-    res.status(400).json({ error: "roleInBoard required" });
+  const { roleInBoard, votingWeight } = req.body;
+  if (roleInBoard == null && votingWeight == null) {
+    res.status(400).json({ error: "roleInBoard or votingWeight required" });
     return;
   }
-  if (!VALID_BOARD_ROLES.includes(roleInBoard)) {
+  if (roleInBoard != null && !VALID_BOARD_ROLES.includes(roleInBoard)) {
     res.status(400).json({ error: `Invalid roleInBoard. Must be one of: ${VALID_BOARD_ROLES.join(", ")}` });
     return;
   }
+  if (votingWeight != null) {
+    const weightError = invalidWeight(votingWeight);
+    if (weightError) {
+      res.status(400).json({ error: weightError });
+      return;
+    }
+  }
+  const updates: Record<string, unknown> = {};
+  if (roleInBoard != null) updates.roleInBoard = roleInBoard;
+  if (votingWeight != null) updates.votingWeight = votingWeight;
   await db
     .update(boardMembershipsTable)
-    .set({ roleInBoard })
+    .set(updates)
     .where(
       and(
         eq(boardMembershipsTable.boardId, boardId),
         eq(boardMembershipsTable.personId, personId)
       )
     );
-  await audit(req, "board_member_role_changed", "board", boardId, { personId, roleInBoard });
+  // Note: already-cast ballots keep their snapshotted weight — a weight change
+  // applies to future casts only, never to a ballot already on the record.
+  await audit(req, "board_member_role_changed", "board", boardId, { personId, ...(roleInBoard != null ? { roleInBoard } : {}), ...(votingWeight != null ? { votingWeight } : {}) });
   res.json({ ok: true });
 });
 

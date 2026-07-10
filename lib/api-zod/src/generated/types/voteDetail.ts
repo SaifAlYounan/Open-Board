@@ -25,6 +25,9 @@ export interface VoteDetail {
   totalVoters: number;
   votescast: number;
   approvalsCount: number;
+  totalWeight: number;
+  castWeight: number;
+  approvalsWeight: number;
   hasVoted: boolean;
   myVote?: VoteRecord;
   voteRecords: VoteRecord[];

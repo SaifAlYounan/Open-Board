@@ -101,6 +101,8 @@ export interface BoardMember {
   boardId: string;
   /** @nullable */
   roleInBoard?: string | null;
+  /** Voting weight of this member on this board (positive integer, default 1). */
+  votingWeight: number;
   person: Person;
 }
 
@@ -135,6 +137,21 @@ export interface AddBoardMemberBody {
   personId: string;
   /** @nullable */
   roleInBoard?: string | null;
+  /**
+   * Voting weight (positive integer). Defaults to 1.
+   * @nullable
+   */
+  votingWeight?: number | null;
+}
+
+export interface UpdateBoardMemberBody {
+  /** @nullable */
+  roleInBoard?: string | null;
+  /**
+   * New voting weight (positive integer). Already-cast ballots keep their snapshotted weight.
+   * @nullable
+   */
+  votingWeight?: number | null;
 }
 
 export type MeetingStatus = (typeof MeetingStatus)[keyof typeof MeetingStatus];
@@ -335,6 +352,12 @@ export interface Vote {
   totalVoters: number;
   votescast: number;
   approvalsCount: number;
+  /** Summed voting weight of eligible (non-recused) voting members. */
+  totalWeight: number;
+  /** Summed voting weight of valid ballots cast. */
+  castWeight: number;
+  /** Summed voting weight of valid "approved" ballots. */
+  approvalsWeight: number;
   hasVoted: boolean;
   createdAt: string;
 }
@@ -356,6 +379,8 @@ export interface VoteRecord {
   decision: VoteRecordDecision;
   /** @nullable */
   comment?: string | null;
+  /** Voting weight snapshotted when the ballot was cast. */
+  weight: number;
   votedAt: string;
   person: Person;
 }
@@ -400,6 +425,9 @@ export interface VoteDetail {
   totalVoters: number;
   votescast: number;
   approvalsCount: number;
+  totalWeight: number;
+  castWeight: number;
+  approvalsWeight: number;
   hasVoted: boolean;
   myVote?: VoteRecord;
   voteRecords: VoteRecord[];
@@ -419,6 +447,9 @@ export interface VoteCertificate {
   closedAt?: string | null;
   /** @nullable */
   hash?: string | null;
+  totalWeight: number;
+  castWeight: number;
+  approvalsWeight: number;
   voteRecords: VoteRecord[];
 }
 
