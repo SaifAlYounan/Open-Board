@@ -79,7 +79,7 @@ export default function Landing() {
           <FeatureCard icon={<Lock className="w-5 h-5" />} title="Self-hosted" description="Runs entirely on your servers. Your data never leaves your infrastructure." />
           <FeatureCard icon={<Book className="w-5 h-5" />} title="100% open source" description="Audit every line of code. No black boxes, no proprietary logic." />
           <FeatureCard icon={<Bot className="w-5 h-5" />} title="AI-native" description="Upload a document and the AI does the governance work. You review and approve." />
-          <FeatureCard icon={<Shield className="w-5 h-5" />} title="Tamper-proof" description="SHA-256 on every vote certificate and minute signature. Cryptographically verifiable." />
+          <FeatureCard icon={<Shield className="w-5 h-5" />} title="Tamper-evident" description="Ed25519 signatures on minutes and SHA-256 vote certificates — both independently verifiable, in-app and offline." />
           <FeatureCard icon={<DollarSign className="w-5 h-5" />} title="No per-seat pricing" description="Unlimited users, unlimited boards. Pay only for your server and AI API calls." />
           <FeatureCard icon={<Zap className="w-5 h-5" />} title="Your choice of AI" description="Claude via the Anthropic API with your own key, or a fully local OpenAI-compatible model (Ollama, vLLM, LM Studio) so documents never leave your network." />
         </div>

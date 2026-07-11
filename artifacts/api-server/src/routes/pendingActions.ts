@@ -18,10 +18,10 @@ import {
   voteDocumentsTable,
   agendaDocumentsTable,
 } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
-import { requireAuth, requireAdmin } from "../lib/auth";
+import { eq, and, inArray, isNull } from "drizzle-orm";
+import { requireAuth, requireAdmin, requireFreshMfa } from "../lib/auth";
 import { grantDefaultAccess } from "../lib/access";
-import { audit } from "../lib/auditLog";
+import { auditInTx } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
 import { validateActionData } from "../lib/aiSchemas";
@@ -258,6 +258,14 @@ async function executeAction(
             .values({ agendaItemId: firstAgendaItem.id, documentId: actionData._sourceDocumentId as string })
             .onConflictDoNothing();
         }
+        // P0.7/A1 — filing the document to a board grants that board's members
+        // access to it (via live membership) once the Secretary approves.
+        if (resolvedBoardId) {
+          await dbc
+            .update(documentsTable)
+            .set({ boardId: resolvedBoardId })
+            .where(and(eq(documentsTable.id, actionData._sourceDocumentId as string), isNull(documentsTable.boardId)));
+        }
       }
 
       return meeting;
@@ -327,6 +335,10 @@ async function executeAction(
               uploadedBy: sourceDoc.uploadedBy,
             })
             .onConflictDoNothing();
+          // P0.7/A1 — file the source document to the vote's board so members see it.
+          if (resolvedBoardId && !sourceDoc.boardId) {
+            await dbc.update(documentsTable).set({ boardId: resolvedBoardId }).where(eq(documentsTable.id, sourceDoc.id));
+          }
         }
       }
 
@@ -606,7 +618,9 @@ async function executeAction(
   }
 }
 
-router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
+// P0.2 — approving an AI-proposed action is the human-in-the-loop moment that
+// makes it real. Second factor required, and recent.
+router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, requireFreshMfa, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { actionData: overrideData, secretaryNotes } = req.body || {};
 
@@ -651,12 +665,12 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimi
         })
         .where(eq(pendingActionsTable.id, id))
         .returning();
+      // Fail-closed (P0.6): the approval and its audit entry commit together.
+      await auditInTx(tx, req, "pending_action_approved", "pending_action", id, {
+        actionType: action.actionType,
+        modified: !!overrideData,
+      });
       return { entity, updated };
-    });
-
-    await audit(req, "pending_action_approved", "pending_action", id, {
-      actionType: action.actionType,
-      modified: !!overrideData,
     });
     emitInvalidate("pendingActions", { id });
     // Also invalidate the entity the approval just created/changed.
@@ -686,7 +700,7 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, writeLimi
   }
 });
 
-router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
+router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, requireFreshMfa, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const { secretaryNotes } = req.body || {};
 
@@ -702,13 +716,16 @@ router.post("/pending-actions/:id/reject", requireAuth, requireAdmin, writeLimit
     return;
   }
 
-  const [updated] = await db
-    .update(pendingActionsTable)
-    .set({ status: "rejected", secretaryNotes, resolvedAt: new Date() })
-    .where(eq(pendingActionsTable.id, id))
-    .returning();
-
-  await audit(req, "pending_action_rejected", "pending_action", id, { actionType: updated.actionType });
+  // Fail-closed (P0.6): the rejection and its audit entry commit together.
+  const [updated] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(pendingActionsTable)
+      .set({ status: "rejected", secretaryNotes, resolvedAt: new Date() })
+      .where(eq(pendingActionsTable.id, id))
+      .returning();
+    await auditInTx(tx, req, "pending_action_rejected", "pending_action", id, { actionType: rows[0].actionType });
+    return rows;
+  });
   emitInvalidate("pendingActions", { id });
   res.json(updated);
 });

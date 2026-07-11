@@ -6,6 +6,7 @@ import { logger } from "./lib/logger";
 import { logMailerStatus } from "./lib/mailer";
 import { attachRealtime } from "./lib/realtime";
 import { checkStartupConfig } from "./lib/startupChecks";
+import { providerIsExternal, externalProviderAllowed, aiConfigured, externalProviderKeyPresentButNotAllowed, getProvider } from "./lib/aiProvider";
 import { seed } from "./seed";
 
 const rawPort = process.env["PORT"];
@@ -42,6 +43,19 @@ async function boot(): Promise<void> {
   server.listen(port, async () => {
     logger.info({ port }, "Server listening");
     logMailerStatus();
+
+    // P0.4 — make the AI data boundary loud at boot.
+    if (providerIsExternal() && aiConfigured()) {
+      logger.warn(
+        "AI EXTERNAL PROVIDER ACTIVE (Anthropic): extracted document text — including passages the classifier flags as privileged — is transmitted OFF this deployment. To keep text in-boundary, set AI_PROVIDER=openai-compatible with a local AI_BASE_URL.",
+      );
+    } else if (externalProviderKeyPresentButNotAllowed()) {
+      logger.warn(
+        "An Anthropic API key is set but AI_ALLOW_EXTERNAL_PROVIDER is not 'true' — AI is DISABLED and NO document text leaves the deployment. Set AI_ALLOW_EXTERNAL_PROVIDER=true to enable external classification (text will then be sent to Anthropic).",
+      );
+    } else {
+      logger.info({ provider: getProvider(), aiConfigured: aiConfigured(), externalAllowed: externalProviderAllowed() }, "AI boundary: no external document egress");
+    }
 
     try {
       await seed();

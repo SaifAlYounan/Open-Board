@@ -13,11 +13,11 @@
  *  - non-admin gets 403 on both the list and the restore.
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("deleted-records — recycle bin + restore", () => {
   let app: any;

@@ -4,16 +4,37 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { db, peopleTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, sql, and, isNull, gt } from "drizzle-orm";
-import { signToken, verifyToken, requireAuth } from "../lib/auth";
+import { signToken, verifyToken, requireAuth, signMfaChallenge, verifyMfaChallenge } from "../lib/auth";
 import { loginLockout } from "../lib/loginLockout";
-import { audit } from "../lib/auditLog";
+import { audit, auditInTx } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 import { mailerConfigured, sendPasswordResetEmail } from "../lib/mailer";
+import {
+  confirmedTotpCredential,
+  consumeRecoveryCode,
+  hasConfirmedMfa,
+  mfaRequiredFor,
+  personById,
+  unusedRecoveryCodeCount,
+  verifyTotpAndConsume,
+} from "../lib/mfa";
+import { PASSWORD_HASH_COST, rehashIfWeak } from "../lib/password";
 
 const router = Router();
 
 // Constant-time dummy hash used when email is not found — prevents timing-based email enumeration.
 const DUMMY_HASH = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
+function setSessionCookie(res: import("express").Response, token: string): void {
+  const isProd = process.env.NODE_ENV === "production";
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+}
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -85,20 +106,107 @@ router.post("/auth/login", loginLimiter, loginLimiterByEmail, async (req, res): 
 
   await loginLockout.clear(email);
 
+  // Opportunistic rehash: accounts hashed at the old cost are upgraded on the
+  // next successful sign-in, with no reset required (P0.2).
+  await rehashIfWeak(person.id, person.passwordHash, password);
+
+  // P0.2 — a correct password alone does NOT grant a session when the account
+  // holds a confirmed second factor. Issue a short-lived CHALLENGE instead; the
+  // session is only minted at /auth/mfa/verify once the factor is proven.
+  if (await hasConfirmedMfa(person.id)) {
+    await audit(req, "login_password_ok_mfa_required", "person", person.id, { email: person.email });
+    res.json({ mfaRequired: true, mfaToken: signMfaChallenge(person.id) });
+    return;
+  }
+
+  // Fail-closed (P0.6): a login that cannot be audited is not granted — audit
+  // BEFORE issuing the session. Throws → 500, no cookie.
+  await audit(req, "login", "person", person.id, { email: person.email, role: person.role });
+
   const token = signToken({ userId: person.id, email: person.email, role: person.role, tokenVersion: person.tokenVersion });
   const { passwordHash: _, ...safeUser } = person;
 
-  const isProd = process.env.NODE_ENV === "production";
-  res.cookie("token", token, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: "/",
+  setSessionCookie(res, token);
+
+  // An admin or board member with no second factor gets a session, but every
+  // sign/approve/export route will 403 with mfa_enrollment_required until they
+  // enroll — so the flag tells the UI to send them to enrollment now.
+  const mfaEnrollmentRequired = await mfaRequiredFor(person.id, person.role);
+  res.json({ user: { ...safeUser, avatarColor: person.avatarColor }, mfaEnrollmentRequired });
+});
+
+/**
+ * P0.2 — exchange the MFA challenge + a TOTP (or recovery) code for a session.
+ * This is the ONLY route that mints a session for an MFA-enrolled account.
+ */
+router.post("/auth/mfa/verify", loginLimiter, async (req, res): Promise<void> => {
+  const { mfaToken, code } = req.body ?? {};
+  if (typeof mfaToken !== "string" || typeof code !== "string" || !code.trim()) {
+    res.status(400).json({ error: "mfaToken and code are required" });
+    return;
+  }
+
+  let userId: string;
+  try {
+    ({ userId } = verifyMfaChallenge(mfaToken));
+  } catch {
+    res.status(401).json({ error: "This sign-in attempt has expired. Start again." });
+    return;
+  }
+
+  const person = await personById(userId);
+  if (!person || person.active === false) {
+    res.status(401).json({ error: "Invalid email or password" });
+    return;
+  }
+
+  const cred = await confirmedTotpCredential(userId);
+  if (!cred) {
+    res.status(400).json({ error: "No second factor is enrolled for this account." });
+    return;
+  }
+
+  // A TOTP code, or one of the single-use recovery codes.
+  const cleaned = code.trim();
+  let ok = await verifyTotpAndConsume(cred.id, cred.secret, cleaned, cred.lastUsedStep);
+  let usedRecoveryCode = false;
+  if (!ok) {
+    ok = await consumeRecoveryCode(userId, cleaned);
+    usedRecoveryCode = ok;
+  }
+
+  if (!ok) {
+    // A wrong second factor counts as a failed login attempt — it feeds the same
+    // durable lockout as a wrong password, so the factor can't be brute-forced.
+    await loginLockout.recordFailure(person.email);
+    await audit(req, "mfa_failed", "person", userId, { email: person.email });
+    res.status(401).json({ error: "That code is not valid." });
+    return;
+  }
+
+  await loginLockout.clear(person.email);
+  await audit(req, "login", "person", person.id, {
+    email: person.email,
+    role: person.role,
+    mfa: usedRecoveryCode ? "recovery_code" : "totp",
   });
 
-  res.json({ user: { ...safeUser, avatarColor: person.avatarColor } });
-  audit(req, "login", "person", person.id, { email: person.email, role: person.role });
+  const token = signToken({
+    userId: person.id,
+    email: person.email,
+    role: person.role,
+    tokenVersion: person.tokenVersion,
+    mfaAt: Math.floor(Date.now() / 1000),
+  });
+  setSessionCookie(res, token);
+
+  const { passwordHash: _, ...safeUser } = person;
+  const remainingRecoveryCodes = await unusedRecoveryCodeCount(userId);
+  res.json({
+    user: { ...safeUser, avatarColor: person.avatarColor },
+    usedRecoveryCode,
+    remainingRecoveryCodes,
+  });
 });
 
 router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
@@ -156,13 +264,16 @@ router.post("/auth/forgot-password", loginLimiter, forgotLimiterByEmail, async (
 
   // Invalidate any prior unused tokens for this user before issuing a new one
   // (#3/#5): only the newest link works, and a per-user flood can't accumulate
-  // live tokens.
-  await db
-    .update(passwordResetTokensTable)
-    .set({ usedAt: new Date() })
-    .where(and(eq(passwordResetTokensTable.personId, person.id), isNull(passwordResetTokensTable.usedAt)));
+  // live tokens. Fail-closed (P0.6): no token is issued unaudited.
+  await db.transaction(async (tx) => {
+    await tx
+      .update(passwordResetTokensTable)
+      .set({ usedAt: new Date() })
+      .where(and(eq(passwordResetTokensTable.personId, person.id), isNull(passwordResetTokensTable.usedAt)));
 
-  await db.insert(passwordResetTokensTable).values({ personId: person.id, tokenHash, expiresAt });
+    await tx.insert(passwordResetTokensTable).values({ personId: person.id, tokenHash, expiresAt });
+    await auditInTx(tx, req, "password_reset_requested", "person", person.id, { email });
+  });
 
   if (mailerConfigured()) {
     // Fire-and-forget: the response must not wait on SMTP (identical timing for
@@ -175,7 +286,6 @@ router.post("/auth/forgot-password", loginLimiter, forgotLimiterByEmail, async (
   }
 
   res.json(FORGOT_RESPONSE);
-  audit(req, "password_reset_requested", "person", person.id, { email });
 });
 
 router.post("/auth/reset-password", async (req, res): Promise<void> => {
@@ -221,12 +331,16 @@ router.post("/auth/reset-password", async (req, res): Promise<void> => {
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   // Bumping tokenVersion invalidates every JWT issued before this reset.
-  await db
-    .update(peopleTable)
-    .set({ passwordHash, mustResetPassword: false, tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
-    .where(eq(peopleTable.id, consumed.personId));
+  // Fail-closed (P0.6): the password change rolls back if it cannot be audited
+  // (the reset token stays consumed — the user requests a fresh link).
+  await db.transaction(async (tx) => {
+    await tx
+      .update(peopleTable)
+      .set({ passwordHash, mustResetPassword: false, tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
+      .where(eq(peopleTable.id, consumed.personId));
+    await auditInTx(tx, req, "password_reset_completed", "person", consumed.personId, {});
+  });
 
-  audit(req, "password_reset_completed", "person", consumed.personId, {});
   res.json({ message: "Password reset successfully. You can now log in." });
 });
 
@@ -253,11 +367,16 @@ router.post("/auth/change-password", requireAuth, async (req, res): Promise<void
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  const [updated] = await db
-    .update(peopleTable)
-    .set({ passwordHash, mustResetPassword: false, tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
-    .where(eq(peopleTable.id, person.id))
-    .returning();
+  // Fail-closed (P0.6): password change and its audit entry commit together.
+  const [updated] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(peopleTable)
+      .set({ passwordHash, mustResetPassword: false, tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
+      .where(eq(peopleTable.id, person.id))
+      .returning();
+    await auditInTx(tx, req, "password_changed", "person", person.id, { email: person.email });
+    return rows;
+  });
 
   // Old tokens are now invalid — issue a fresh one so this session continues.
   const token = signToken({ userId: updated.id, email: updated.email, role: updated.role, tokenVersion: updated.tokenVersion });
@@ -270,7 +389,6 @@ router.post("/auth/change-password", requireAuth, async (req, res): Promise<void
     path: "/",
   });
 
-  await audit(req, "password_changed", "person", person.id, { email: person.email });
   res.json({ message: "Password changed successfully" });
 });
 
@@ -287,15 +405,24 @@ router.post("/auth/logout", async (req, res): Promise<void> => {
     : undefined;
   const token = cookieToken || headerToken;
   if (token) {
+    let payload: ReturnType<typeof verifyToken> | null = null;
     try {
-      const payload = verifyToken(token);
-      await db
-        .update(peopleTable)
-        .set({ tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
-        .where(eq(peopleTable.id, payload.userId));
-      audit(req, "logout", "person", payload.userId, {});
+      payload = verifyToken(token);
     } catch {
       // Invalid or expired token — nothing to revoke.
+    }
+    if (payload) {
+      // Fail-closed (P0.6): revocation and its audit entry commit together —
+      // an audit failure propagates as a 500 rather than silently revoking
+      // (or silently not recording) the logout.
+      const userId = payload.userId;
+      await db.transaction(async (tx) => {
+        await tx
+          .update(peopleTable)
+          .set({ tokenVersion: sql`${peopleTable.tokenVersion} + 1` })
+          .where(eq(peopleTable.id, userId));
+        await auditInTx(tx, req, "logout", "person", userId, {});
+      });
     }
   }
 

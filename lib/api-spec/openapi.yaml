@@ -83,6 +83,255 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /auth/mfa/verify:
+    post:
+      operationId: verifyMfaChallenge
+      tags: [auth]
+      summary: Exchange an MFA challenge + TOTP (or recovery) code for a session
+      description: >
+        When an account holds a confirmed second factor, POST /auth/login returns
+        `{ mfaRequired: true, mfaToken }` and NO session. This is the only route
+        that mints the session: it takes that short-lived challenge plus a valid
+        TOTP code (or a single-use recovery code). A TOTP code cannot be replayed
+        within its 30-second window.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken, code]
+              properties:
+                mfaToken:
+                  type: string
+                  description: The challenge token returned by /auth/login.
+                code:
+                  type: string
+                  description: A 6-digit TOTP code, or one of the recovery codes.
+      responses:
+        "200":
+          description: Second factor accepted; session cookie set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/Person"
+                  usedRecoveryCode:
+                    type: boolean
+                  remainingRecoveryCodes:
+                    type: integer
+        "401":
+          description: Invalid or expired challenge, or an invalid code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mfa/status:
+    get:
+      operationId: getMfaStatus
+      tags: [mfa]
+      summary: Whether this account has (or must have) a second factor
+      responses:
+        "200":
+          description: MFA status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrolled:
+                    type: boolean
+                  required:
+                    type: boolean
+                    description: Mandatory for admins and non-observer board members.
+                  type:
+                    type: string
+                    nullable: true
+                    enum: [totp, webauthn]
+                  enrolledAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  remainingRecoveryCodes:
+                    type: integer
+                  verifiedThisSession:
+                    type: boolean
+        "401":
+          description: Unauthorized
+
+  /mfa/enroll/begin:
+    post:
+      operationId: beginMfaEnrollment
+      tags: [mfa]
+      summary: Start TOTP enrollment — returns the secret once
+      description: >
+        Creates an UNCONFIRMED credential and returns the shared secret plus an
+        otpauth:// URI for QR rendering. The factor does not count until it is
+        confirmed with a valid code.
+      responses:
+        "200":
+          description: Enrollment started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                  otpauthUri:
+                    type: string
+        "409":
+          description: A second factor is already enrolled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mfa/enroll/confirm:
+    post:
+      operationId: confirmMfaEnrollment
+      tags: [mfa]
+      summary: Confirm enrollment with a code — issues recovery codes once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Enrolled; recovery codes returned ONCE (only hashes are stored)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrolled:
+                    type: boolean
+                  recoveryCodes:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: Invalid code, or enrollment was never started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mfa/verify:
+    post:
+      operationId: reverifyMfa
+      tags: [mfa]
+      summary: Re-prove the second factor inside an existing session
+      description: >
+        Refreshes the session's MFA freshness stamp. Called when a signing,
+        approving, or exporting route answers `mfa_reverification_required`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Re-verified; session refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+        "401":
+          description: Invalid code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mfa/recovery-codes:
+    post:
+      operationId: reissueRecoveryCodes
+      tags: [mfa]
+      summary: Re-issue recovery codes (invalidates the previous set)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        "200":
+          description: New codes, returned ONCE
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recoveryCodes:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          description: Password incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /mfa:
+    delete:
+      operationId: removeMfa
+      tags: [mfa]
+      summary: Remove the second factor (requires password + a current code)
+      description: >
+        Refused with 403 for anyone whose role REQUIRES MFA (admins and
+        non-observer board members) — a mandatory gate cannot be self-disarmed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, code]
+              properties:
+                password:
+                  type: string
+                code:
+                  type: string
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed:
+                    type: boolean
+        "403":
+          description: MFA is mandatory for this role and cannot be removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /auth/me:
     get:
       operationId: getMe
@@ -852,7 +1101,66 @@ paths:
     post:
       operationId: signMinutes
       tags: [minutes]
-      summary: Sign minutes (member only)
+      summary: Sign minutes with your personal Ed25519 key
+      description: >
+        Requires a recent second factor (P0.2) AND your signing passphrase. The
+        passphrase unwraps your private key for exactly one signature; the server
+        never stores it and therefore cannot sign on your behalf. Enroll a key
+        first via POST /signing-keys.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase]
+              properties:
+                passphrase:
+                  type: string
+                  description: Your signing passphrase (never stored).
+      responses:
+        "200":
+          description: Signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MinutesSignature"
+        "400":
+          description: Passphrase missing, or minutes not in signing status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Signing passphrase incorrect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Not eligible to sign, no signing key, or MFA required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /minutes/{id}/signature/verify:
+    get:
+      operationId: verifyMinutesSignatures
+      tags: [minutes]
+      summary: Verify every signature on these minutes
+      description: >
+        Each signature is checked twice: the content hash it committed to must
+        still match the live text, and the Ed25519 signature must verify over the
+        canonical payload rebuilt from persisted data. Signatures made before
+        cryptographic signing existed report `legacy_unverifiable` — never
+        "verified". Returns 409 if any signature is `invalid`.
       parameters:
         - name: id
           in: path
@@ -861,11 +1169,133 @@ paths:
             type: string
       responses:
         "200":
-          description: Signed
+          description: All signatures verified (or only legacy rows present)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MinutesSignature"
+                $ref: "#/components/schemas/MinutesSignatureVerification"
+        "409":
+          description: At least one signature does not verify
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MinutesSignatureVerification"
+
+  /minutes/{id}/export:
+    get:
+      operationId: exportSignedMinutes
+      tags: [minutes]
+      summary: Signed-minutes bundle for OFFLINE verification
+      description: >
+        A self-contained JSON bundle — content, signatures, and the signers'
+        public keys — verifiable with no database and no server via
+        `node scripts/verify-minutes.mjs bundle.json --fingerprint <hex>`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The signed bundle (downloaded as an attachment)
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /signing-keys:
+    post:
+      operationId: enrollSigningKey
+      tags: [signing-keys]
+      summary: Enroll your Ed25519 signing key
+      description: >
+        The passphrase wraps the private key (scrypt → AES-256-GCM) and is NOT
+        stored, so the server cannot sign for you. Returns the public-key
+        fingerprint — record it outside this system; it is what later proves the
+        key on file is still yours.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase]
+              properties:
+                passphrase:
+                  type: string
+                  minLength: 12
+      responses:
+        "201":
+          description: Key enrolled; fingerprint returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrolled:
+                    type: boolean
+                  keyId:
+                    type: string
+                  algorithm:
+                    type: string
+                  fingerprint:
+                    type: string
+                  notice:
+                    type: string
+        "409":
+          description: A signing key is already enrolled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: revokeSigningKey
+      tags: [signing-keys]
+      summary: Revoke your signing key (past signatures still verify)
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+                  keyId:
+                    type: string
+        "404":
+          description: No active signing key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /signing-keys/me:
+    get:
+      operationId: getMySigningKey
+      tags: [signing-keys]
+      summary: Your signing key's public identity (never the private half)
+      responses:
+        "200":
+          description: Key metadata, or `enrolled: false`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrolled:
+                    type: boolean
+                  keyId:
+                    type: string
+                  algorithm:
+                    type: string
+                  fingerprint:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
 
   /minutes/{id}/comments:
     get:
@@ -1414,7 +1844,106 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditPerson"
 
+  /audit/verify:
+    get:
+      operationId: verifyAuditChain
+      tags: [audit]
+      summary: Verify the audit hash chain (admin only)
+      description: >
+        Replays the audit hash chain and reports the first broken link. Detects a
+        naive edit; a full re-seal by an actor with database write access is not
+        detectable without the external anchor (see SECURITY.md).
+      responses:
+        "200":
+          description: Chain intact
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  count: { type: integer }
+        "409":
+          description: Chain broken — a link does not verify
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  count: { type: integer }
+                  brokenAtIndex: { type: integer }
+                  brokenRowId: { type: string }
+
   # ── Deleted records: recycle bin + restore (issue #11) ──
+  /legal-holds:
+    get:
+      operationId: listLegalHolds
+      tags: [legal-holds]
+      summary: List legal holds (admin only; active by default, ?all=true for released)
+      responses:
+        "200":
+          description: Holds
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+    post:
+      operationId: placeLegalHold
+      tags: [legal-holds]
+      summary: Place a legal hold on an entity or board (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entityType, entityId, reason]
+              properties:
+                entityType: { type: string, enum: [board, meeting, document, vote, task] }
+                entityId: { type: string }
+                reason: { type: string }
+      responses:
+        "201": { description: Hold placed }
+        "400": { description: Invalid input }
+
+  /legal-holds/{id}/release:
+    post:
+      operationId: releaseLegalHold
+      tags: [legal-holds]
+      summary: Release a legal hold (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Released }
+        "404": { description: Not found }
+        "409": { description: Already released }
+
+  /access-events:
+    get:
+      operationId: listAccessEvents
+      tags: [access-events]
+      summary: Append-only access-change log for one entity (admin only)
+      parameters:
+        - { name: entityType, in: query, required: true, schema: { type: string } }
+        - { name: entityId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Events, content: { application/json: { schema: { type: array, items: { type: object } } } } }
+
+  /access-events/reconstruct:
+    get:
+      operationId: reconstructAccess
+      tags: [access-events]
+      summary: Who could access an entity as of a date (admin only)
+      parameters:
+        - { name: entityType, in: query, required: true, schema: { type: string } }
+        - { name: entityId, in: query, required: true, schema: { type: string } }
+        - { name: asOf, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        "200": { description: Reconstructed access set, content: { application/json: { schema: { type: object } } } }
+
   /deleted-records:
     get:
       operationId: listDeletedRecords
@@ -1921,6 +2450,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrganizationInfo"
+
+  /system/config:
+    get:
+      operationId: getSystemConfig
+      tags: [system]
+      summary: Non-secret runtime config for the admin UI (e.g. demoMode)
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  demoMode: { type: boolean }
 
   /system/export:
     get:
@@ -2874,10 +3418,86 @@ components:
           type: string
         signatureHash:
           type: string
+          nullable: true
+          description: Legacy, pre-P0.1. Unkeyed and unverifiable; never evidence of anything.
+        signature:
+          type: string
+          nullable: true
+          description: Detached Ed25519 signature over the canonical payload, base64.
+        algorithm:
+          type: string
+          nullable: true
+        signingKeyId:
+          type: string
+          nullable: true
+        publicKey:
+          type: string
+          nullable: true
+          description: A copy of the signer's public key, so the signature verifies standalone.
+        contentSha256:
+          type: string
+          nullable: true
+          description: Hash of the minutes content AT SIGNING — a later edit no longer verifies.
+        signerName:
+          type: string
+          nullable: true
+        payloadVersion:
+          type: string
+          nullable: true
         signedAt:
           type: string
         person:
           $ref: "#/components/schemas/Person"
+
+    MinutesSignatureVerification:
+      type: object
+      properties:
+        minutesId:
+          type: string
+        contentSha256:
+          type: string
+        ok:
+          type: boolean
+        counts:
+          type: object
+          properties:
+            verified:
+              type: integer
+            invalid:
+              type: integer
+            legacy_unverifiable:
+              type: integer
+        signatures:
+          type: array
+          items:
+            type: object
+            properties:
+              signatureId:
+                type: string
+              signerId:
+                type: string
+              signerName:
+                type: string
+                nullable: true
+              signerEmail:
+                type: string
+                nullable: true
+              signedAt:
+                type: string
+              algorithm:
+                type: string
+                nullable: true
+              publicKey:
+                type: string
+                nullable: true
+              status:
+                type: string
+                enum: [verified, invalid, legacy_unverifiable]
+              reason:
+                type: string
+        caveat:
+          type: string
+          description: States plainly what a verified signature does NOT prove. See docs/SIGNING.md.
       required:
         - id
         - minutesId

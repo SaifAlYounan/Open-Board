@@ -26,9 +26,10 @@ import { evaluateByRule, computeTally, computeCertificateHash, computeLegacyCert
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
-import { grantDefaultAccess, hasAccess } from "../lib/access";
+import { grantDefaultAccess, hasAccess, accessibleEntityIds } from "../lib/access";
+import { isUnderHold } from "../lib/legalHold";
 import { groupBy } from "../lib/group";
-import { audit } from "../lib/auditLog";
+import { audit, auditInTx } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
 import { triggerWorkflowNextStage } from "../lib/workflowTrigger";
 import { logger } from "../lib/logger";
@@ -145,17 +146,8 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
   if (typeof boardId === "string") conds.push(eq(votesTable.boardId, boardId));
   if (typeof status === "string") conds.push(eq(votesTable.status, status as never));
   if (user.role !== "admin") {
-    const accessible = await db
-      .select({ id: accessControlTable.entityId })
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.entityType, "vote"),
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const ids = accessible.map((a) => a.id).filter((v): v is string => v != null);
+    // One access model: membership OR unexpired grant, minus deny (lib/access.ts).
+    const ids = await accessibleEntityIds(user.id, "vote");
     if (ids.length === 0) {
       res.json([]);
       return;
@@ -274,56 +266,61 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
     resolutionNumber = await nextResolutionNumber(db, board?.abbreviation || "GEN");
   }
 
-  const [vote] = await db
-    .insert(votesTable)
-    .values({
-      boardId,
-      meetingId,
-      resolutionNumber,
-      title: cleanTitle,
-      resolutionText: cleanResolutionText,
-      type,
-      deadline: deadline ? new Date(deadline) : null,
-      secret: secret === true,
-    })
-    .returning();
-
-  if (rule) {
-    const [insertedRule] = await db
-      .insert(approvalRulesTable)
-      .values({
-        voteId: vote.id,
-        type: rule.type || "majority",
-        minApprovals: rule.minApprovals,
-        quorum: rule.quorum,
-        weighted: rule.weighted || false,
-        deadlineBehavior: rule.deadlineBehavior || "lapse",
-      })
-      .returning();
-
-    if (rule.requiredVoterIds?.length) {
-      await db.insert(approvalRuleRequiredVotersTable).values(
-        rule.requiredVoterIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
-      );
-    }
-    if (rule.recusedIds?.length) {
-      await db.insert(approvalRuleRecusalsTable).values(
-        rule.recusedIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
-      );
-    }
-  }
-
-  await grantDefaultAccess("vote", vote.id, boardId);
-
   const [board] = boardId
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, boardId))
     : [null];
+
+  // Fail-closed (P0.6): the vote, its approval rule, access grants, and the
+  // audit entry commit together.
+  const vote = await db.transaction(async (tx) => {
+    const [v] = await tx
+      .insert(votesTable)
+      .values({
+        boardId,
+        meetingId,
+        resolutionNumber,
+        title: cleanTitle,
+        resolutionText: cleanResolutionText,
+        type,
+        deadline: deadline ? new Date(deadline) : null,
+        secret: secret === true,
+      })
+      .returning();
+
+    if (rule) {
+      const [insertedRule] = await tx
+        .insert(approvalRulesTable)
+        .values({
+          voteId: v.id,
+          type: rule.type || "majority",
+          minApprovals: rule.minApprovals,
+          quorum: rule.quorum,
+          weighted: rule.weighted || false,
+          deadlineBehavior: rule.deadlineBehavior || "lapse",
+        })
+        .returning();
+
+      if (rule.requiredVoterIds?.length) {
+        await tx.insert(approvalRuleRequiredVotersTable).values(
+          rule.requiredVoterIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
+        );
+      }
+      if (rule.recusedIds?.length) {
+        await tx.insert(approvalRuleRecusalsTable).values(
+          rule.recusedIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
+        );
+      }
+    }
+
+    await grantDefaultAccess("vote", v.id, boardId, [], tx);
+    await auditInTx(tx, req, "vote_created", "vote", v.id, { title: v.title, resolutionNumber: v.resolutionNumber, boardName: board?.name });
+    return v;
+  });
 
   const members = boardId
     ? await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, boardId))
     : [];
 
-  audit(req, "vote_created", "vote", vote.id, { title: vote.title, resolutionNumber: vote.resolutionNumber, boardName: board?.name });
   emitInvalidate("votes", { boardId, id: vote.id });
   res.status(201).json({
     ...vote,
@@ -600,17 +597,21 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     }
   }
 
-  const [vote] = await db.update(votesTable).set(updates).where(eq(votesTable.id, id)).returning();
+  // Fail-closed (P0.6): the update and its audit entries commit together.
+  const vote = await db.transaction(async (tx) => {
+    const [v] = await tx.update(votesTable).set(updates).where(eq(votesTable.id, id)).returning();
+    if (!v) return null;
+    await auditInTx(tx, req, "vote_updated", "vote", id, { changed: Object.keys(updates), status: status ?? undefined });
+    if (status === "cancelled") {
+      // Distinct audit event for the lifecycle cancel (cancel ≠ delete — every
+      // cast ballot and the vote row itself stay on the record).
+      await auditInTx(tx, req, "vote_cancelled", "vote", id, { title: v.title, resolutionNumber: v.resolutionNumber });
+    }
+    return v;
+  });
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
-  }
-
-  await audit(req, "vote_updated", "vote", id, { changed: Object.keys(updates), status: status ?? undefined });
-  if (status === "cancelled") {
-    // Distinct audit event for the lifecycle cancel (cancel ≠ delete — every
-    // cast ballot and the vote row itself stay on the record).
-    await audit(req, "vote_cancelled", "vote", id, { title: vote.title, resolutionNumber: vote.resolutionNumber });
   }
   emitInvalidate("votes", { boardId: vote.boardId, id });
 
@@ -649,6 +650,11 @@ router.delete("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req,
     return;
   }
 
+  if (await isUnderHold("vote", id, vote.boardId)) {
+    res.status(409).json({ error: "This vote is under a legal hold and cannot be deleted." });
+    return;
+  }
+
   const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
   if (records.length > 0) {
     res.status(409).json({ error: "Cannot delete a vote that has received votes. Use Cancel Vote instead." });
@@ -659,30 +665,39 @@ router.delete("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req,
   const docs = await db.select().from(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
   const proxies = await db.select().from(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
 
-  // Retain a snapshot of the vote, its documents, and proxy grants before the cascade delete.
-  await retainDeleted(req, "vote", id, { vote, documents: docs, proxies });
-  await db.delete(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
+  // Retain a snapshot of the vote, its documents, and proxy grants before the
+  // cascade delete. Fail-closed (P0.6): snapshot, deletes, and audit commit
+  // together; files on disk are unlinked only after the transaction commits
+  // (an unlink cannot be rolled back).
+  await db.transaction(async (tx) => {
+    await retainDeleted(req, "vote", id, { vote, documents: docs, proxies }, tx);
+    await tx.delete(voteProxiesTable).where(eq(voteProxiesTable.voteId, id));
+    await tx.delete(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
+
+    // Delete approval rule and its children
+    const [rule] = await tx.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
+    if (rule) {
+      await tx.delete(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, rule.id));
+      await tx.delete(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id));
+      await tx.delete(approvalRulesTable).where(eq(approvalRulesTable.id, rule.id));
+    }
+
+    // Delete access control entries
+    await tx.delete(accessControlTable).where(
+      and(eq(accessControlTable.entityType, "vote"), eq(accessControlTable.entityId, id))
+    );
+
+    // Take the votes[id] row lock (this delete) BEFORE the audit advisory lock,
+    // so this transaction acquires locks in the same order as every other
+    // audited vote route (mutate first, audit last). Auditing before this delete
+    // would invert that order and deadlock against a concurrent PATCH /votes/:id.
+    await tx.delete(votesTable).where(eq(votesTable.id, id));
+    await auditInTx(tx, req, "vote_deleted", "vote", id, { title: vote.title });
+  });
 
   for (const doc of docs) {
     if (doc.filePath && fs.existsSync(doc.filePath)) fs.unlinkSync(doc.filePath);
   }
-  await db.delete(voteDocumentsTable).where(eq(voteDocumentsTable.voteId, id));
-
-  // Delete approval rule and its children
-  const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
-  if (rule) {
-    await db.delete(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, rule.id));
-    await db.delete(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id));
-    await db.delete(approvalRulesTable).where(eq(approvalRulesTable.id, rule.id));
-  }
-
-  // Delete access control entries
-  await db.delete(accessControlTable).where(
-    and(eq(accessControlTable.entityType, "vote"), eq(accessControlTable.entityId, id))
-  );
-
-  audit(req, "vote_deleted", "vote", id, { title: vote.title });
-  await db.delete(votesTable).where(eq(votesTable.id, id));
   emitInvalidate("votes", { boardId: vote.boardId, id });
   res.sendStatus(204);
 });
@@ -808,30 +823,39 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       .from(voteRecordsTable)
       .where(and(eq(voteRecordsTable.voteId, id), eq(voteRecordsTable.personId, ballotOwnerId)));
 
+    // Fail-closed (P0.6): the ballot write and its audit entries commit together.
     let record;
     if (existing) {
       if (!castBy && existing.castBy) {
-        [record] = await db
-          .update(voteRecordsTable)
-          .set({ decision, comment: sanitizedComment, weight: ballotWeight, castBy: null, votedAt: new Date() })
-          .where(eq(voteRecordsTable.id, existing.id))
-          .returning();
-        await audit(req, "vote_proxy_superseded", "vote", id, {
-          principalId: ballotOwnerId,
-          previousCastBy: existing.castBy,
-          previousDecision: existing.decision,
-          decision,
-          voteTitle: vote.title,
+        [record] = await db.transaction(async (tx) => {
+          const rows = await tx
+            .update(voteRecordsTable)
+            .set({ decision, comment: sanitizedComment, weight: ballotWeight, castBy: null, votedAt: new Date() })
+            .where(eq(voteRecordsTable.id, existing.id))
+            .returning();
+          await auditInTx(tx, req, "vote_proxy_superseded", "vote", id, {
+            principalId: ballotOwnerId,
+            previousCastBy: existing.castBy,
+            previousDecision: existing.decision,
+            decision,
+            voteTitle: vote.title,
+          });
+          await auditInTx(tx, req, "vote_cast", "vote", id, { decision, voteTitle: vote.title });
+          return rows;
         });
       } else {
         res.status(409).json({ error: castBy ? "This member has already voted" : "You have already voted" });
         return;
       }
     } else {
-      [record] = await db
-        .insert(voteRecordsTable)
-        .values({ voteId: id, personId: ballotOwnerId, decision, comment: sanitizedComment, weight: ballotWeight, castBy })
-        .returning();
+      [record] = await db.transaction(async (tx) => {
+        const rows = await tx
+          .insert(voteRecordsTable)
+          .values({ voteId: id, personId: ballotOwnerId, decision, comment: sanitizedComment, weight: ballotWeight, castBy })
+          .returning();
+        await auditInTx(tx, req, "vote_cast", "vote", id, { decision, voteTitle: vote.title, ...(castBy ? { asProxyFor: ballotOwnerId } : {}) });
+        return rows;
+      });
     }
 
     if (vote.boardId) {
@@ -890,7 +914,6 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
     // proxy cast) — with the holder attributed via castBy.
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, ballotOwnerId));
     const { passwordHash: _, ...safePerson } = person;
-    audit(req, "vote_cast", "vote", id, { decision, voteTitle: vote.title, ...(castBy ? { asProxyFor: ballotOwnerId } : {}) });
     emitInvalidate("votes", { boardId: vote.boardId, id });
     res.json({ ...record, person: safePerson });
   } catch (err: unknown) {
@@ -999,15 +1022,18 @@ router.post("/votes/:id/proxies", requireAuth, requireAdmin, writeLimiter, async
     return;
   }
 
-  const [proxy] = await db
-    .insert(voteProxiesTable)
-    .values({ voteId: id, principalId, holderId, createdBy: req.user!.id })
-    .returning();
+  // Fail-closed (P0.6): the proxy grant and its audit entry commit together.
+  const [proxy] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(voteProxiesTable)
+      .values({ voteId: id, principalId, holderId, createdBy: req.user!.id })
+      .returning();
+    await auditInTx(tx, req, "vote_proxy_granted", "vote", id, { principalId, holderId, voteTitle: vote.title });
+    return rows;
+  });
 
   const namedPeople = await db.select().from(peopleTable).where(inArray(peopleTable.id, [principalId, holderId]));
   const nameOf = (pid: string) => namedPeople.find((p) => p.id === pid)?.name ?? null;
-
-  await audit(req, "vote_proxy_granted", "vote", id, { principalId, holderId, voteTitle: vote.title });
   emitInvalidate("votes", { boardId: vote.boardId, id, userIds: [principalId, holderId] });
   res.status(201).json({ ...proxy, principalName: nameOf(principalId), holderName: nameOf(holderId), used: false });
 });
@@ -1042,8 +1068,11 @@ router.delete("/votes/:id/proxies/:proxyId", requireAuth, requireAdmin, writeLim
     return;
   }
 
-  await db.delete(voteProxiesTable).where(eq(voteProxiesTable.id, proxyId));
-  await audit(req, "vote_proxy_revoked", "vote", id, { principalId: proxy.principalId, holderId: proxy.holderId });
+  // Fail-closed (P0.6): the revocation and its audit entry commit together.
+  await db.transaction(async (tx) => {
+    await tx.delete(voteProxiesTable).where(eq(voteProxiesTable.id, proxyId));
+    await auditInTx(tx, req, "vote_proxy_revoked", "vote", id, { principalId: proxy.principalId, holderId: proxy.holderId });
+  });
   emitInvalidate("votes", { boardId: vote.boardId, id, userIds: [proxy.principalId, proxy.holderId] });
   res.sendStatus(204);
 });
@@ -1126,20 +1155,23 @@ router.post("/votes/:id/documents", requireAuth, writeLimiter, (req, res, next) 
   const { originalname, path: filePath, size, mimetype } = req.file;
   const title = (req.body.title as string) || originalname;
 
-  const [doc] = await db
-    .insert(voteDocumentsTable)
-    .values({
-      voteId: id,
-      title,
-      filename: originalname,
-      filePath,
-      fileSize: size,
-      mimeType: mimetype,
-      uploadedBy: user.id,
-    })
-    .returning();
-
-  audit(req, "vote_material_uploaded", "vote", id, { filename: originalname, title, voteTitle: vote.title });
+  // Fail-closed (P0.6): the material and its audit entry commit together.
+  const [doc] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(voteDocumentsTable)
+      .values({
+        voteId: id,
+        title,
+        filename: originalname,
+        filePath,
+        fileSize: size,
+        mimeType: mimetype,
+        uploadedBy: user.id,
+      })
+      .returning();
+    await auditInTx(tx, req, "vote_material_uploaded", "vote", id, { filename: originalname, title, voteTitle: vote.title });
+    return rows;
+  });
   res.status(201).json({ ...doc, uploaderName: user.name || null });
 });
 
@@ -1154,11 +1186,17 @@ router.delete("/votes/:id/documents/:docId", requireAuth, requireAdmin, async (r
     return;
   }
 
+  // Fail-closed (P0.6): the delete and its audit entry commit together (this
+  // route previously deleted vote material with NO audit record at all). The
+  // file is unlinked only after the transaction commits.
+  await db.transaction(async (tx) => {
+    await tx.delete(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
+    await auditInTx(tx, req, "vote_material_deleted", "vote", id, { filename: doc.filename, docId });
+  });
+
   if (doc.filePath && fs.existsSync(doc.filePath)) {
     fs.unlinkSync(doc.filePath);
   }
-
-  await db.delete(voteDocumentsTable).where(eq(voteDocumentsTable.id, docId));
   res.sendStatus(204);
 });
 
@@ -1185,7 +1223,8 @@ router.get("/votes/:id/documents/:docId/download", requireAuth, async (req, res)
     return;
   }
 
-  audit(req, "vote_material_downloaded", "vote", req.params.id as string, { filename: doc.filename, docId });
+  // Fail-closed (P0.6): a download that cannot be audited is not served.
+  await audit(req, "vote_material_downloaded", "vote", req.params.id as string, { filename: doc.filename, docId });
   const safeFilename = doc.filename.replace(/[^\w.\-]/g, "_");
   res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
   res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");

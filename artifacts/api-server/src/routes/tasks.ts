@@ -18,8 +18,10 @@ import { parsePagination } from "../lib/pagination";
 import { pick } from "../lib/pick";
 import { callAI, aiConfigured, REVIEW_PROMPT } from "../lib/ai";
 import { extractText, UPLOADS_DIR } from "../lib/extractText";
-import { grantDefaultAccess } from "../lib/access";
-import { audit } from "../lib/auditLog";
+import { wrapUntrusted } from "../lib/promptInjection";
+import { grantDefaultAccess, accessibleEntityIds } from "../lib/access";
+import { isUnderHold } from "../lib/legalHold";
+import { auditInTx } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
@@ -75,17 +77,7 @@ router.get("/tasks", requireAuth, async (req, res): Promise<void> => {
   if (typeof status === "string") conds.push(eq(tasksTable.status, status as never));
 
   if (user.role !== "admin" && user.role !== "management") {
-    const accessible = await db
-      .select({ id: accessControlTable.entityId })
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.entityType, "task"),
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const ids = accessible.map((a) => a.id).filter((v): v is string => v != null);
+    const ids = await accessibleEntityIds(user.id, "task");
     if (ids.length === 0) {
       res.json([]);
       return;
@@ -128,32 +120,39 @@ router.post("/tasks", requireAuth, requireAdmin, writeLimiter, async (req, res):
   const { boardId, title, description, assigneeId, sourceMeetingId, sourceMinutesId, dueDate, sourceParagraph } = parsed;
 
   const taskNumber = await getNextTaskNumber();
-  const [task] = await db
-    .insert(tasksTable)
-    .values({
-      boardId,
-      title: sanitizeText(title),
-      description: description ? sanitizeText(description) : undefined,
-      assigneeId,
-      sourceMeetingId,
-      sourceMinutesId,
-      dueDate,
-      sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
-      taskNumber,
-    })
-    .returning();
-  if (!task) { res.status(500).json({ error: "Failed to create task" }); return; }
+  // Fail-closed (P0.6): the task, its access grants, and the audit entry
+  // commit together.
+  const task = await db.transaction(async (tx) => {
+    const [t] = await tx
+      .insert(tasksTable)
+      .values({
+        boardId,
+        title: sanitizeText(title),
+        description: description ? sanitizeText(description) : undefined,
+        assigneeId,
+        sourceMeetingId,
+        sourceMinutesId,
+        dueDate,
+        sourceParagraph: sourceParagraph ? sanitizeText(sourceParagraph) : undefined,
+        taskNumber,
+      })
+      .returning();
+    if (!t) return null;
 
-  // Grant access to assignee + admins
-  const additionalIds = assigneeId ? [assigneeId] : [];
-  await grantDefaultAccess("task", task.id, boardId, additionalIds);
+    // Grant access to assignee + admins
+    const additionalIds = assigneeId ? [assigneeId] : [];
+    await grantDefaultAccess("task", t.id, boardId, additionalIds, tx);
+
+    await auditInTx(tx, req, "task_created", "task", t.id, { title: t.title, taskNumber: t.taskNumber });
+    return t;
+  });
+  if (!task) { res.status(500).json({ error: "Failed to create task" }); return; }
 
   const assignee = assigneeId
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, assigneeId))
     : [];
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
 
-  audit(req, "task_created", "task", task.id, { title: task.title, taskNumber: task.taskNumber });
   emitInvalidate("tasks", { boardId: task.boardId, id: task.id, userIds: [task.assigneeId] });
   res.status(201).json({
     ...task,
@@ -245,7 +244,18 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
   if (status != null) updates.status = status;
   if (dueDate != null) updates.dueDate = dueDate;
 
-  const [task] = await db.update(tasksTable).set(updates).where(eq(tasksTable.id, id)).returning();
+  // Fail-closed (P0.6): the update and its audit entries commit together.
+  const task = await db.transaction(async (tx) => {
+    const [t] = await tx.update(tasksTable).set(updates).where(eq(tasksTable.id, id)).returning();
+    if (!t) return null;
+    await auditInTx(tx, req, "task_updated", "task", id, { status: t.status });
+    if (status === "cancelled") {
+      // Distinct audit event for the lifecycle cancel (cancel ≠ delete — the
+      // task row and its history stay on the record).
+      await auditInTx(tx, req, "task_cancelled", "task", id, { title: t.title, taskNumber: t.taskNumber });
+    }
+    return t;
+  });
   if (!task) {
     res.status(404).json({ error: "Task not found" });
     return;
@@ -255,13 +265,6 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     ? await db.select().from(peopleTable).where(eq(peopleTable.id, task.assigneeId))
     : [];
   const { passwordHash: _, ...safeAssignee } = assignee[0] || { passwordHash: "", id: "", email: "", name: "", role: "management" as const, createdAt: new Date() };
-
-  audit(req, "task_updated", "task", id, { status: task.status });
-  if (status === "cancelled") {
-    // Distinct audit event for the lifecycle cancel (cancel ≠ delete — the
-    // task row and its history stay on the record).
-    await audit(req, "task_cancelled", "task", id, { title: task.title, taskNumber: task.taskNumber });
-  }
   emitInvalidate("tasks", { boardId: task.boardId, id, userIds: [task.assigneeId] });
   res.json({ ...task, assignee: assignee[0] ? safeAssignee : null, sourceMeetingTitle: null });
 });
@@ -269,9 +272,16 @@ router.patch("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
 router.delete("/tasks/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id));
-  if (task) await retainDeleted(req, "task", id, task);
-  await db.delete(tasksTable).where(eq(tasksTable.id, id));
-  await audit(req, "task_deleted", "task", id, { title: task?.title });
+  if (task && (await isUnderHold("task", id, task.boardId))) {
+    res.status(409).json({ error: "This task is under a legal hold and cannot be deleted." });
+    return;
+  }
+  // Fail-closed (P0.6): retention snapshot, delete, and audit commit together.
+  await db.transaction(async (tx) => {
+    if (task) await retainDeleted(req, "task", id, task, tx);
+    await tx.delete(tasksTable).where(eq(tasksTable.id, id));
+    await auditInTx(tx, req, "task_deleted", "task", id, { title: task?.title });
+  });
   emitInvalidate("tasks", { boardId: task?.boardId, id, userIds: [task?.assigneeId] });
   res.sendStatus(204);
 });
@@ -303,23 +313,27 @@ router.post("/tasks/:id/evidence", requireAuth, writeLimiter, upload.single("fil
     return;
   }
 
-  // Create evidence record
-  const [evidence] = await db
-    .insert(taskEvidenceTable)
-    .values({
-      taskId,
-      submittedBy: user.id,
-      filePath,
-      fileName: originalname,
-      fileSize: size,
-      aiVerdict: "pending",
-      secretaryDecision: "pending",
-    })
-    .returning();
+  // Create evidence record. Fail-closed (P0.6): the evidence row, the task
+  // status change, and the audit entry commit together.
+  const evidence = await db.transaction(async (tx) => {
+    const [e] = await tx
+      .insert(taskEvidenceTable)
+      .values({
+        taskId,
+        submittedBy: user.id,
+        filePath,
+        fileName: originalname,
+        fileSize: size,
+        aiVerdict: "pending",
+        secretaryDecision: "pending",
+      })
+      .returning();
 
-  // Update task status
-  await db.update(tasksTable).set({ status: "evidence_submitted" }).where(eq(tasksTable.id, taskId));
-  audit(req, "task_evidence_uploaded", "task", taskId, { filename: originalname, taskTitle: task.title });
+    // Update task status
+    await tx.update(tasksTable).set({ status: "evidence_submitted" }).where(eq(tasksTable.id, taskId));
+    await auditInTx(tx, req, "task_evidence_uploaded", "task", taskId, { filename: originalname, taskTitle: task.title });
+    return e;
+  });
 
   // AI Review — evidence goes through real text extraction (PDF/DOCX/TXT),
   // never a raw-bytes read that feeds the model binary garbage.
@@ -330,14 +344,15 @@ router.post("/tasks/:id/evidence", requireAuth, writeLimiter, upload.single("fil
         ? extraction.text.slice(0, 12000)
         : `[Could not read file contents: ${extraction.error} File: ${originalname}, Size: ${size} bytes. Judge only on the metadata available and lean towards rejection with an explanation.]`;
 
+      // The evidence file is untrusted content — fenced as data, not
+      // instructions (P0.5 channel separation, see lib/promptInjection.ts).
       const reviewContent = `TASK_DETAILS:
 Task: ${task.title}
 Description: ${task.description || "N/A"}
 Source from minutes: ${task.sourceParagraph || "N/A"}
 Due date: ${task.dueDate || "N/A"}
 
-EVIDENCE:
-${evidenceText}`;
+${wrapUntrusted("EVIDENCE", evidenceText)}`;
 
       const result = await callAI("REVIEW", REVIEW_PROMPT, reviewContent);
       if (result.success && result.data) {
@@ -380,24 +395,30 @@ router.post("/tasks/:id/evidence/review", requireAuth, requireAdmin, writeLimite
     return;
   }
 
-  const [evidence] = await db
-    .update(taskEvidenceTable)
-    .set({ secretaryDecision: decision, secretaryComment: comment, reviewedAt: new Date() })
-    .where(eq(taskEvidenceTable.id, evidenceId))
-    .returning();
+  // Fail-closed (P0.6): the review decision, the task status change, and the
+  // audit entry commit together.
+  const evidence = await db.transaction(async (tx) => {
+    const [e] = await tx
+      .update(taskEvidenceTable)
+      .set({ secretaryDecision: decision, secretaryComment: comment, reviewedAt: new Date() })
+      .where(eq(taskEvidenceTable.id, evidenceId))
+      .returning();
+    if (!e) return null;
+
+    // Close task if confirmed
+    if (decision === "confirmed") {
+      await tx.update(tasksTable).set({ status: "done" }).where(eq(tasksTable.id, taskId));
+    } else {
+      await tx.update(tasksTable).set({ status: "in_progress" }).where(eq(tasksTable.id, taskId));
+    }
+    await auditInTx(tx, req, "task_evidence_reviewed", "task", taskId, { evidenceId, decision });
+    return e;
+  });
 
   if (!evidence) {
     res.status(404).json({ error: "Evidence not found" });
     return;
   }
-
-  // Close task if confirmed
-  if (decision === "confirmed") {
-    await db.update(tasksTable).set({ status: "done" }).where(eq(tasksTable.id, taskId));
-  } else {
-    await db.update(tasksTable).set({ status: "in_progress" }).where(eq(tasksTable.id, taskId));
-  }
-  await audit(req, "task_evidence_reviewed", "task", taskId, { evidenceId, decision });
   emitInvalidate("tasks", { id: taskId, userIds: [evidence.submittedBy] });
 
   const submitter = evidence.submittedBy

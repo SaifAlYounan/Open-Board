@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { db, peopleTable, boardMembershipsTable, boardsTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
-import { audit } from "../lib/auditLog";
+import { auditInTx } from "../lib/auditLog";
 import { sanitizeText } from "../lib/sanitize";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -72,12 +72,15 @@ router.post("/people", requireAuth, requireAdmin, async (req, res): Promise<void
 
   try {
     const passwordHash = await bcrypt.hash(initialPassword, 10);
-    const [person] = await db
-      .insert(peopleTable)
-      .values({ email, passwordHash, name: sanitizeText(name), role, title: title ? sanitizeText(title) : title, avatarColor, mustResetPassword: true })
-      .returning();
-
-    await audit(req, "person_created", "person", person.id, { email: person.email, role: person.role });
+    // Fail-closed (P0.6): the account and its audit entry commit together.
+    const [person] = await db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(peopleTable)
+        .values({ email, passwordHash, name: sanitizeText(name), role, title: title ? sanitizeText(title) : title, avatarColor, mustResetPassword: true })
+        .returning();
+      await auditInTx(tx, req, "person_created", "person", rows[0].id, { email: rows[0].email, role: rows[0].role });
+      return rows;
+    });
 
     // Invite email (additive): when we generated the password AND SMTP is
     // configured, reuse the reset-token flow so the new user sets their own
@@ -170,12 +173,17 @@ router.patch("/people/:id", requireAuth, requireAdmin, async (req, res): Promise
     if (active === false) updates.tokenVersion = sql`${peopleTable.tokenVersion} + 1`;
   }
 
-  const [person] = await db.update(peopleTable).set(updates).where(eq(peopleTable.id, id)).returning();
+  // Fail-closed (P0.6): the update and its audit entry commit together.
+  const person = await db.transaction(async (tx) => {
+    const [p] = await tx.update(peopleTable).set(updates).where(eq(peopleTable.id, id)).returning();
+    if (!p) return null;
+    await auditInTx(tx, req, "person_updated", "person", p.id, { changed: Object.keys(updates) });
+    return p;
+  });
   if (!person) {
     res.status(404).json({ error: "Person not found" });
     return;
   }
-  await audit(req, "person_updated", "person", person.id, { changed: Object.keys(updates) });
   const { passwordHash: _, ...safe } = person;
   res.json(safe);
 });
@@ -186,8 +194,11 @@ router.delete("/people/:id", requireAuth, requireAdmin, async (req, res): Promis
     res.status(409).json({ error: "Cannot delete the last active administrator." });
     return;
   }
-  await db.delete(peopleTable).where(eq(peopleTable.id, id));
-  await audit(req, "person_deleted", "person", id, {});
+  // Fail-closed (P0.6): the delete and its audit entry commit together.
+  await db.transaction(async (tx) => {
+    await tx.delete(peopleTable).where(eq(peopleTable.id, id));
+    await auditInTx(tx, req, "person_deleted", "person", id, {});
+  });
   res.sendStatus(204);
 });
 

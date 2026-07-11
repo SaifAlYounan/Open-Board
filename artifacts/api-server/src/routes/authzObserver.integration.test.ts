@@ -8,11 +8,11 @@
  *   F3 — a non-admin must not read board-less minutes (GET /minutes/:id).
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("observer / board-less authorization", () => {
   const BOARD_NAME = "Observer Authz Test Board";

@@ -11,6 +11,11 @@ export const documentsTable = pgTable("documents", {
   fileSize: integer("file_size"),
   mimeType: text("mime_type").default("application/pdf"),
   aiClassification: jsonb("ai_classification"),
+  // P0.5 — the text the extractor read (what the AI classifies), persisted so
+  // source_quote checks and later re-verification are possible. NULL until the
+  // background extraction has run; empty string when extraction failed.
+  extractedText: text("extracted_text"),
+  extractedAt: timestamp("extracted_at", { withTimezone: true }),
   confidential: boolean("confidential").notNull().default(false),
   confidentialNote: text("confidential_note"),
   uploadedBy: uuid("uploaded_by").references(() => peopleTable.id),

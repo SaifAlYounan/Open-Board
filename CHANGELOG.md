@@ -7,6 +7,45 @@ All notable changes are documented here. This project follows
 
 Post-3.0.0 follow-ups on `main` (not yet tagged).
 
+### Security — board-records hardening (audit findings F1, F6, F7, F10)
+
+- **Real electronic signatures on minutes (F6).** The old signature was an
+  unkeyed `sha256(content + name + timestamp)` over a timestamp that was never
+  stored — unrecomputable, forgeable by anyone with database access, and never
+  verified. Replaced with a **per-user Ed25519 signature**: each signer enrolls
+  a keypair whose private half is wrapped by a passphrase entered at signing
+  (scrypt → AES-256-GCM) and **never stored**, so the server cannot sign on a
+  director's behalf. Signatures verify in-app (`GET /api/minutes/:id/signature/verify`)
+  and **offline** from an exported bundle (`GET /api/minutes/:id/export` +
+  `scripts/verify-minutes.mjs`, an independent reimplementation needing no
+  database). Pre-existing signatures report `legacy_unverifiable`, never
+  "verified". Built to the eIDAS *advanced* bar; the qualified (QES) gap and the
+  key-substitution limit are documented in `docs/SIGNING.md`. Enroll via
+  `POST /api/signing-keys`.
+- **Two-factor authentication (F7).** TOTP MFA, mandatory for admins and for any
+  board member who can vote or sign. A correct password no longer yields a
+  session for an enrolled account — it yields a short-lived challenge that must
+  be exchanged for a session with a TOTP (or single-use, hashed recovery) code.
+  Signing, approving AI proposals, and exporting the record require the second
+  factor to have been proven *recently* (`MFA_FRESHNESS_SECONDS`, default 15 min).
+  Enrollment is passkey-ready. Password hashing raised from bcrypt cost 10 to 12
+  with transparent rehash on next sign-in. New dependency: `otplib`.
+- **Fail-closed audit trail (F10).** Every audited mutation now writes its audit
+  entry in the **same transaction**: if the entry cannot be written, the mutation
+  rolls back. Audited reads (document view/download, exports) are audited before
+  they are served, so an action that cannot be recorded is denied rather than
+  performed silently. Chain writes serialize on a Postgres advisory lock, so
+  concurrent requests — including multiple app containers on one database — can
+  never fork the hash chain.
+- **Prompt-injection mitigations (F1).** Untrusted document and evidence text is
+  fenced as data the model is told never to obey and that the document cannot
+  close from within; the extracted text is now **persisted** (`documents.extracted_text`);
+  and every AI-proposed action's `source_quote` is checked verbatim against it.
+  That quote check is a **hallucination guard, not an injection defense** — the
+  real defense (render-vs-extract divergence) needs OCR tooling and is not yet
+  built, so the human approval queue remains the barrier that matters. A CI
+  corpus exercises the classic injection families.
+
 ### Deployment
 - **Turnkey Docker deployment.** A single production image now serves the built SPA and the API from one
   process (`STATIC_DIR` + an Express SPA fallback that preserves the CSP and never shadows `/api` or

@@ -29,12 +29,45 @@ export function getProvider(): AiProvider {
   return "anthropic";
 }
 
+/**
+ * True when the active provider transmits document text OFF the deployment.
+ * The Anthropic provider is external; the openai-compatible provider points at an
+ * operator-run endpoint (local vLLM/Ollama/…) and is treated as in-boundary.
+ */
+export function providerIsExternal(): boolean {
+  return getProvider() === "anthropic";
+}
+
+/**
+ * True when the operator has explicitly acknowledged (P0.4) that an external
+ * provider may be used — i.e. that extracted board-document text, including
+ * passages the classifier flags as privileged, will leave the deployment.
+ */
+export function externalProviderAllowed(): boolean {
+  return process.env.AI_ALLOW_EXTERNAL_PROVIDER === "true";
+}
+
 /** True when the active provider has enough configuration to make calls. */
 export function aiConfigured(): boolean {
   if (getProvider() === "openai-compatible") {
     return !!process.env.AI_BASE_URL;
   }
-  return !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+  // Anthropic is EXTERNAL: document text leaves the deployment. A key alone is
+  // not enough — the operator must also set AI_ALLOW_EXTERNAL_PROVIDER=true, so
+  // the default (key present, no acknowledgement) sends nothing off-box.
+  const hasKey = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+  return hasKey && externalProviderAllowed();
+}
+
+/**
+ * True when an Anthropic key is present but the external-provider acknowledgement
+ * is missing — AI is effectively DISABLED and no text leaves. Used to warn the
+ * operator at boot that their key is doing nothing until they opt in.
+ */
+export function externalProviderKeyPresentButNotAllowed(): boolean {
+  if (getProvider() !== "anthropic") return false;
+  const hasKey = !!(process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY);
+  return hasKey && !externalProviderAllowed();
 }
 
 /**

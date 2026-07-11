@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   getProvider,
   aiConfigured,
+  externalProviderKeyPresentButNotAllowed,
   buildJsonSchema,
   parseStructured,
   estimateTokens,
@@ -46,6 +47,7 @@ function clearAiEnv(): void {
   delete process.env.AI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
+  delete process.env.AI_ALLOW_EXTERNAL_PROVIDER;
 }
 
 beforeEach(clearAiEnv);
@@ -72,15 +74,27 @@ describe("getProvider / aiConfigured", () => {
     }
   });
 
-  it("anthropic is configured by API key, openai-compatible by AI_BASE_URL", () => {
-    expect(aiConfigured()).toBe(false);
-    process.env.ANTHROPIC_API_KEY = "sk-ant-x";
-    expect(aiConfigured()).toBe(true);
-
+  it("openai-compatible (local) is configured by AI_BASE_URL alone", () => {
     process.env.AI_PROVIDER = "openai-compatible";
-    expect(aiConfigured()).toBe(false); // the anthropic key does not count here
+    expect(aiConfigured()).toBe(false);
     process.env.AI_BASE_URL = "http://localhost:11434/v1";
     expect(aiConfigured()).toBe(true);
+  });
+
+  it("P0.4: the external Anthropic provider needs a key AND an explicit acknowledgement", () => {
+    // A key alone is NOT enough — the default must not egress document text.
+    expect(aiConfigured()).toBe(false);
+    process.env.ANTHROPIC_API_KEY = "sk-ant-x";
+    expect(aiConfigured()).toBe(false); // key set, but not acknowledged → AI disabled
+    expect(externalProviderKeyPresentButNotAllowed()).toBe(true);
+
+    process.env.AI_ALLOW_EXTERNAL_PROVIDER = "true";
+    expect(aiConfigured()).toBe(true); // now acknowledged
+    expect(externalProviderKeyPresentButNotAllowed()).toBe(false);
+
+    // The acknowledgement without a key still doesn't enable it.
+    delete process.env.ANTHROPIC_API_KEY;
+    expect(aiConfigured()).toBe(false);
   });
 });
 

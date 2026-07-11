@@ -32,7 +32,8 @@ NODE_ENV=production
 DOMAIN=board.yourcompany.com
 ACME_EMAIL=you@yourcompany.com
 ALLOWED_ORIGIN=https://board.yourcompany.com
-# ANTHROPIC_API_KEY=sk-ant-...   # optional — enables the AI features
+# ANTHROPIC_API_KEY=sk-ant-...   # optional AI — needs AI_ALLOW_EXTERNAL_PROVIDER=true too
+# AI_ALLOW_EXTERNAL_PROVIDER=true  # required for the Anthropic path (document text leaves the box)
 # (or AI_PROVIDER=openai-compatible + AI_BASE_URL for a local model — see README)
 ```
 
@@ -65,7 +66,9 @@ Open `http://localhost:3000`. (No Caddy, plain http — for evaluation, not prod
 The repo includes a [`render.yaml`](render.yaml) blueprint. In Render → **New → Blueprint**, pick your
 fork of this repo. Render builds the Dockerfile, provisions a managed PostgreSQL, generates
 `SESSION_SECRET`, serves the app over HTTPS, and wires `ALLOWED_ORIGIN` to your Render URL
-automatically. Add `ANTHROPIC_API_KEY` in the dashboard to enable AI. (Railway works the same way —
+automatically. To enable AI, add `ANTHROPIC_API_KEY` **and** `AI_ALLOW_EXTERNAL_PROVIDER=true` in the
+dashboard (the second is the explicit acknowledgement that document text leaves the deployment).
+(Railway works the same way —
 point it at the repo and it builds the same `Dockerfile`.)
 
 ---
@@ -95,8 +98,9 @@ Every variable is documented in [`.env.example`](.env.example). The essentials:
 | `NODE_ENV` | `production` enables secure cookies and requires `ALLOWED_ORIGIN`. |
 | `DOMAIN` / `ACME_EMAIL` | Used by the `production` compose profile for automatic HTTPS. |
 | `ALLOWED_ORIGIN` | Your public origin, e.g. `https://board.yourcompany.com` (auto-set on Render). |
-| `ANTHROPIC_API_KEY` | Optional — enables document classification, search, and suggestions. |
-| `AI_PROVIDER` / `AI_BASE_URL` / `AI_API_KEY` | Optional — `AI_PROVIDER=openai-compatible` + `AI_BASE_URL` runs AI against a local OpenAI-compatible server instead of Anthropic (see README). |
+| `ANTHROPIC_API_KEY` + `AI_ALLOW_EXTERNAL_PROVIDER` | Optional AI — **both** are required to enable the Anthropic path (classification, search, suggestions). The flag acknowledges that document text leaves the deployment; without it AI stays off even with a key. |
+| `AI_PROVIDER` / `AI_BASE_URL` / `AI_API_KEY` | Optional — `AI_PROVIDER=openai-compatible` + `AI_BASE_URL` runs AI against a local OpenAI-compatible server instead of Anthropic (no egress flag needed; see README). |
+| `MFA_FRESHNESS_SECONDS` | Optional — re-verification window (seconds) for signing/approving/exporting. Default `900`. |
 | `POSTGRES_PASSWORD` | Optional — override the default database password. |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Optional — SMTP delivery for password-reset and account-invite emails. Unset = reset links appear in the server log only (the first-boot admin one-time password is always log-only). |
 | `APP_BASE_URL` | Set alongside SMTP — the public frontend URL used inside emailed reset links. |

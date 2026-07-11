@@ -1,6 +1,7 @@
 import type http from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { db, boardMembershipsTable, accessControlTable, peopleTable } from "@workspace/db";
+import { hasAccess } from "./access";
 import { eq, and } from "drizzle-orm";
 import { verifyToken } from "./auth";
 import { logger } from "./logger";
@@ -165,40 +166,14 @@ export function attachRealtime(
     socket.on("join:vote", async (voteId: string) => {
       if (!checkJoinRateLimit()) return;
       if (typeof voteId !== "string") return;
-      if (user.role !== "admin") {
-        const [access] = await db
-          .select()
-          .from(accessControlTable)
-          .where(
-            and(
-              eq(accessControlTable.entityType, "vote"),
-              eq(accessControlTable.entityId, voteId),
-              eq(accessControlTable.personId, user.userId),
-              eq(accessControlTable.hasAccess, true)
-            )
-          );
-        if (!access) return;
-      }
+      if (!(await hasAccess(user.userId, user.role, "vote", voteId))) return;
       socket.join(`vote:${voteId}`);
     });
 
     socket.on("join:minutes", async (minutesId: string) => {
       if (!checkJoinRateLimit()) return;
       if (typeof minutesId !== "string") return;
-      if (user.role !== "admin") {
-        const [access] = await db
-          .select()
-          .from(accessControlTable)
-          .where(
-            and(
-              eq(accessControlTable.entityType, "minutes"),
-              eq(accessControlTable.entityId, minutesId),
-              eq(accessControlTable.personId, user.userId),
-              eq(accessControlTable.hasAccess, true)
-            )
-          );
-        if (!access) return;
-      }
+      if (!(await hasAccess(user.userId, user.role, "minutes", minutesId))) return;
       socket.join(`minutes:${minutesId}`);
     });
 

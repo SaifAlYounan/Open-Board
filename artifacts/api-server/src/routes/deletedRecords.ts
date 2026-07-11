@@ -100,7 +100,16 @@ router.post(
     }
 
     try {
-      await restoreDeletedRecord(req, record);
+      // Fail-closed (P0.6): the re-insert, its audit entry, and the restoredAt
+      // stamp commit together — a restore can never happen half-way or unaudited.
+      await db.transaction(async (tx) => {
+        await restoreDeletedRecord(req, record, tx);
+        // Stamp the deletion row as restored — the deletion stays on the trail.
+        await tx
+          .update(deletedRecordsTable)
+          .set({ restoredAt: new Date(), restoredBy: req.user?.id ?? null })
+          .where(eq(deletedRecordsTable.id, id));
+      });
     } catch (err) {
       if (err instanceof RestoreConflictError) {
         res.status(409).json({ error: err.message });
@@ -110,12 +119,6 @@ router.post(
       res.status(500).json({ error: "Failed to restore record" });
       return;
     }
-
-    // Stamp the deletion row as restored — the deletion stays on the trail.
-    await db
-      .update(deletedRecordsTable)
-      .set({ restoredAt: new Date(), restoredBy: req.user?.id ?? null })
-      .where(eq(deletedRecordsTable.id, id));
 
     res.json({
       success: true,

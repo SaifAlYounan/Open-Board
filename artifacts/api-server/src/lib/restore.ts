@@ -15,7 +15,8 @@ import {
 import { eq, and, ne } from "drizzle-orm";
 import type { Request } from "express";
 import { grantDefaultAccess } from "./access";
-import { audit } from "./auditLog";
+import { auditInTx } from "./auditLog";
+import type { DbClient } from "./numbering";
 
 /**
  * The governance ENTITY TYPES that snapshot on delete and can be restored.
@@ -59,8 +60,8 @@ function toDate(v: unknown): Date | null {
   return v instanceof Date ? v : new Date(v as string);
 }
 
-async function rowExists(table: any, idColumn: any, id: string): Promise<boolean> {
-  const [row] = await db.select({ id: idColumn }).from(table).where(eq(idColumn, id)).limit(1);
+async function rowExists(table: any, idColumn: any, id: string, dbc: DbClient = db): Promise<boolean> {
+  const [row] = await dbc.select({ id: idColumn }).from(table).where(eq(idColumn, id)).limit(1);
   return !!row;
 }
 
@@ -96,10 +97,11 @@ export function snapshotTitle(entityType: string, snapshot: any): string {
  *  - Default access is re-granted (delete removed the access-control rows), so the
  *    restored record is visible to its board again, not just to admins.
  *
- * Throws RestoreConflictError for the guarded cases. The whole re-insert runs in
- * one transaction; the caller stamps restoredAt/restoredBy after this resolves.
+ * Throws RestoreConflictError for the guarded cases. Fail-closed (P0.6): the
+ * caller opens the transaction and passes it in — the re-insert, the audit
+ * entry, and the caller's restoredAt stamp all commit together.
  */
-export async function restoreDeletedRecord(req: Request, record: DeletedRecord): Promise<void> {
+export async function restoreDeletedRecord(req: Request, record: DeletedRecord, tx: DbClient): Promise<void> {
   if (record.restoredAt) {
     throw new RestoreConflictError("This record has already been restored.");
   }
@@ -111,42 +113,42 @@ export async function restoreDeletedRecord(req: Request, record: DeletedRecord):
 
   switch (record.entityType) {
     case "vote":
-      await restoreVote(record.entityId, snapshot);
+      await restoreVote(record.entityId, snapshot, tx);
       break;
     case "meeting":
-      await restoreMeeting(record.entityId, snapshot);
+      await restoreMeeting(record.entityId, snapshot, tx);
       break;
     case "task":
-      await restoreTask(record.entityId, snapshot);
+      await restoreTask(record.entityId, snapshot, tx);
       break;
     case "document":
-      await restoreDocument(record.entityId, snapshot);
+      await restoreDocument(record.entityId, snapshot, tx);
       break;
   }
 
-  await audit(req, "record_restored", record.entityType, record.entityId, {
+  await auditInTx(tx, req, "record_restored", record.entityType, record.entityId, {
     deletedRecordId: record.id,
   });
 }
 
-async function assertBoardAlive(boardId: string | null | undefined): Promise<void> {
+async function assertBoardAlive(boardId: string | null | undefined, dbc: DbClient = db): Promise<void> {
   if (!boardId) return; // nullable FK — nothing to check
-  if (!(await rowExists(boardsTable, boardsTable.id, boardId))) {
+  if (!(await rowExists(boardsTable, boardsTable.id, boardId, dbc))) {
     throw new RestoreConflictError("Cannot restore: the board this record belonged to no longer exists.");
   }
 }
 
-async function restoreVote(id: string, snapshot: any): Promise<void> {
+async function restoreVote(id: string, snapshot: any, tx: DbClient): Promise<void> {
   const vote = snapshot?.vote;
   if (!vote) throw new RestoreConflictError("Snapshot is missing the vote row; cannot restore.");
 
-  if (await rowExists(votesTable, votesTable.id, id)) {
+  if (await rowExists(votesTable, votesTable.id, id, tx)) {
     throw new RestoreConflictError("Cannot restore: a live vote with this id already exists.");
   }
   // resolutionNumber is UNIQUE across all votes — a different live vote may have
   // taken it since the delete.
   if (vote.resolutionNumber) {
-    const [clash] = await db
+    const [clash] = await tx
       .select({ id: votesTable.id })
       .from(votesTable)
       .where(and(eq(votesTable.resolutionNumber, vote.resolutionNumber), ne(votesTable.id, id)))
@@ -157,15 +159,15 @@ async function restoreVote(id: string, snapshot: any): Promise<void> {
       );
     }
   }
-  await assertBoardAlive(vote.boardId);
+  await assertBoardAlive(vote.boardId, tx);
   // meetingId is a nullable soft reference — null it if the meeting is gone.
   const meetingId =
-    vote.meetingId && (await rowExists(meetingsTable, meetingsTable.id, vote.meetingId)) ? vote.meetingId : null;
+    vote.meetingId && (await rowExists(meetingsTable, meetingsTable.id, vote.meetingId, tx)) ? vote.meetingId : null;
 
   const documents: any[] = Array.isArray(snapshot.documents) ? snapshot.documents : [];
   const proxies: any[] = Array.isArray(snapshot.proxies) ? snapshot.proxies : [];
 
-  await db.transaction(async (tx) => {
+  {
     await tx.insert(votesTable).values({
       id: vote.id,
       boardId: vote.boardId ?? null,
@@ -184,7 +186,7 @@ async function restoreVote(id: string, snapshot: any): Promise<void> {
 
     for (const doc of documents) {
       const uploadedBy =
-        doc.uploadedBy && (await rowExists(peopleTable, peopleTable.id, doc.uploadedBy)) ? doc.uploadedBy : null;
+        doc.uploadedBy && (await rowExists(peopleTable, peopleTable.id, doc.uploadedBy, tx)) ? doc.uploadedBy : null;
       await tx.insert(voteDocumentsTable).values({
         id: doc.id,
         voteId: id,
@@ -201,11 +203,11 @@ async function restoreVote(id: string, snapshot: any): Promise<void> {
     for (const proxy of proxies) {
       // A proxy needs both people alive (NOT NULL FKs) — skip any grant whose
       // principal or holder was deleted since; it is advisory, not the record.
-      const principalOk = await rowExists(peopleTable, peopleTable.id, proxy.principalId);
-      const holderOk = await rowExists(peopleTable, peopleTable.id, proxy.holderId);
+      const principalOk = await rowExists(peopleTable, peopleTable.id, proxy.principalId, tx);
+      const holderOk = await rowExists(peopleTable, peopleTable.id, proxy.holderId, tx);
       if (!principalOk || !holderOk) continue;
       const createdBy =
-        proxy.createdBy && (await rowExists(peopleTable, peopleTable.id, proxy.createdBy)) ? proxy.createdBy : null;
+        proxy.createdBy && (await rowExists(peopleTable, peopleTable.id, proxy.createdBy, tx)) ? proxy.createdBy : null;
       await tx.insert(voteProxiesTable).values({
         id: proxy.id,
         voteId: id,
@@ -215,20 +217,20 @@ async function restoreVote(id: string, snapshot: any): Promise<void> {
         createdAt: toDate(proxy.createdAt) ?? new Date(),
       });
     }
-  });
+  }
 
-  await grantDefaultAccess("vote", id, vote.boardId ?? null);
+  await grantDefaultAccess("vote", id, vote.boardId ?? null, [], tx);
 }
 
-async function restoreMeeting(id: string, snapshot: any): Promise<void> {
+async function restoreMeeting(id: string, snapshot: any, tx: DbClient): Promise<void> {
   const meeting = snapshot;
   if (!meeting?.id) throw new RestoreConflictError("Snapshot is missing the meeting row; cannot restore.");
-  if (await rowExists(meetingsTable, meetingsTable.id, id)) {
+  if (await rowExists(meetingsTable, meetingsTable.id, id, tx)) {
     throw new RestoreConflictError("Cannot restore: a live meeting with this id already exists.");
   }
-  await assertBoardAlive(meeting.boardId);
+  await assertBoardAlive(meeting.boardId, tx);
 
-  await db.insert(meetingsTable).values({
+  await tx.insert(meetingsTable).values({
     id: meeting.id,
     boardId: meeting.boardId ?? null,
     title: meeting.title,
@@ -238,17 +240,17 @@ async function restoreMeeting(id: string, snapshot: any): Promise<void> {
     createdAt: toDate(meeting.createdAt) ?? new Date(),
   });
 
-  await grantDefaultAccess("meeting", id, meeting.boardId ?? null);
+  await grantDefaultAccess("meeting", id, meeting.boardId ?? null, [], tx);
 }
 
-async function restoreTask(id: string, snapshot: any): Promise<void> {
+async function restoreTask(id: string, snapshot: any, tx: DbClient): Promise<void> {
   const task = snapshot;
   if (!task?.id) throw new RestoreConflictError("Snapshot is missing the task row; cannot restore.");
-  if (await rowExists(tasksTable, tasksTable.id, id)) {
+  if (await rowExists(tasksTable, tasksTable.id, id, tx)) {
     throw new RestoreConflictError("Cannot restore: a live task with this id already exists.");
   }
   if (task.taskNumber) {
-    const [clash] = await db
+    const [clash] = await tx
       .select({ id: tasksTable.id })
       .from(tasksTable)
       .where(and(eq(tasksTable.taskNumber, task.taskNumber), ne(tasksTable.id, id)))
@@ -259,21 +261,21 @@ async function restoreTask(id: string, snapshot: any): Promise<void> {
       );
     }
   }
-  await assertBoardAlive(task.boardId);
+  await assertBoardAlive(task.boardId, tx);
 
   // Nullable soft references: re-point only if the target still exists.
   const assigneeId =
-    task.assigneeId && (await rowExists(peopleTable, peopleTable.id, task.assigneeId)) ? task.assigneeId : null;
+    task.assigneeId && (await rowExists(peopleTable, peopleTable.id, task.assigneeId, tx)) ? task.assigneeId : null;
   const sourceMeetingId =
-    task.sourceMeetingId && (await rowExists(meetingsTable, meetingsTable.id, task.sourceMeetingId))
+    task.sourceMeetingId && (await rowExists(meetingsTable, meetingsTable.id, task.sourceMeetingId, tx))
       ? task.sourceMeetingId
       : null;
   const sourceMinutesId =
-    task.sourceMinutesId && (await rowExists(minutesTable, minutesTable.id, task.sourceMinutesId))
+    task.sourceMinutesId && (await rowExists(minutesTable, minutesTable.id, task.sourceMinutesId, tx))
       ? task.sourceMinutesId
       : null;
 
-  await db.insert(tasksTable).values({
+  await tx.insert(tasksTable).values({
     id: task.id,
     boardId: task.boardId ?? null,
     title: task.title,
@@ -289,20 +291,20 @@ async function restoreTask(id: string, snapshot: any): Promise<void> {
     createdAt: toDate(task.createdAt) ?? new Date(),
   });
 
-  await grantDefaultAccess("task", id, task.boardId ?? null);
+  await grantDefaultAccess("task", id, task.boardId ?? null, [], tx);
 }
 
-async function restoreDocument(id: string, snapshot: any): Promise<void> {
+async function restoreDocument(id: string, snapshot: any, tx: DbClient): Promise<void> {
   const doc = snapshot;
   if (!doc?.id) throw new RestoreConflictError("Snapshot is missing the document row; cannot restore.");
-  if (await rowExists(documentsTable, documentsTable.id, id)) {
+  if (await rowExists(documentsTable, documentsTable.id, id, tx)) {
     throw new RestoreConflictError("Cannot restore: a live document with this id already exists.");
   }
-  await assertBoardAlive(doc.boardId);
+  await assertBoardAlive(doc.boardId, tx);
   const uploadedBy =
-    doc.uploadedBy && (await rowExists(peopleTable, peopleTable.id, doc.uploadedBy)) ? doc.uploadedBy : null;
+    doc.uploadedBy && (await rowExists(peopleTable, peopleTable.id, doc.uploadedBy, tx)) ? doc.uploadedBy : null;
 
-  await db.insert(documentsTable).values({
+  await tx.insert(documentsTable).values({
     id: doc.id,
     boardId: doc.boardId ?? null,
     title: doc.title,
@@ -316,6 +318,6 @@ async function restoreDocument(id: string, snapshot: any): Promise<void> {
     uploadedBy,
     createdAt: toDate(doc.createdAt) ?? new Date(),
   });
-
-  await grantDefaultAccess("document", id, doc.boardId ?? null);
+  // No access grant here: a restored document with a board_id is visible to that
+  // board's members via live membership; a board-less one is admin-only.
 }

@@ -128,7 +128,7 @@ With a self-hosted platform: the organization's own security team has immediate 
           <Section
             number="8"
             title='"Board portals require enterprise-grade encryption"'
-            content={`LQGovernance uses open cryptographic standards you can verify in the source: bcryptjs (adaptive hashing) for password storage, SHA-256 for document-integrity verification and signature hashes, and JWT with configurable expiry for session management. Transport encryption (TLS) is terminated at your reverse proxy, and encrypted database connections (SSL) and encryption at rest are configured on your own infrastructure — the same operator-provided controls any self-hosted platform relies on.
+            content={`LQGovernance uses open cryptographic standards you can verify in the source: bcryptjs (adaptive hashing) for password storage, Ed25519 for per-user minutes signatures and SHA-256 for vote-certificate integrity, TOTP for two-factor authentication, and JWT with configurable expiry for session management. Transport encryption (TLS) is terminated at your reverse proxy, and encrypted database connections (SSL) and encryption at rest are configured on your own infrastructure — the same operator-provided controls any self-hosted platform relies on.
 
 There is no proprietary "enterprise-grade" encryption that differs from these open standards. SHA-256 is SHA-256; the mathematics do not change based on licensing fees. The difference is that with open source you can verify the implementation, and with closed source you trust a claim.`}
             question="Name one cryptographic algorithm in your platform that is not available in open source."

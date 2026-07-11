@@ -8,11 +8,11 @@
  * (no user enumeration), and only the side-effect (the send) differs.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("password emails — forgot-password + admin invite", () => {
   let app: any;
