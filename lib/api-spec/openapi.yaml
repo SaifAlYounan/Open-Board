@@ -1279,7 +1279,7 @@ paths:
       summary: Your signing key's public identity (never the private half)
       responses:
         "200":
-          description: Key metadata, or `enrolled: false`
+          description: "Key metadata, or `enrolled: false`"
           content:
             application/json:
               schema:

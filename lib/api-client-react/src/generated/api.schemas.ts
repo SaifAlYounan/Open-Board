@@ -666,12 +666,23 @@ export interface Minutes {
 }
 
 export interface MinutesSignature {
-  id: string;
-  minutesId: string;
-  personId: string;
-  signatureHash: string;
-  signedAt: string;
-  person: Person;
+  id?: string;
+  minutesId?: string;
+  personId?: string;
+  /** Legacy, pre-P0.1. Unkeyed and unverifiable; never evidence of anything. */
+  signatureHash?: string | null;
+  /** Detached Ed25519 signature over the canonical payload, base64. */
+  signature?: string | null;
+  algorithm?: string | null;
+  signingKeyId?: string | null;
+  /** A copy of the signer's public key, so the signature verifies standalone. */
+  publicKey?: string | null;
+  /** Hash of the minutes content AT SIGNING — a later edit no longer verifies. */
+  contentSha256?: string | null;
+  signerName?: string | null;
+  payloadVersion?: string | null;
+  signedAt?: string;
+  person?: Person;
 }
 
 export type MinutesCommentStatus =
@@ -710,6 +721,43 @@ export interface MinutesDetail {
   hasSigned: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type MinutesSignatureVerificationCounts = {
+  verified?: number;
+  invalid?: number;
+  legacy_unverifiable?: number;
+};
+
+export type MinutesSignatureVerificationSignaturesItemStatus =
+  (typeof MinutesSignatureVerificationSignaturesItemStatus)[keyof typeof MinutesSignatureVerificationSignaturesItemStatus];
+
+export const MinutesSignatureVerificationSignaturesItemStatus = {
+  verified: "verified",
+  invalid: "invalid",
+  legacy_unverifiable: "legacy_unverifiable",
+} as const;
+
+export type MinutesSignatureVerificationSignaturesItem = {
+  signatureId?: string;
+  signerId?: string;
+  signerName?: string | null;
+  signerEmail?: string | null;
+  signedAt?: string;
+  algorithm?: string | null;
+  publicKey?: string | null;
+  status?: MinutesSignatureVerificationSignaturesItemStatus;
+  reason?: string;
+};
+
+export interface MinutesSignatureVerification {
+  minutesId: string;
+  contentSha256?: string;
+  ok?: boolean;
+  counts?: MinutesSignatureVerificationCounts;
+  signatures?: MinutesSignatureVerificationSignaturesItem[];
+  /** States plainly what a verified signature does NOT prove. See docs/SIGNING.md. */
+  caveat?: string;
 }
 
 export interface CreateMinutesBody {
@@ -1439,6 +1487,77 @@ export interface ResetDataResponse {
   message: string;
 }
 
+export type VerifyMfaChallengeBody = {
+  /** The challenge token returned by /auth/login. */
+  mfaToken: string;
+  /** A 6-digit TOTP code, or one of the recovery codes. */
+  code: string;
+};
+
+export type VerifyMfaChallenge200 = {
+  user?: Person;
+  usedRecoveryCode?: boolean;
+  remainingRecoveryCodes?: number;
+};
+
+export type GetMfaStatus200Type =
+  | (typeof GetMfaStatus200Type)[keyof typeof GetMfaStatus200Type]
+  | null;
+
+export const GetMfaStatus200Type = {
+  totp: "totp",
+  webauthn: "webauthn",
+} as const;
+
+export type GetMfaStatus200 = {
+  enrolled?: boolean;
+  /** Mandatory for admins and non-observer board members. */
+  required?: boolean;
+  type?: GetMfaStatus200Type;
+  enrolledAt?: string | null;
+  remainingRecoveryCodes?: number;
+  verifiedThisSession?: boolean;
+};
+
+export type BeginMfaEnrollment200 = {
+  secret?: string;
+  otpauthUri?: string;
+};
+
+export type ConfirmMfaEnrollmentBody = {
+  code: string;
+};
+
+export type ConfirmMfaEnrollment200 = {
+  enrolled?: boolean;
+  recoveryCodes?: string[];
+};
+
+export type ReverifyMfaBody = {
+  code: string;
+};
+
+export type ReverifyMfa200 = {
+  verified?: boolean;
+};
+
+export type ReissueRecoveryCodesBody = {
+  password: string;
+};
+
+export type ReissueRecoveryCodes200 = {
+  recoveryCodes?: string[];
+};
+
+export type RemoveMfaBody = {
+  password: string;
+  code: string;
+};
+
+export type RemoveMfa200 = {
+  removed?: boolean;
+};
+
 export type ListMeetingsParams = {
   boardId?: string;
 };
@@ -1451,6 +1570,39 @@ export type ListVotesParams = {
 export type ListMinutesParams = {
   boardId?: string;
   status?: string;
+};
+
+export type SignMinutesBody = {
+  /** Your signing passphrase (never stored). */
+  passphrase: string;
+};
+
+export type ExportSignedMinutes200 = { [key: string]: unknown };
+
+export type EnrollSigningKeyBody = {
+  /** @minLength 12 */
+  passphrase: string;
+};
+
+export type EnrollSigningKey201 = {
+  enrolled?: boolean;
+  keyId?: string;
+  algorithm?: string;
+  fingerprint?: string;
+  notice?: string;
+};
+
+export type RevokeSigningKey200 = {
+  revoked?: boolean;
+  keyId?: string;
+};
+
+export type GetMySigningKey200 = {
+  enrolled?: boolean;
+  keyId?: string;
+  algorithm?: string;
+  fingerprint?: string;
+  createdAt?: string;
 };
 
 export type ListDocumentsParams = {
@@ -1475,6 +1627,52 @@ export type ListAuditEntriesParams = {
   offset?: number;
 };
 
+export type VerifyAuditChain200 = {
+  ok?: boolean;
+  count?: number;
+};
+
+export type VerifyAuditChain409 = {
+  ok?: boolean;
+  count?: number;
+  brokenAtIndex?: number;
+  brokenRowId?: string;
+};
+
+export type ListLegalHolds200Item = { [key: string]: unknown };
+
+export type PlaceLegalHoldBodyEntityType =
+  (typeof PlaceLegalHoldBodyEntityType)[keyof typeof PlaceLegalHoldBodyEntityType];
+
+export const PlaceLegalHoldBodyEntityType = {
+  board: "board",
+  meeting: "meeting",
+  document: "document",
+  vote: "vote",
+  task: "task",
+} as const;
+
+export type PlaceLegalHoldBody = {
+  entityType: PlaceLegalHoldBodyEntityType;
+  entityId: string;
+  reason: string;
+};
+
+export type ListAccessEventsParams = {
+  entityType: string;
+  entityId: string;
+};
+
+export type ListAccessEvents200Item = { [key: string]: unknown };
+
+export type ReconstructAccessParams = {
+  entityType: string;
+  entityId: string;
+  asOf?: string;
+};
+
+export type ReconstructAccess200 = { [key: string]: unknown };
+
 export type ListDeletedRecordsParams = {
   limit?: number;
   offset?: number;
@@ -1496,4 +1694,8 @@ export type SearchGraphParams = {
 export type ListWorkflowsParams = {
   limit?: number;
   offset?: number;
+};
+
+export type GetSystemConfig200 = {
+  demoMode?: boolean;
 };

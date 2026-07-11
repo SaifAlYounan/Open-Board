@@ -36,6 +36,111 @@ export const LoginResponse = zod.object({
 });
 
 /**
+ * When an account holds a confirmed second factor, POST /auth/login returns `{ mfaRequired: true, mfaToken }` and NO session. This is the only route that mints the session: it takes that short-lived challenge plus a valid TOTP code (or a single-use recovery code). A TOTP code cannot be replayed within its 30-second window.
+
+ * @summary Exchange an MFA challenge + TOTP (or recovery) code for a session
+ */
+export const VerifyMfaChallengeBody = zod.object({
+  mfaToken: zod
+    .string()
+    .describe("The challenge token returned by \/auth\/login."),
+  code: zod
+    .string()
+    .describe("A 6-digit TOTP code, or one of the recovery codes."),
+});
+
+export const VerifyMfaChallengeResponse = zod.object({
+  user: zod
+    .object({
+      id: zod.string(),
+      email: zod.string(),
+      name: zod.string(),
+      role: zod.enum(["admin", "member", "observer", "management"]),
+      title: zod.string().nullish(),
+      avatarColor: zod.string().nullish(),
+      createdAt: zod.string(),
+    })
+    .optional(),
+  usedRecoveryCode: zod.boolean().optional(),
+  remainingRecoveryCodes: zod.number().optional(),
+});
+
+/**
+ * @summary Whether this account has (or must have) a second factor
+ */
+export const GetMfaStatusResponse = zod.object({
+  enrolled: zod.boolean().optional(),
+  required: zod
+    .boolean()
+    .optional()
+    .describe("Mandatory for admins and non-observer board members."),
+  type: zod.enum(["totp", "webauthn"]).nullish(),
+  enrolledAt: zod.coerce.date().nullish(),
+  remainingRecoveryCodes: zod.number().optional(),
+  verifiedThisSession: zod.boolean().optional(),
+});
+
+/**
+ * Creates an UNCONFIRMED credential and returns the shared secret plus an otpauth:// URI for QR rendering. The factor does not count until it is confirmed with a valid code.
+
+ * @summary Start TOTP enrollment — returns the secret once
+ */
+export const BeginMfaEnrollmentResponse = zod.object({
+  secret: zod.string().optional(),
+  otpauthUri: zod.string().optional(),
+});
+
+/**
+ * @summary Confirm enrollment with a code — issues recovery codes once
+ */
+export const ConfirmMfaEnrollmentBody = zod.object({
+  code: zod.string(),
+});
+
+export const ConfirmMfaEnrollmentResponse = zod.object({
+  enrolled: zod.boolean().optional(),
+  recoveryCodes: zod.array(zod.string()).optional(),
+});
+
+/**
+ * Refreshes the session's MFA freshness stamp. Called when a signing, approving, or exporting route answers `mfa_reverification_required`.
+
+ * @summary Re-prove the second factor inside an existing session
+ */
+export const ReverifyMfaBody = zod.object({
+  code: zod.string(),
+});
+
+export const ReverifyMfaResponse = zod.object({
+  verified: zod.boolean().optional(),
+});
+
+/**
+ * @summary Re-issue recovery codes (invalidates the previous set)
+ */
+export const ReissueRecoveryCodesBody = zod.object({
+  password: zod.string(),
+});
+
+export const ReissueRecoveryCodesResponse = zod.object({
+  recoveryCodes: zod.array(zod.string()).optional(),
+});
+
+/**
+ * Refused with 403 for anyone whose role REQUIRES MFA (admins and non-observer board members) — a mandatory gate cannot be self-disarmed.
+
+ * @summary Remove the second factor (requires password + a current code)
+ */
+export const RemoveMfaBody = zod.object({
+  password: zod.string(),
+  code: zod.string(),
+});
+
+export const RemoveMfaResponse = zod.object({
+  removed: zod.boolean().optional(),
+});
+
+/**
  * @summary Get current authenticated user
  */
 export const GetMeResponse = zod.object({
@@ -1033,20 +1138,49 @@ export const GetMinutesResponse = zod.object({
   boardName: zod.string().nullish(),
   signatures: zod.array(
     zod.object({
-      id: zod.string(),
-      minutesId: zod.string(),
-      personId: zod.string(),
-      signatureHash: zod.string(),
-      signedAt: zod.string(),
-      person: zod.object({
-        id: zod.string(),
-        email: zod.string(),
-        name: zod.string(),
-        role: zod.enum(["admin", "member", "observer", "management"]),
-        title: zod.string().nullish(),
-        avatarColor: zod.string().nullish(),
-        createdAt: zod.string(),
-      }),
+      id: zod.string().optional(),
+      minutesId: zod.string().optional(),
+      personId: zod.string().optional(),
+      signatureHash: zod
+        .string()
+        .nullish()
+        .describe(
+          "Legacy, pre-P0.1. Unkeyed and unverifiable; never evidence of anything.",
+        ),
+      signature: zod
+        .string()
+        .nullish()
+        .describe(
+          "Detached Ed25519 signature over the canonical payload, base64.",
+        ),
+      algorithm: zod.string().nullish(),
+      signingKeyId: zod.string().nullish(),
+      publicKey: zod
+        .string()
+        .nullish()
+        .describe(
+          "A copy of the signer's public key, so the signature verifies standalone.",
+        ),
+      contentSha256: zod
+        .string()
+        .nullish()
+        .describe(
+          "Hash of the minutes content AT SIGNING — a later edit no longer verifies.",
+        ),
+      signerName: zod.string().nullish(),
+      payloadVersion: zod.string().nullish(),
+      signedAt: zod.string().optional(),
+      person: zod
+        .object({
+          id: zod.string(),
+          email: zod.string(),
+          name: zod.string(),
+          role: zod.enum(["admin", "member", "observer", "management"]),
+          title: zod.string().nullish(),
+          avatarColor: zod.string().nullish(),
+          createdAt: zod.string(),
+        })
+        .optional(),
     }),
   ),
   comments: zod.array(
@@ -1126,27 +1260,146 @@ export const UpdateMinutesStatusResponse = zod.object({
 });
 
 /**
- * @summary Sign minutes (member only)
+ * Requires a recent second factor (P0.2) AND your signing passphrase. The passphrase unwraps your private key for exactly one signature; the server never stores it and therefore cannot sign on your behalf. Enroll a key first via POST /signing-keys.
+
+ * @summary Sign minutes with your personal Ed25519 key
  */
 export const SignMinutesParams = zod.object({
   id: zod.coerce.string(),
 });
 
+export const SignMinutesBody = zod.object({
+  passphrase: zod.string().describe("Your signing passphrase (never stored)."),
+});
+
 export const SignMinutesResponse = zod.object({
-  id: zod.string(),
+  id: zod.string().optional(),
+  minutesId: zod.string().optional(),
+  personId: zod.string().optional(),
+  signatureHash: zod
+    .string()
+    .nullish()
+    .describe(
+      "Legacy, pre-P0.1. Unkeyed and unverifiable; never evidence of anything.",
+    ),
+  signature: zod
+    .string()
+    .nullish()
+    .describe("Detached Ed25519 signature over the canonical payload, base64."),
+  algorithm: zod.string().nullish(),
+  signingKeyId: zod.string().nullish(),
+  publicKey: zod
+    .string()
+    .nullish()
+    .describe(
+      "A copy of the signer's public key, so the signature verifies standalone.",
+    ),
+  contentSha256: zod
+    .string()
+    .nullish()
+    .describe(
+      "Hash of the minutes content AT SIGNING — a later edit no longer verifies.",
+    ),
+  signerName: zod.string().nullish(),
+  payloadVersion: zod.string().nullish(),
+  signedAt: zod.string().optional(),
+  person: zod
+    .object({
+      id: zod.string(),
+      email: zod.string(),
+      name: zod.string(),
+      role: zod.enum(["admin", "member", "observer", "management"]),
+      title: zod.string().nullish(),
+      avatarColor: zod.string().nullish(),
+      createdAt: zod.string(),
+    })
+    .optional(),
+});
+
+/**
+ * Each signature is checked twice: the content hash it committed to must still match the live text, and the Ed25519 signature must verify over the canonical payload rebuilt from persisted data. Signatures made before cryptographic signing existed report `legacy_unverifiable` — never "verified". Returns 409 if any signature is `invalid`.
+
+ * @summary Verify every signature on these minutes
+ */
+export const VerifyMinutesSignaturesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const VerifyMinutesSignaturesResponse = zod.object({
   minutesId: zod.string(),
-  personId: zod.string(),
-  signatureHash: zod.string(),
-  signedAt: zod.string(),
-  person: zod.object({
-    id: zod.string(),
-    email: zod.string(),
-    name: zod.string(),
-    role: zod.enum(["admin", "member", "observer", "management"]),
-    title: zod.string().nullish(),
-    avatarColor: zod.string().nullish(),
-    createdAt: zod.string(),
-  }),
+  contentSha256: zod.string().optional(),
+  ok: zod.boolean().optional(),
+  counts: zod
+    .object({
+      verified: zod.number().optional(),
+      invalid: zod.number().optional(),
+      legacy_unverifiable: zod.number().optional(),
+    })
+    .optional(),
+  signatures: zod
+    .array(
+      zod.object({
+        signatureId: zod.string().optional(),
+        signerId: zod.string().optional(),
+        signerName: zod.string().nullish(),
+        signerEmail: zod.string().nullish(),
+        signedAt: zod.string().optional(),
+        algorithm: zod.string().nullish(),
+        publicKey: zod.string().nullish(),
+        status: zod
+          .enum(["verified", "invalid", "legacy_unverifiable"])
+          .optional(),
+        reason: zod.string().optional(),
+      }),
+    )
+    .optional(),
+  caveat: zod
+    .string()
+    .optional()
+    .describe(
+      "States plainly what a verified signature does NOT prove. See docs\/SIGNING.md.",
+    ),
+});
+
+/**
+ * A self-contained JSON bundle — content, signatures, and the signers' public keys — verifiable with no database and no server via `node scripts/verify-minutes.mjs bundle.json --fingerprint <hex>`.
+
+ * @summary Signed-minutes bundle for OFFLINE verification
+ */
+export const ExportSignedMinutesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ExportSignedMinutesResponse = zod.object({}).passthrough();
+
+/**
+ * The passphrase wraps the private key (scrypt → AES-256-GCM) and is NOT stored, so the server cannot sign for you. Returns the public-key fingerprint — record it outside this system; it is what later proves the key on file is still yours.
+
+ * @summary Enroll your Ed25519 signing key
+ */
+export const enrollSigningKeyBodyPassphraseMin = 12;
+
+export const EnrollSigningKeyBody = zod.object({
+  passphrase: zod.string().min(enrollSigningKeyBodyPassphraseMin),
+});
+
+/**
+ * @summary Revoke your signing key (past signatures still verify)
+ */
+export const RevokeSigningKeyResponse = zod.object({
+  revoked: zod.boolean().optional(),
+  keyId: zod.string().optional(),
+});
+
+/**
+ * @summary Your signing key's public identity (never the private half)
+ */
+export const GetMySigningKeyResponse = zod.object({
+  enrolled: zod.boolean().optional(),
+  keyId: zod.string().optional(),
+  algorithm: zod.string().optional(),
+  fingerprint: zod.string().optional(),
+  createdAt: zod.coerce.date().optional(),
 });
 
 /**
@@ -1794,6 +2047,60 @@ export const ListAuditPeopleResponseItem = zod.object({
 export const ListAuditPeopleResponse = zod.array(ListAuditPeopleResponseItem);
 
 /**
+ * Replays the audit hash chain and reports the first broken link. Detects a naive edit; a full re-seal by an actor with database write access is not detectable without the external anchor (see SECURITY.md).
+
+ * @summary Verify the audit hash chain (admin only)
+ */
+export const VerifyAuditChainResponse = zod.object({
+  ok: zod.boolean().optional(),
+  count: zod.number().optional(),
+});
+
+/**
+ * @summary List legal holds (admin only; active by default, ?all=true for released)
+ */
+export const ListLegalHoldsResponseItem = zod.object({}).passthrough();
+export const ListLegalHoldsResponse = zod.array(ListLegalHoldsResponseItem);
+
+/**
+ * @summary Place a legal hold on an entity or board (admin only)
+ */
+export const PlaceLegalHoldBody = zod.object({
+  entityType: zod.enum(["board", "meeting", "document", "vote", "task"]),
+  entityId: zod.string(),
+  reason: zod.string(),
+});
+
+/**
+ * @summary Release a legal hold (admin only)
+ */
+export const ReleaseLegalHoldParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * @summary Append-only access-change log for one entity (admin only)
+ */
+export const ListAccessEventsQueryParams = zod.object({
+  entityType: zod.coerce.string(),
+  entityId: zod.coerce.string(),
+});
+
+export const ListAccessEventsResponseItem = zod.object({}).passthrough();
+export const ListAccessEventsResponse = zod.array(ListAccessEventsResponseItem);
+
+/**
+ * @summary Who could access an entity as of a date (admin only)
+ */
+export const ReconstructAccessQueryParams = zod.object({
+  entityType: zod.coerce.string(),
+  entityId: zod.coerce.string(),
+  asOf: zod.date().optional(),
+});
+
+export const ReconstructAccessResponse = zod.object({}).passthrough();
+
+/**
  * @summary List deleted governance records (recycle bin, admin only)
  */
 export const ListDeletedRecordsQueryParams = zod.object({
@@ -2396,6 +2703,13 @@ export const GetWorkflowResponse = zod
 export const GetOrganizationResponse = zod.object({
   name: zod.string(),
   version: zod.string(),
+});
+
+/**
+ * @summary Non-secret runtime config for the admin UI (e.g. demoMode)
+ */
+export const GetSystemConfigResponse = zod.object({
+  demoMode: zod.boolean().optional(),
 });
 
 /**

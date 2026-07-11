@@ -8,10 +8,21 @@
 import type { PersonModel } from "./personModel";
 
 export interface MinutesSignatureModel {
-  id: string;
-  minutesId: string;
-  personId: string;
-  signatureHash: string;
-  signedAt: string;
-  person: PersonModel;
+  id?: string;
+  minutesId?: string;
+  personId?: string;
+  /** Legacy, pre-P0.1. Unkeyed and unverifiable; never evidence of anything. */
+  signatureHash?: string | null;
+  /** Detached Ed25519 signature over the canonical payload, base64. */
+  signature?: string | null;
+  algorithm?: string | null;
+  signingKeyId?: string | null;
+  /** A copy of the signer's public key, so the signature verifies standalone. */
+  publicKey?: string | null;
+  /** Hash of the minutes content AT SIGNING — a later edit no longer verifies. */
+  contentSha256?: string | null;
+  signerName?: string | null;
+  payloadVersion?: string | null;
+  signedAt?: string;
+  person?: PersonModel;
 }

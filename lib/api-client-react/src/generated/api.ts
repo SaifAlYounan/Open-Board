@@ -33,12 +33,15 @@ import type {
   AuditEntry,
   AuditPerson,
   AuthResponse,
+  BeginMfaEnrollment200,
   Board,
   BoardMember,
   BoardWithMembers,
   CastVoteBody,
   CertificateVerification,
   ChangePasswordBody,
+  ConfirmMfaEnrollment200,
+  ConfirmMfaEnrollmentBody,
   CreateBoardBody,
   CreateMeetingBody,
   CreateMinutesBody,
@@ -49,18 +52,27 @@ import type {
   DeletedRecordsList,
   Document,
   DocumentAccessEntry,
+  EnrollSigningKey201,
+  EnrollSigningKeyBody,
   ErrorResponse,
+  ExportSignedMinutes200,
   ForgotPasswordBody,
   GetGraphParams,
   GetGraphSummaryParams,
+  GetMfaStatus200,
+  GetMySigningKey200,
+  GetSystemConfig200,
   GrantVoteProxyBody,
   GraphResponse,
   GraphSearchResponse,
   GraphSummary,
   HealthStatus,
+  ListAccessEvents200Item,
+  ListAccessEventsParams,
   ListAuditEntriesParams,
   ListDeletedRecordsParams,
   ListDocumentsParams,
+  ListLegalHolds200Item,
   ListMeetingsParams,
   ListMinutesParams,
   ListPendingActionsParams,
@@ -75,18 +87,30 @@ import type {
   MinutesComment,
   MinutesDetail,
   MinutesSignature,
+  MinutesSignatureVerification,
   OkResponse,
   OrganizationInfo,
   PendingAction,
   Person,
+  PlaceLegalHoldBody,
+  ReconstructAccess200,
+  ReconstructAccessParams,
+  ReissueRecoveryCodes200,
+  ReissueRecoveryCodesBody,
   RejectActionBody,
+  RemoveMfa200,
+  RemoveMfaBody,
   ResetDataBody,
   ResetDataResponse,
   ResetPasswordBody,
   ResolveCommentBody,
   RestoreResult,
+  ReverifyMfa200,
+  ReverifyMfaBody,
   ReviewEvidenceBody,
+  RevokeSigningKey200,
   SearchGraphParams,
+  SignMinutesBody,
   SystemExportBundle,
   Task,
   TaskDetail,
@@ -106,6 +130,10 @@ import type {
   UploadDocumentResponse,
   UploadFileBody,
   UploadVoteDocumentBody,
+  VerifyAuditChain200,
+  VerifyAuditChain409,
+  VerifyMfaChallenge200,
+  VerifyMfaChallengeBody,
   Vote,
   VoteCertificate,
   VoteDetail,
@@ -284,6 +312,602 @@ export const useLogin = <
   TContext
 > => {
   return useMutation(getLoginMutationOptions(options));
+};
+
+/**
+ * When an account holds a confirmed second factor, POST /auth/login returns `{ mfaRequired: true, mfaToken }` and NO session. This is the only route that mints the session: it takes that short-lived challenge plus a valid TOTP code (or a single-use recovery code). A TOTP code cannot be replayed within its 30-second window.
+
+ * @summary Exchange an MFA challenge + TOTP (or recovery) code for a session
+ */
+export const getVerifyMfaChallengeUrl = () => {
+  return `/api/auth/mfa/verify`;
+};
+
+export const verifyMfaChallenge = async (
+  verifyMfaChallengeBody: VerifyMfaChallengeBody,
+  options?: RequestInit,
+): Promise<VerifyMfaChallenge200> => {
+  return customFetch<VerifyMfaChallenge200>(getVerifyMfaChallengeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(verifyMfaChallengeBody),
+  });
+};
+
+export const getVerifyMfaChallengeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyMfaChallenge>>,
+    TError,
+    { data: BodyType<VerifyMfaChallengeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyMfaChallenge>>,
+  TError,
+  { data: BodyType<VerifyMfaChallengeBody> },
+  TContext
+> => {
+  const mutationKey = ["verifyMfaChallenge"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyMfaChallenge>>,
+    { data: BodyType<VerifyMfaChallengeBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return verifyMfaChallenge(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyMfaChallengeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof verifyMfaChallenge>>
+>;
+export type VerifyMfaChallengeMutationBody = BodyType<VerifyMfaChallengeBody>;
+export type VerifyMfaChallengeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Exchange an MFA challenge + TOTP (or recovery) code for a session
+ */
+export const useVerifyMfaChallenge = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyMfaChallenge>>,
+    TError,
+    { data: BodyType<VerifyMfaChallengeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof verifyMfaChallenge>>,
+  TError,
+  { data: BodyType<VerifyMfaChallengeBody> },
+  TContext
+> => {
+  return useMutation(getVerifyMfaChallengeMutationOptions(options));
+};
+
+/**
+ * @summary Whether this account has (or must have) a second factor
+ */
+export const getGetMfaStatusUrl = () => {
+  return `/api/mfa/status`;
+};
+
+export const getMfaStatus = async (
+  options?: RequestInit,
+): Promise<GetMfaStatus200> => {
+  return customFetch<GetMfaStatus200>(getGetMfaStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMfaStatusQueryKey = () => {
+  return [`/api/mfa/status`] as const;
+};
+
+export const getGetMfaStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMfaStatus>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMfaStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMfaStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMfaStatus>>> = ({
+    signal,
+  }) => getMfaStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMfaStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMfaStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMfaStatus>>
+>;
+export type GetMfaStatusQueryError = ErrorType<void>;
+
+/**
+ * @summary Whether this account has (or must have) a second factor
+ */
+
+export function useGetMfaStatus<
+  TData = Awaited<ReturnType<typeof getMfaStatus>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMfaStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMfaStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Creates an UNCONFIRMED credential and returns the shared secret plus an otpauth:// URI for QR rendering. The factor does not count until it is confirmed with a valid code.
+
+ * @summary Start TOTP enrollment — returns the secret once
+ */
+export const getBeginMfaEnrollmentUrl = () => {
+  return `/api/mfa/enroll/begin`;
+};
+
+export const beginMfaEnrollment = async (
+  options?: RequestInit,
+): Promise<BeginMfaEnrollment200> => {
+  return customFetch<BeginMfaEnrollment200>(getBeginMfaEnrollmentUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getBeginMfaEnrollmentMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof beginMfaEnrollment>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof beginMfaEnrollment>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["beginMfaEnrollment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof beginMfaEnrollment>>,
+    void
+  > = () => {
+    return beginMfaEnrollment(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BeginMfaEnrollmentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof beginMfaEnrollment>>
+>;
+
+export type BeginMfaEnrollmentMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Start TOTP enrollment — returns the secret once
+ */
+export const useBeginMfaEnrollment = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof beginMfaEnrollment>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof beginMfaEnrollment>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getBeginMfaEnrollmentMutationOptions(options));
+};
+
+/**
+ * @summary Confirm enrollment with a code — issues recovery codes once
+ */
+export const getConfirmMfaEnrollmentUrl = () => {
+  return `/api/mfa/enroll/confirm`;
+};
+
+export const confirmMfaEnrollment = async (
+  confirmMfaEnrollmentBody: ConfirmMfaEnrollmentBody,
+  options?: RequestInit,
+): Promise<ConfirmMfaEnrollment200> => {
+  return customFetch<ConfirmMfaEnrollment200>(getConfirmMfaEnrollmentUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(confirmMfaEnrollmentBody),
+  });
+};
+
+export const getConfirmMfaEnrollmentMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmMfaEnrollment>>,
+    TError,
+    { data: BodyType<ConfirmMfaEnrollmentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmMfaEnrollment>>,
+  TError,
+  { data: BodyType<ConfirmMfaEnrollmentBody> },
+  TContext
+> => {
+  const mutationKey = ["confirmMfaEnrollment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmMfaEnrollment>>,
+    { data: BodyType<ConfirmMfaEnrollmentBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return confirmMfaEnrollment(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmMfaEnrollmentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmMfaEnrollment>>
+>;
+export type ConfirmMfaEnrollmentMutationBody =
+  BodyType<ConfirmMfaEnrollmentBody>;
+export type ConfirmMfaEnrollmentMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Confirm enrollment with a code — issues recovery codes once
+ */
+export const useConfirmMfaEnrollment = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmMfaEnrollment>>,
+    TError,
+    { data: BodyType<ConfirmMfaEnrollmentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof confirmMfaEnrollment>>,
+  TError,
+  { data: BodyType<ConfirmMfaEnrollmentBody> },
+  TContext
+> => {
+  return useMutation(getConfirmMfaEnrollmentMutationOptions(options));
+};
+
+/**
+ * Refreshes the session's MFA freshness stamp. Called when a signing, approving, or exporting route answers `mfa_reverification_required`.
+
+ * @summary Re-prove the second factor inside an existing session
+ */
+export const getReverifyMfaUrl = () => {
+  return `/api/mfa/verify`;
+};
+
+export const reverifyMfa = async (
+  reverifyMfaBody: ReverifyMfaBody,
+  options?: RequestInit,
+): Promise<ReverifyMfa200> => {
+  return customFetch<ReverifyMfa200>(getReverifyMfaUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(reverifyMfaBody),
+  });
+};
+
+export const getReverifyMfaMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reverifyMfa>>,
+    TError,
+    { data: BodyType<ReverifyMfaBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reverifyMfa>>,
+  TError,
+  { data: BodyType<ReverifyMfaBody> },
+  TContext
+> => {
+  const mutationKey = ["reverifyMfa"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reverifyMfa>>,
+    { data: BodyType<ReverifyMfaBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reverifyMfa(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReverifyMfaMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reverifyMfa>>
+>;
+export type ReverifyMfaMutationBody = BodyType<ReverifyMfaBody>;
+export type ReverifyMfaMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Re-prove the second factor inside an existing session
+ */
+export const useReverifyMfa = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reverifyMfa>>,
+    TError,
+    { data: BodyType<ReverifyMfaBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reverifyMfa>>,
+  TError,
+  { data: BodyType<ReverifyMfaBody> },
+  TContext
+> => {
+  return useMutation(getReverifyMfaMutationOptions(options));
+};
+
+/**
+ * @summary Re-issue recovery codes (invalidates the previous set)
+ */
+export const getReissueRecoveryCodesUrl = () => {
+  return `/api/mfa/recovery-codes`;
+};
+
+export const reissueRecoveryCodes = async (
+  reissueRecoveryCodesBody: ReissueRecoveryCodesBody,
+  options?: RequestInit,
+): Promise<ReissueRecoveryCodes200> => {
+  return customFetch<ReissueRecoveryCodes200>(getReissueRecoveryCodesUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(reissueRecoveryCodesBody),
+  });
+};
+
+export const getReissueRecoveryCodesMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reissueRecoveryCodes>>,
+    TError,
+    { data: BodyType<ReissueRecoveryCodesBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reissueRecoveryCodes>>,
+  TError,
+  { data: BodyType<ReissueRecoveryCodesBody> },
+  TContext
+> => {
+  const mutationKey = ["reissueRecoveryCodes"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reissueRecoveryCodes>>,
+    { data: BodyType<ReissueRecoveryCodesBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reissueRecoveryCodes(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReissueRecoveryCodesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reissueRecoveryCodes>>
+>;
+export type ReissueRecoveryCodesMutationBody =
+  BodyType<ReissueRecoveryCodesBody>;
+export type ReissueRecoveryCodesMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Re-issue recovery codes (invalidates the previous set)
+ */
+export const useReissueRecoveryCodes = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reissueRecoveryCodes>>,
+    TError,
+    { data: BodyType<ReissueRecoveryCodesBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reissueRecoveryCodes>>,
+  TError,
+  { data: BodyType<ReissueRecoveryCodesBody> },
+  TContext
+> => {
+  return useMutation(getReissueRecoveryCodesMutationOptions(options));
+};
+
+/**
+ * Refused with 403 for anyone whose role REQUIRES MFA (admins and non-observer board members) — a mandatory gate cannot be self-disarmed.
+
+ * @summary Remove the second factor (requires password + a current code)
+ */
+export const getRemoveMfaUrl = () => {
+  return `/api/mfa`;
+};
+
+export const removeMfa = async (
+  removeMfaBody: RemoveMfaBody,
+  options?: RequestInit,
+): Promise<RemoveMfa200> => {
+  return customFetch<RemoveMfa200>(getRemoveMfaUrl(), {
+    ...options,
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(removeMfaBody),
+  });
+};
+
+export const getRemoveMfaMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeMfa>>,
+    TError,
+    { data: BodyType<RemoveMfaBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeMfa>>,
+  TError,
+  { data: BodyType<RemoveMfaBody> },
+  TContext
+> => {
+  const mutationKey = ["removeMfa"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeMfa>>,
+    { data: BodyType<RemoveMfaBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeMfa(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveMfaMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeMfa>>
+>;
+export type RemoveMfaMutationBody = BodyType<RemoveMfaBody>;
+export type RemoveMfaMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Remove the second factor (requires password + a current code)
+ */
+export const useRemoveMfa = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeMfa>>,
+    TError,
+    { data: BodyType<RemoveMfaBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof removeMfa>>,
+  TError,
+  { data: BodyType<RemoveMfaBody> },
+  TContext
+> => {
+  return useMutation(getRemoveMfaMutationOptions(options));
 };
 
 /**
@@ -3501,7 +4125,9 @@ export const useUpdateMinutesStatus = <
 };
 
 /**
- * @summary Sign minutes (member only)
+ * Requires a recent second factor (P0.2) AND your signing passphrase. The passphrase unwraps your private key for exactly one signature; the server never stores it and therefore cannot sign on your behalf. Enroll a key first via POST /signing-keys.
+
+ * @summary Sign minutes with your personal Ed25519 key
  */
 export const getSignMinutesUrl = (id: string) => {
   return `/api/minutes/${id}/sign`;
@@ -3509,29 +4135,32 @@ export const getSignMinutesUrl = (id: string) => {
 
 export const signMinutes = async (
   id: string,
+  signMinutesBody: SignMinutesBody,
   options?: RequestInit,
 ): Promise<MinutesSignature> => {
   return customFetch<MinutesSignature>(getSignMinutesUrl(id), {
     ...options,
     method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(signMinutesBody),
   });
 };
 
 export const getSignMinutesMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof signMinutes>>,
     TError,
-    { id: string },
+    { id: string; data: BodyType<SignMinutesBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof signMinutes>>,
   TError,
-  { id: string },
+  { id: string; data: BodyType<SignMinutesBody> },
   TContext
 > => {
   const mutationKey = ["signMinutes"];
@@ -3545,11 +4174,11 @@ export const getSignMinutesMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof signMinutes>>,
-    { id: string }
+    { id: string; data: BodyType<SignMinutesBody> }
   > = (props) => {
-    const { id } = props ?? {};
+    const { id, data } = props ?? {};
 
-    return signMinutes(id, requestOptions);
+    return signMinutes(id, data, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -3558,31 +4187,459 @@ export const getSignMinutesMutationOptions = <
 export type SignMinutesMutationResult = NonNullable<
   Awaited<ReturnType<typeof signMinutes>>
 >;
-
-export type SignMinutesMutationError = ErrorType<unknown>;
+export type SignMinutesMutationBody = BodyType<SignMinutesBody>;
+export type SignMinutesMutationError = ErrorType<ErrorResponse>;
 
 /**
- * @summary Sign minutes (member only)
+ * @summary Sign minutes with your personal Ed25519 key
  */
 export const useSignMinutes = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<ErrorResponse>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof signMinutes>>,
     TError,
-    { id: string },
+    { id: string; data: BodyType<SignMinutesBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof signMinutes>>,
   TError,
-  { id: string },
+  { id: string; data: BodyType<SignMinutesBody> },
   TContext
 > => {
   return useMutation(getSignMinutesMutationOptions(options));
 };
+
+/**
+ * Each signature is checked twice: the content hash it committed to must still match the live text, and the Ed25519 signature must verify over the canonical payload rebuilt from persisted data. Signatures made before cryptographic signing existed report `legacy_unverifiable` — never "verified". Returns 409 if any signature is `invalid`.
+
+ * @summary Verify every signature on these minutes
+ */
+export const getVerifyMinutesSignaturesUrl = (id: string) => {
+  return `/api/minutes/${id}/signature/verify`;
+};
+
+export const verifyMinutesSignatures = async (
+  id: string,
+  options?: RequestInit,
+): Promise<MinutesSignatureVerification> => {
+  return customFetch<MinutesSignatureVerification>(
+    getVerifyMinutesSignaturesUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getVerifyMinutesSignaturesQueryKey = (id: string) => {
+  return [`/api/minutes/${id}/signature/verify`] as const;
+};
+
+export const getVerifyMinutesSignaturesQueryOptions = <
+  TData = Awaited<ReturnType<typeof verifyMinutesSignatures>>,
+  TError = ErrorType<MinutesSignatureVerification>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof verifyMinutesSignatures>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getVerifyMinutesSignaturesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof verifyMinutesSignatures>>
+  > = ({ signal }) =>
+    verifyMinutesSignatures(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof verifyMinutesSignatures>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type VerifyMinutesSignaturesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof verifyMinutesSignatures>>
+>;
+export type VerifyMinutesSignaturesQueryError =
+  ErrorType<MinutesSignatureVerification>;
+
+/**
+ * @summary Verify every signature on these minutes
+ */
+
+export function useVerifyMinutesSignatures<
+  TData = Awaited<ReturnType<typeof verifyMinutesSignatures>>,
+  TError = ErrorType<MinutesSignatureVerification>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof verifyMinutesSignatures>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getVerifyMinutesSignaturesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * A self-contained JSON bundle — content, signatures, and the signers' public keys — verifiable with no database and no server via `node scripts/verify-minutes.mjs bundle.json --fingerprint <hex>`.
+
+ * @summary Signed-minutes bundle for OFFLINE verification
+ */
+export const getExportSignedMinutesUrl = (id: string) => {
+  return `/api/minutes/${id}/export`;
+};
+
+export const exportSignedMinutes = async (
+  id: string,
+  options?: RequestInit,
+): Promise<ExportSignedMinutes200> => {
+  return customFetch<ExportSignedMinutes200>(getExportSignedMinutesUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getExportSignedMinutesQueryKey = (id: string) => {
+  return [`/api/minutes/${id}/export`] as const;
+};
+
+export const getExportSignedMinutesQueryOptions = <
+  TData = Awaited<ReturnType<typeof exportSignedMinutes>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportSignedMinutes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getExportSignedMinutesQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof exportSignedMinutes>>
+  > = ({ signal }) => exportSignedMinutes(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof exportSignedMinutes>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ExportSignedMinutesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof exportSignedMinutes>>
+>;
+export type ExportSignedMinutesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Signed-minutes bundle for OFFLINE verification
+ */
+
+export function useExportSignedMinutes<
+  TData = Awaited<ReturnType<typeof exportSignedMinutes>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof exportSignedMinutes>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getExportSignedMinutesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * The passphrase wraps the private key (scrypt → AES-256-GCM) and is NOT stored, so the server cannot sign for you. Returns the public-key fingerprint — record it outside this system; it is what later proves the key on file is still yours.
+
+ * @summary Enroll your Ed25519 signing key
+ */
+export const getEnrollSigningKeyUrl = () => {
+  return `/api/signing-keys`;
+};
+
+export const enrollSigningKey = async (
+  enrollSigningKeyBody: EnrollSigningKeyBody,
+  options?: RequestInit,
+): Promise<EnrollSigningKey201> => {
+  return customFetch<EnrollSigningKey201>(getEnrollSigningKeyUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(enrollSigningKeyBody),
+  });
+};
+
+export const getEnrollSigningKeyMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enrollSigningKey>>,
+    TError,
+    { data: BodyType<EnrollSigningKeyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof enrollSigningKey>>,
+  TError,
+  { data: BodyType<EnrollSigningKeyBody> },
+  TContext
+> => {
+  const mutationKey = ["enrollSigningKey"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof enrollSigningKey>>,
+    { data: BodyType<EnrollSigningKeyBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return enrollSigningKey(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EnrollSigningKeyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof enrollSigningKey>>
+>;
+export type EnrollSigningKeyMutationBody = BodyType<EnrollSigningKeyBody>;
+export type EnrollSigningKeyMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Enroll your Ed25519 signing key
+ */
+export const useEnrollSigningKey = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enrollSigningKey>>,
+    TError,
+    { data: BodyType<EnrollSigningKeyBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof enrollSigningKey>>,
+  TError,
+  { data: BodyType<EnrollSigningKeyBody> },
+  TContext
+> => {
+  return useMutation(getEnrollSigningKeyMutationOptions(options));
+};
+
+/**
+ * @summary Revoke your signing key (past signatures still verify)
+ */
+export const getRevokeSigningKeyUrl = () => {
+  return `/api/signing-keys`;
+};
+
+export const revokeSigningKey = async (
+  options?: RequestInit,
+): Promise<RevokeSigningKey200> => {
+  return customFetch<RevokeSigningKey200>(getRevokeSigningKeyUrl(), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeSigningKeyMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSigningKey>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeSigningKey>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["revokeSigningKey"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeSigningKey>>,
+    void
+  > = () => {
+    return revokeSigningKey(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeSigningKeyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeSigningKey>>
+>;
+
+export type RevokeSigningKeyMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Revoke your signing key (past signatures still verify)
+ */
+export const useRevokeSigningKey = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSigningKey>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeSigningKey>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRevokeSigningKeyMutationOptions(options));
+};
+
+/**
+ * @summary Your signing key's public identity (never the private half)
+ */
+export const getGetMySigningKeyUrl = () => {
+  return `/api/signing-keys/me`;
+};
+
+export const getMySigningKey = async (
+  options?: RequestInit,
+): Promise<GetMySigningKey200> => {
+  return customFetch<GetMySigningKey200>(getGetMySigningKeyUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMySigningKeyQueryKey = () => {
+  return [`/api/signing-keys/me`] as const;
+};
+
+export const getGetMySigningKeyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMySigningKey>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMySigningKey>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMySigningKeyQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMySigningKey>>> = ({
+    signal,
+  }) => getMySigningKey({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMySigningKey>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMySigningKeyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMySigningKey>>
+>;
+export type GetMySigningKeyQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Your signing key's public identity (never the private half)
+ */
+
+export function useGetMySigningKey<
+  TData = Awaited<ReturnType<typeof getMySigningKey>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMySigningKey>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMySigningKeyQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get comments on minutes
@@ -5737,6 +6794,528 @@ export function useListAuditPeople<
 }
 
 /**
+ * Replays the audit hash chain and reports the first broken link. Detects a naive edit; a full re-seal by an actor with database write access is not detectable without the external anchor (see SECURITY.md).
+
+ * @summary Verify the audit hash chain (admin only)
+ */
+export const getVerifyAuditChainUrl = () => {
+  return `/api/audit/verify`;
+};
+
+export const verifyAuditChain = async (
+  options?: RequestInit,
+): Promise<VerifyAuditChain200> => {
+  return customFetch<VerifyAuditChain200>(getVerifyAuditChainUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getVerifyAuditChainQueryKey = () => {
+  return [`/api/audit/verify`] as const;
+};
+
+export const getVerifyAuditChainQueryOptions = <
+  TData = Awaited<ReturnType<typeof verifyAuditChain>>,
+  TError = ErrorType<VerifyAuditChain409>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof verifyAuditChain>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getVerifyAuditChainQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof verifyAuditChain>>
+  > = ({ signal }) => verifyAuditChain({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof verifyAuditChain>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type VerifyAuditChainQueryResult = NonNullable<
+  Awaited<ReturnType<typeof verifyAuditChain>>
+>;
+export type VerifyAuditChainQueryError = ErrorType<VerifyAuditChain409>;
+
+/**
+ * @summary Verify the audit hash chain (admin only)
+ */
+
+export function useVerifyAuditChain<
+  TData = Awaited<ReturnType<typeof verifyAuditChain>>,
+  TError = ErrorType<VerifyAuditChain409>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof verifyAuditChain>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getVerifyAuditChainQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List legal holds (admin only; active by default, ?all=true for released)
+ */
+export const getListLegalHoldsUrl = () => {
+  return `/api/legal-holds`;
+};
+
+export const listLegalHolds = async (
+  options?: RequestInit,
+): Promise<ListLegalHolds200Item[]> => {
+  return customFetch<ListLegalHolds200Item[]>(getListLegalHoldsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListLegalHoldsQueryKey = () => {
+  return [`/api/legal-holds`] as const;
+};
+
+export const getListLegalHoldsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listLegalHolds>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listLegalHolds>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListLegalHoldsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listLegalHolds>>> = ({
+    signal,
+  }) => listLegalHolds({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listLegalHolds>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListLegalHoldsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listLegalHolds>>
+>;
+export type ListLegalHoldsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List legal holds (admin only; active by default, ?all=true for released)
+ */
+
+export function useListLegalHolds<
+  TData = Awaited<ReturnType<typeof listLegalHolds>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listLegalHolds>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListLegalHoldsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Place a legal hold on an entity or board (admin only)
+ */
+export const getPlaceLegalHoldUrl = () => {
+  return `/api/legal-holds`;
+};
+
+export const placeLegalHold = async (
+  placeLegalHoldBody: PlaceLegalHoldBody,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getPlaceLegalHoldUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(placeLegalHoldBody),
+  });
+};
+
+export const getPlaceLegalHoldMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof placeLegalHold>>,
+    TError,
+    { data: BodyType<PlaceLegalHoldBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof placeLegalHold>>,
+  TError,
+  { data: BodyType<PlaceLegalHoldBody> },
+  TContext
+> => {
+  const mutationKey = ["placeLegalHold"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof placeLegalHold>>,
+    { data: BodyType<PlaceLegalHoldBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return placeLegalHold(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PlaceLegalHoldMutationResult = NonNullable<
+  Awaited<ReturnType<typeof placeLegalHold>>
+>;
+export type PlaceLegalHoldMutationBody = BodyType<PlaceLegalHoldBody>;
+export type PlaceLegalHoldMutationError = ErrorType<void>;
+
+/**
+ * @summary Place a legal hold on an entity or board (admin only)
+ */
+export const usePlaceLegalHold = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof placeLegalHold>>,
+    TError,
+    { data: BodyType<PlaceLegalHoldBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof placeLegalHold>>,
+  TError,
+  { data: BodyType<PlaceLegalHoldBody> },
+  TContext
+> => {
+  return useMutation(getPlaceLegalHoldMutationOptions(options));
+};
+
+/**
+ * @summary Release a legal hold (admin only)
+ */
+export const getReleaseLegalHoldUrl = (id: string) => {
+  return `/api/legal-holds/${id}/release`;
+};
+
+export const releaseLegalHold = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getReleaseLegalHoldUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getReleaseLegalHoldMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof releaseLegalHold>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof releaseLegalHold>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["releaseLegalHold"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof releaseLegalHold>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return releaseLegalHold(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReleaseLegalHoldMutationResult = NonNullable<
+  Awaited<ReturnType<typeof releaseLegalHold>>
+>;
+
+export type ReleaseLegalHoldMutationError = ErrorType<void>;
+
+/**
+ * @summary Release a legal hold (admin only)
+ */
+export const useReleaseLegalHold = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof releaseLegalHold>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof releaseLegalHold>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getReleaseLegalHoldMutationOptions(options));
+};
+
+/**
+ * @summary Append-only access-change log for one entity (admin only)
+ */
+export const getListAccessEventsUrl = (params: ListAccessEventsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/access-events?${stringifiedParams}`
+    : `/api/access-events`;
+};
+
+export const listAccessEvents = async (
+  params: ListAccessEventsParams,
+  options?: RequestInit,
+): Promise<ListAccessEvents200Item[]> => {
+  return customFetch<ListAccessEvents200Item[]>(
+    getListAccessEventsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListAccessEventsQueryKey = (
+  params?: ListAccessEventsParams,
+) => {
+  return [`/api/access-events`, ...(params ? [params] : [])] as const;
+};
+
+export const getListAccessEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAccessEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params: ListAccessEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAccessEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListAccessEventsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAccessEvents>>
+  > = ({ signal }) => listAccessEvents(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAccessEvents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListAccessEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listAccessEvents>>
+>;
+export type ListAccessEventsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Append-only access-change log for one entity (admin only)
+ */
+
+export function useListAccessEvents<
+  TData = Awaited<ReturnType<typeof listAccessEvents>>,
+  TError = ErrorType<unknown>,
+>(
+  params: ListAccessEventsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAccessEvents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAccessEventsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Who could access an entity as of a date (admin only)
+ */
+export const getReconstructAccessUrl = (params: ReconstructAccessParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/access-events/reconstruct?${stringifiedParams}`
+    : `/api/access-events/reconstruct`;
+};
+
+export const reconstructAccess = async (
+  params: ReconstructAccessParams,
+  options?: RequestInit,
+): Promise<ReconstructAccess200> => {
+  return customFetch<ReconstructAccess200>(getReconstructAccessUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getReconstructAccessQueryKey = (
+  params?: ReconstructAccessParams,
+) => {
+  return [
+    `/api/access-events/reconstruct`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getReconstructAccessQueryOptions = <
+  TData = Awaited<ReturnType<typeof reconstructAccess>>,
+  TError = ErrorType<unknown>,
+>(
+  params: ReconstructAccessParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof reconstructAccess>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getReconstructAccessQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof reconstructAccess>>
+  > = ({ signal }) => reconstructAccess(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof reconstructAccess>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ReconstructAccessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof reconstructAccess>>
+>;
+export type ReconstructAccessQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Who could access an entity as of a date (admin only)
+ */
+
+export function useReconstructAccess<
+  TData = Awaited<ReturnType<typeof reconstructAccess>>,
+  TError = ErrorType<unknown>,
+>(
+  params: ReconstructAccessParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof reconstructAccess>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getReconstructAccessQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary List deleted governance records (recycle bin, admin only)
  */
 export const getListDeletedRecordsUrl = (params?: ListDeletedRecordsParams) => {
@@ -7593,6 +9172,81 @@ export function useGetOrganization<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetOrganizationQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Non-secret runtime config for the admin UI (e.g. demoMode)
+ */
+export const getGetSystemConfigUrl = () => {
+  return `/api/system/config`;
+};
+
+export const getSystemConfig = async (
+  options?: RequestInit,
+): Promise<GetSystemConfig200> => {
+  return customFetch<GetSystemConfig200>(getGetSystemConfigUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSystemConfigQueryKey = () => {
+  return [`/api/system/config`] as const;
+};
+
+export const getGetSystemConfigQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSystemConfig>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSystemConfig>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSystemConfigQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSystemConfig>>> = ({
+    signal,
+  }) => getSystemConfig({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSystemConfig>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSystemConfigQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSystemConfig>>
+>;
+export type GetSystemConfigQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Non-secret runtime config for the admin UI (e.g. demoMode)
+ */
+
+export function useGetSystemConfig<
+  TData = Awaited<ReturnType<typeof getSystemConfig>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSystemConfig>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSystemConfigQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
