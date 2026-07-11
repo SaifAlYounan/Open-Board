@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ConfirmMfaEnrollmentBody = {
+export interface VerifyMfaChallengeBodyModel {
+  /** The challenge token returned by /auth/login. */
+  mfaToken: string;
+  /** A 6-digit TOTP code, or one of the recovery codes. */
   code: string;
-};
+}

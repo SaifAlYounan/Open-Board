@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PlaceLegalHoldBodyEntityType =
-  (typeof PlaceLegalHoldBodyEntityType)[keyof typeof PlaceLegalHoldBodyEntityType];
+export type PlaceLegalHoldBodyModelEntityType =
+  (typeof PlaceLegalHoldBodyModelEntityType)[keyof typeof PlaceLegalHoldBodyModelEntityType];
 
-export const PlaceLegalHoldBodyEntityType = {
+export const PlaceLegalHoldBodyModelEntityType = {
   board: "board",
   meeting: "meeting",
   document: "document",

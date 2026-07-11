@@ -99,15 +99,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [mfaToken, code]
-              properties:
-                mfaToken:
-                  type: string
-                  description: The challenge token returned by /auth/login.
-                code:
-                  type: string
-                  description: A 6-digit TOTP code, or one of the recovery codes.
+              $ref: "#/components/schemas/VerifyMfaChallengeBody"
       responses:
         "200":
           description: Second factor accepted; session cookie set
@@ -200,11 +192,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [code]
-              properties:
-                code:
-                  type: string
+              $ref: "#/components/schemas/ConfirmMfaEnrollmentBody"
       responses:
         "200":
           description: Enrolled; recovery codes returned ONCE (only hashes are stored)
@@ -239,11 +227,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [code]
-              properties:
-                code:
-                  type: string
+              $ref: "#/components/schemas/ReverifyMfaBody"
       responses:
         "200":
           description: Re-verified; session refreshed
@@ -271,11 +255,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [password]
-              properties:
-                password:
-                  type: string
+              $ref: "#/components/schemas/ReissueRecoveryCodesBody"
       responses:
         "200":
           description: New codes, returned ONCE
@@ -308,13 +288,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [password, code]
-              properties:
-                password:
-                  type: string
-                code:
-                  type: string
+              $ref: "#/components/schemas/RemoveMfaBody"
       responses:
         "200":
           description: Removed
@@ -1118,12 +1092,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [passphrase]
-              properties:
-                passphrase:
-                  type: string
-                  description: Your signing passphrase (never stored).
+              $ref: "#/components/schemas/SignMinutesBody"
       responses:
         "200":
           description: Signed
@@ -1219,12 +1188,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [passphrase]
-              properties:
-                passphrase:
-                  type: string
-                  minLength: 12
+              $ref: "#/components/schemas/EnrollSigningKeyBody"
       responses:
         "201":
           description: Key enrolled; fingerprint returned
@@ -1896,12 +1860,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [entityType, entityId, reason]
-              properties:
-                entityType: { type: string, enum: [board, meeting, document, vote, task] }
-                entityId: { type: string }
-                reason: { type: string }
+              $ref: "#/components/schemas/PlaceLegalHoldBody"
       responses:
         "201": { description: Hold placed }
         "400": { description: Invalid input }
@@ -3448,6 +3407,75 @@ components:
           type: string
         person:
           $ref: "#/components/schemas/Person"
+
+    VerifyMfaChallengeBody:
+      type: object
+      required: [mfaToken, code]
+      properties:
+        mfaToken:
+          type: string
+          description: The challenge token returned by /auth/login.
+        code:
+          type: string
+          description: A 6-digit TOTP code, or one of the recovery codes.
+
+    ConfirmMfaEnrollmentBody:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+
+    ReverifyMfaBody:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+
+    ReissueRecoveryCodesBody:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+
+    RemoveMfaBody:
+      type: object
+      required: [password, code]
+      properties:
+        password:
+          type: string
+        code:
+          type: string
+
+    SignMinutesBody:
+      type: object
+      required: [passphrase]
+      properties:
+        passphrase:
+          type: string
+          description: Your signing passphrase (never stored).
+
+    EnrollSigningKeyBody:
+      type: object
+      required: [passphrase]
+      properties:
+        passphrase:
+          type: string
+          minLength: 12
+
+    PlaceLegalHoldBody:
+      type: object
+      required: [entityType, entityId, reason]
+      properties:
+        entityType:
+          type: string
+          enum: [board, meeting, document, vote, task]
+        entityId:
+          type: string
+        reason:
+          type: string
 
     MinutesSignatureVerification:
       type: object

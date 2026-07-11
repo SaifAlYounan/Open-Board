@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ReverifyMfaBody = {
-  code: string;
-};
+export interface SignMinutesBodyModel {
+  /** Your signing passphrase (never stored). */
+  passphrase: string;
+}

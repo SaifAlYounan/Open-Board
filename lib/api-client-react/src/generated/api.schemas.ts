@@ -723,6 +723,57 @@ export interface MinutesDetail {
   updatedAt: string;
 }
 
+export interface VerifyMfaChallengeBody {
+  /** The challenge token returned by /auth/login. */
+  mfaToken: string;
+  /** A 6-digit TOTP code, or one of the recovery codes. */
+  code: string;
+}
+
+export interface ConfirmMfaEnrollmentBody {
+  code: string;
+}
+
+export interface ReverifyMfaBody {
+  code: string;
+}
+
+export interface ReissueRecoveryCodesBody {
+  password: string;
+}
+
+export interface RemoveMfaBody {
+  password: string;
+  code: string;
+}
+
+export interface SignMinutesBody {
+  /** Your signing passphrase (never stored). */
+  passphrase: string;
+}
+
+export interface EnrollSigningKeyBody {
+  /** @minLength 12 */
+  passphrase: string;
+}
+
+export type PlaceLegalHoldBodyEntityType =
+  (typeof PlaceLegalHoldBodyEntityType)[keyof typeof PlaceLegalHoldBodyEntityType];
+
+export const PlaceLegalHoldBodyEntityType = {
+  board: "board",
+  meeting: "meeting",
+  document: "document",
+  vote: "vote",
+  task: "task",
+} as const;
+
+export interface PlaceLegalHoldBody {
+  entityType: PlaceLegalHoldBodyEntityType;
+  entityId: string;
+  reason: string;
+}
+
 export type MinutesSignatureVerificationCounts = {
   verified?: number;
   invalid?: number;
@@ -1487,13 +1538,6 @@ export interface ResetDataResponse {
   message: string;
 }
 
-export type VerifyMfaChallengeBody = {
-  /** The challenge token returned by /auth/login. */
-  mfaToken: string;
-  /** A 6-digit TOTP code, or one of the recovery codes. */
-  code: string;
-};
-
 export type VerifyMfaChallenge200 = {
   user?: Person;
   usedRecoveryCode?: boolean;
@@ -1524,34 +1568,17 @@ export type BeginMfaEnrollment200 = {
   otpauthUri?: string;
 };
 
-export type ConfirmMfaEnrollmentBody = {
-  code: string;
-};
-
 export type ConfirmMfaEnrollment200 = {
   enrolled?: boolean;
   recoveryCodes?: string[];
-};
-
-export type ReverifyMfaBody = {
-  code: string;
 };
 
 export type ReverifyMfa200 = {
   verified?: boolean;
 };
 
-export type ReissueRecoveryCodesBody = {
-  password: string;
-};
-
 export type ReissueRecoveryCodes200 = {
   recoveryCodes?: string[];
-};
-
-export type RemoveMfaBody = {
-  password: string;
-  code: string;
 };
 
 export type RemoveMfa200 = {
@@ -1572,17 +1599,7 @@ export type ListMinutesParams = {
   status?: string;
 };
 
-export type SignMinutesBody = {
-  /** Your signing passphrase (never stored). */
-  passphrase: string;
-};
-
 export type ExportSignedMinutes200 = { [key: string]: unknown };
-
-export type EnrollSigningKeyBody = {
-  /** @minLength 12 */
-  passphrase: string;
-};
 
 export type EnrollSigningKey201 = {
   enrolled?: boolean;
@@ -1640,23 +1657,6 @@ export type VerifyAuditChain409 = {
 };
 
 export type ListLegalHolds200Item = { [key: string]: unknown };
-
-export type PlaceLegalHoldBodyEntityType =
-  (typeof PlaceLegalHoldBodyEntityType)[keyof typeof PlaceLegalHoldBodyEntityType];
-
-export const PlaceLegalHoldBodyEntityType = {
-  board: "board",
-  meeting: "meeting",
-  document: "document",
-  vote: "vote",
-  task: "task",
-} as const;
-
-export type PlaceLegalHoldBody = {
-  entityType: PlaceLegalHoldBodyEntityType;
-  entityId: string;
-  reason: string;
-};
 
 export type ListAccessEventsParams = {
   entityType: string;

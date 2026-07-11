@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SignMinutesBody = {
-  /** Your signing passphrase (never stored). */
-  passphrase: string;
-};
+export interface ReissueRecoveryCodesBodyModel {
+  password: string;
+}

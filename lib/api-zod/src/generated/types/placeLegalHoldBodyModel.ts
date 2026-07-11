@@ -5,10 +5,10 @@
  * LQGovernance — Board Management Portal API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { PlaceLegalHoldBodyEntityType } from "./placeLegalHoldBodyEntityType";
+import type { PlaceLegalHoldBodyModelEntityType } from "./placeLegalHoldBodyModelEntityType";
 
-export type PlaceLegalHoldBody = {
-  entityType: PlaceLegalHoldBodyEntityType;
+export interface PlaceLegalHoldBodyModel {
+  entityType: PlaceLegalHoldBodyModelEntityType;
   entityId: string;
   reason: string;
-};
+}

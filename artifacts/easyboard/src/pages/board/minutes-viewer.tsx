@@ -238,8 +238,10 @@ export default function MinutesViewer() {
                     <CheckCircle size={14} className="text-[#34c759]" />
                     <div>
                       <div className="font-medium text-[#1d1d1f]">{sig.person?.name}</div>
-                      <div className="text-[#86868b] font-mono truncate" title={sig.signatureHash}>
-                        {sig.signatureHash?.slice(0, 12)}...
+                      <div className="text-[#86868b] font-mono truncate" title={sig.signature || sig.signatureHash || ''}>
+                        {sig.signature
+                          ? `${sig.algorithm || 'Ed25519'}: ${sig.signature.slice(0, 12)}…`
+                          : (sig.signatureHash ? `${sig.signatureHash.slice(0, 12)}… (legacy)` : 'legacy')}
                       </div>
                     </div>
                   </div>

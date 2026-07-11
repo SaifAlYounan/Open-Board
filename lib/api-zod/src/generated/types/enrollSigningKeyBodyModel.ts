@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type EnrollSigningKeyBody = {
+export interface EnrollSigningKeyBodyModel {
   /** @minLength 12 */
   passphrase: string;
-};
+}

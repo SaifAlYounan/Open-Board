@@ -6,6 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ReissueRecoveryCodesBody = {
-  password: string;
-};
+export interface ReverifyMfaBodyModel {
+  code: string;
+}
