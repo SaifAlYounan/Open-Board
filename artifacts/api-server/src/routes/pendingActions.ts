@@ -18,6 +18,7 @@ import {
   voteDocumentsTable,
   agendaDocumentsTable,
   approvalRulesTable,
+  auditTrailTable,
 } from "@workspace/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireFreshMfa } from "../lib/auth";
@@ -149,6 +150,16 @@ router.get("/pending-actions", requireAuth, requireAdmin, async (req, res): Prom
   const docs = docIds.length ? await db.select({ id: documentsTable.id, title: documentsTable.title, filename: documentsTable.filename }).from(documentsTable).where(inArray(documentsTable.id, docIds)) : [];
   const docById = new Map(docs.map((d) => [d.id, d]));
 
+  // Which source documents THIS approver has actually opened (the audited
+  // download) — drives the "you haven't opened the source" warning (item 6).
+  const viewedRows = docIds.length
+    ? await db
+        .select({ entityId: auditTrailTable.entityId })
+        .from(auditTrailTable)
+        .where(and(eq(auditTrailTable.action, "document_downloaded"), eq(auditTrailTable.personId, req.user!.id), inArray(auditTrailTable.entityId, docIds)))
+    : [];
+  const viewedDocIds = new Set(viewedRows.map((r) => r.entityId));
+
   const result = actions.map((a) => {
     const doc = a.documentId ? docById.get(a.documentId) : null;
     const data = a.actionData as Record<string, unknown>;
@@ -159,6 +170,13 @@ router.get("/pending-actions", requireAuth, requireAdmin, async (req, res): Prom
       aiConfidence: (data?.confidence as number) || null,
       aiDescription: (data?.description as string) || null,
       aiSourceQuote: (data?.source_quote as string) || null,
+      // Whether the quoted passage was actually found in the extracted document
+      // text at classification time (external-review item 6): the approver must
+      // SEE this, not approve the model's account of the document blind. A
+      // hallucination guard, not the injection defense — an injecting document
+      // can quote itself (lib/promptInjection.ts).
+      sourceQuoteVerified: typeof data?.source_quote_verified === "boolean" ? (data.source_quote_verified as boolean) : null,
+      sourceViewedByYou: a.documentId ? viewedDocIds.has(a.documentId) : null,
     };
   });
 
@@ -630,7 +648,7 @@ async function executeAction(
 // makes it real. Second factor required, and recent.
 router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, requireFreshMfa, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const { actionData: overrideData, secretaryNotes } = req.body || {};
+  const { actionData: overrideData, secretaryNotes, overrideUnverifiedQuote, overrideReason } = req.body || {};
 
   const [action] = await db.select().from(pendingActionsTable).where(eq(pendingActionsTable.id, id));
   if (!action) {
@@ -651,6 +669,55 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, requireFr
     res.status(422).json({ error: validation.error });
     return;
   }
+
+  // External-review item 6 — the human-in-the-loop was approving the model's
+  // account of the document while looking at the model's account of the
+  // document. Two closures, both recorded on the approval's audit entry:
+  //
+  //  1. The quoted passage is re-checked against the PERSISTED extracted text
+  //     at approval time (not just at classification time, and not against a
+  //     stale copy). A missing quote blocks the approval unless the Secretary
+  //     explicitly overrides with a reason. Still a HALLUCINATION guard, not
+  //     the injection defense — an injecting document can quote itself.
+  //  2. Whether this approver ever opened the source document (the audited
+  //     download) is recorded as sourceViewed — the UI warns, the record shows.
+  let quoteVerifiedAtApproval: boolean | null = null;
+  const sourceQuote = ((action.actionData as Record<string, unknown>)?.source_quote as string | undefined)?.trim();
+  if (action.documentId && sourceQuote) {
+    const [srcDoc] = await db
+      .select({ extractedText: documentsTable.extractedText })
+      .from(documentsTable)
+      .where(eq(documentsTable.id, action.documentId));
+    if (srcDoc && srcDoc.extractedText != null) {
+      const { quotePresent } = await import("../lib/promptInjection");
+      quoteVerifiedAtApproval = quotePresent(sourceQuote, srcDoc.extractedText);
+      if (!quoteVerifiedAtApproval && overrideUnverifiedQuote !== true) {
+        res.status(422).json({
+          error:
+            "The AI's quoted passage was not found in the source document — it may be hallucinated. " +
+            "Open the source document and check; if the action is still correct, approve again with " +
+            "overrideUnverifiedQuote: true and an overrideReason.",
+          sourceQuoteVerified: false,
+        });
+        return;
+      }
+    }
+  }
+  const sourceViewed = action.documentId
+    ? (
+        await db
+          .select({ id: auditTrailTable.id })
+          .from(auditTrailTable)
+          .where(
+            and(
+              eq(auditTrailTable.action, "document_downloaded"),
+              eq(auditTrailTable.entityId, action.documentId),
+              eq(auditTrailTable.personId, req.user!.id),
+            ),
+          )
+          .limit(1)
+      ).length > 0
+    : null;
 
   // Merge documentId from the action row into the data so create_minutes can read document text
   // _sourceDocumentId is used by create_meeting/create_vote/attach_to_meeting to auto-attach
@@ -677,6 +744,10 @@ router.post("/pending-actions/:id/approve", requireAuth, requireAdmin, requireFr
       await auditInTx(tx, req, "pending_action_approved", "pending_action", id, {
         actionType: action.actionType,
         modified: !!overrideData,
+        // Item 6 — the record shows what the approver actually verified:
+        sourceQuoteVerified: quoteVerifiedAtApproval,
+        quoteOverride: overrideUnverifiedQuote === true ? { reason: overrideReason ? sanitizeText(String(overrideReason)) : null } : null,
+        sourceViewed,
       });
       return { entity, updated };
     });
