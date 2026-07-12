@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import authRouter from "./auth";
+import mfaRouter from "./mfa";
+import signingKeysRouter from "./signingKeys";
 import peopleRouter from "./people";
 import boardsRouter from "./boards";
 import meetingsRouter from "./meetings";
@@ -14,6 +16,8 @@ import dashboardRouter from "./dashboard";
 import systemRouter from "./system";
 import auditLogRouter from "./auditLog";
 import deletedRecordsRouter from "./deletedRecords";
+import legalHoldsRouter from "./legalHolds";
+import accessEventsRouter from "./accessEvents";
 import workflowsRouter from "./workflows";
 import graphRouter from "./graph";
 
@@ -21,6 +25,8 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(mfaRouter);
+router.use(signingKeysRouter);
 router.use(peopleRouter);
 router.use(boardsRouter);
 router.use(meetingsRouter);
@@ -34,6 +40,8 @@ router.use(dashboardRouter);
 router.use(systemRouter);
 router.use(auditLogRouter);
 router.use(deletedRecordsRouter);
+router.use(legalHoldsRouter);
+router.use(accessEventsRouter);
 router.use(workflowsRouter);
 router.use(graphRouter);
 

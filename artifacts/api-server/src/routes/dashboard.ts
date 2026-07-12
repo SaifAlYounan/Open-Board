@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, ne, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { accessibleEntityIds } from "../lib/access";
 import { callAI, getDatabaseContext, aiConfigured, SUGGEST_PROMPT } from "../lib/ai";
 import { boardsTable } from "@workspace/db";
 
@@ -65,19 +66,10 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
       nextMeeting = { ...m, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: 0 };
     }
   } else if (user.role === "member") {
-    // Board member: show their pending votes, minutes to sign
-    const accessible = await db
-      .select()
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const voteIds = new Set(accessible.filter((a) => a.entityType === "vote").map((a) => a.entityId));
-    const meetingIds = new Set(accessible.filter((a) => a.entityType === "meeting").map((a) => a.entityId));
-    const minutesIds = new Set(accessible.filter((a) => a.entityType === "minutes").map((a) => a.entityId));
+    // Board member: show their pending votes, minutes to sign (one access model).
+    const voteIds = new Set(await accessibleEntityIds(user.id, "vote"));
+    const meetingIds = new Set(await accessibleEntityIds(user.id, "meeting"));
+    const minutesIds = new Set(await accessibleEntityIds(user.id, "minutes"));
 
     const allVotes = await db.select().from(votesTable).where(eq(votesTable.status, "open"));
     const myVotes = allVotes.filter((v) => voteIds.has(v.id));
@@ -132,17 +124,8 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
       return new Date(t.dueDate) < new Date();
     }).length;
   } else if (user.role === "observer") {
-    const accessible = await db
-      .select()
-      .from(accessControlTable)
-      .where(
-        and(
-          eq(accessControlTable.personId, user.id),
-          eq(accessControlTable.hasAccess, true)
-        )
-      );
-    const minutesIds = new Set(accessible.filter((a) => a.entityType === "minutes").map((a) => a.entityId));
-    const voteIds = new Set(accessible.filter((a) => a.entityType === "vote").map((a) => a.entityId));
+    const minutesIds = new Set(await accessibleEntityIds(user.id, "minutes"));
+    const voteIds = new Set(await accessibleEntityIds(user.id, "vote"));
 
     const reviewMinutes = await db.select().from(minutesTable).where(eq(minutesTable.status, "review"));
     minutesInReviewCount = reviewMinutes.filter((m) => minutesIds.has(m.id)).length;

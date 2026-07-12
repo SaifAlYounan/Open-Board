@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, auditTrailTable, peopleTable } from "@workspace/db";
 import { desc, eq, and, like, or } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { verifyAuditChain } from "../lib/auditLog";
 
 const router = Router();
 
@@ -70,6 +71,14 @@ router.get("/audit", requireAuth, requireAdmin, async (req, res): Promise<void> 
   );
 
   res.json(withPeople);
+});
+
+// P0.6 — in-app audit-chain verifier. Replays the chain and reports the first
+// broken link. 200 when intact, 409 when a link is broken. (Detects naive edits;
+// a full re-seal by a DB-write adversary needs the external anchor — see SECURITY.md.)
+router.get("/audit/verify", requireAuth, requireAdmin, async (_req, res): Promise<void> => {
+  const result = await verifyAuditChain();
+  res.status(result.ok ? 200 : 409).json(result);
 });
 
 router.get("/audit/people", requireAuth, requireAdmin, async (req, res): Promise<void> => {

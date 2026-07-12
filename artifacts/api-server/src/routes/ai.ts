@@ -20,6 +20,7 @@ import {
   getCurrentModel,
   getProvider,
   aiConfigured,
+  externalProviderKeyPresentButNotAllowed,
   COMMAND_PROMPT,
   SEARCH_PROMPT,
   SUGGEST_PROMPT,
@@ -42,15 +43,31 @@ const aiRateLimit = rateLimit({
 const hasAI = () => aiConfigured();
 
 const NOT_CONFIGURED_MESSAGE =
-  "AI features require configuration. Set ANTHROPIC_API_KEY, or AI_PROVIDER=openai-compatible with AI_BASE_URL for a local model. See Settings.";
+  "AI features require configuration. Set ANTHROPIC_API_KEY (external — sends document text to Anthropic) plus AI_ALLOW_EXTERNAL_PROVIDER=true, or AI_PROVIDER=openai-compatible with AI_BASE_URL for a local model that keeps text in-house. See Settings.";
+
+// The exact state after P0.4: a key IS set but the external-egress acknowledgement
+// is not — telling the operator to "set the key" would be a dead end.
+const EXTERNAL_NOT_ALLOWED_MESSAGE =
+  "An Anthropic API key is set, but external AI is off, so AI is disabled and NO document text leaves this deployment. Set AI_ALLOW_EXTERNAL_PROVIDER=true to enable it (this transmits document text — including privileged passages — to Anthropic), or switch to a local AI_PROVIDER=openai-compatible to keep text in-house.";
+
+// One source of truth for the disabled-state reason, reused by the UI banner and
+// the admin command/search paths so none of them can give stale guidance.
+export function aiStatusInfo(): { configured: boolean; reason: "configured" | "external_not_acknowledged" | "not_configured"; message: string | null } {
+  if (aiConfigured()) return { configured: true, reason: "configured", message: null };
+  if (externalProviderKeyPresentButNotAllowed()) {
+    return { configured: false, reason: "external_not_acknowledged", message: EXTERNAL_NOT_ALLOWED_MESSAGE };
+  }
+  return { configured: false, reason: "not_configured", message: NOT_CONFIGURED_MESSAGE };
+}
 
 router.get("/ai/status", requireAuth, async (_req, res): Promise<void> => {
-  const configured = hasAI();
+  const info = aiStatusInfo();
   res.json({
-    configured,
+    configured: info.configured,
+    reason: info.reason,
     provider: getProvider(),
-    model: configured ? getCurrentModel() : null,
-    message: configured ? null : NOT_CONFIGURED_MESSAGE,
+    model: info.configured ? getCurrentModel() : null,
+    message: info.message,
   });
 });
 

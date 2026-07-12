@@ -956,6 +956,15 @@ function SystemTab() {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
+  // The destructive "Reset All Data" control exists only in demo builds; the
+  // backend route is absent otherwise (returns 404). Hide it unless demoMode.
+  const [demoMode, setDemoMode] = useState(false);
+  useEffect(() => {
+    fetch(`${API_BASE}/api/system/config`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { demoMode: false }))
+      .then((c) => setDemoMode(!!c.demoMode))
+      .catch(() => setDemoMode(false));
+  }, []);
   const [password, setPassword] = useState("");
   // The server verifies the admin's real password — the client only requires a non-empty entry.
   const canSubmit = password.length > 0;
@@ -984,6 +993,12 @@ function SystemTab() {
 
   return (
     <div className="space-y-4">
+      {!demoMode && (
+        <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 text-sm text-[#86868b]">
+          Destructive maintenance actions (e.g. “Reset All Data”) are available only in demo builds.
+        </div>
+      )}
+      {demoMode && (
       <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6">
         <div className="flex items-start gap-4">
           <div className="w-10 h-10 bg-[#ff3b3015] text-[#ff3b30] rounded-xl flex items-center justify-center flex-shrink-0">
@@ -1063,6 +1078,7 @@ function SystemTab() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

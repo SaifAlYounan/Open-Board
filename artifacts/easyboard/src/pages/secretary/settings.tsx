@@ -40,9 +40,12 @@ export default function SecretarySettings() {
             </div>
             {!status?.configured && (
               <div className="text-sm text-[#86868b] bg-[#f5f5f7] rounded-xl p-4">
-                <p className="mb-2">To enable AI features (document classification, AI search, smart insights), add your Anthropic API key as an environment variable:</p>
+                {status?.message && <p className="mb-3 text-[#1d1d1f]">{status.message}</p>}
+                <p className="mb-2">To enable AI features (document classification, AI search, smart insights) via Anthropic, set BOTH — the key AND the external-egress acknowledgement (this transmits document text to Anthropic):</p>
                 <code className="font-mono text-xs bg-[#1d1d1f] text-white px-2 py-0.5 rounded">ANTHROPIC_API_KEY=sk-ant-...</code>
-                <p className="mt-2">Or run a local / OpenAI-compatible model (Ollama, vLLM, LM Studio, …):</p>
+                <br />
+                <code className="font-mono text-xs bg-[#1d1d1f] text-white px-2 py-0.5 rounded">AI_ALLOW_EXTERNAL_PROVIDER=true</code>
+                <p className="mt-2">Or run a local / OpenAI-compatible model (Ollama, vLLM, LM Studio, …) to keep document text in-house — no acknowledgement needed:</p>
                 <code className="font-mono text-xs bg-[#1d1d1f] text-white px-2 py-0.5 rounded">AI_PROVIDER=openai-compatible AI_BASE_URL=http://localhost:11434/v1</code>
                 <p className="mt-2">Set <code className="font-mono text-xs">AI_MODEL</code> to choose the model (defaults to Claude Opus 4.8 on Anthropic).</p>
               </div>

@@ -12,11 +12,11 @@
  *  - cancel is a lifecycle transition with a distinct audit event, not delete.
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("manual governance CRUD — authz, validation, state machines", () => {
   let app: any;

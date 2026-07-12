@@ -46,7 +46,8 @@ The human-in-the-loop is the whole point:
    board secretary) reviews it and approves or rejects. Only on approval does anything real get
    created.
 4. **Act & record.** The approved task/vote/meeting goes live, members are notified in real time, and
-   every step is written to a tamper-evident audit trail.
+   every step is written to a hash-chained audit trail (see SECURITY.md for what that does and does
+   not defend against).
 
 Every action the AI can propose can also be created **manually** through the same validated contract,
 so the platform is fully usable with the AI turned off.
@@ -74,15 +75,21 @@ so the platform is fully usable with the AI turned off.
 - The **same tally logic** drives both casting and display, and eligible-voter totals exclude
   observers and non-voting roles consistently.
 
-**Minutes & certificates**
+**Minutes & signatures**
 - Draft, comment on, and **sign** minutes, with object-level checks on who may sign.
+- **Cryptographic minutes signatures**: each signer enrolls a personal **Ed25519** key whose private
+  half is wrapped by a passphrase entered at signing and never stored — so the server cannot sign for
+  a director. Verify in-app (`GET /api/minutes/:id/signature/verify`) or **offline** from an exported
+  bundle (`GET /api/minutes/:id/export` + `artifacts/api-server/scripts/verify-minutes.mjs`). Old
+  signatures report `legacy_unverifiable`. See [docs/SIGNING.md](docs/SIGNING.md).
 - **Verifiable vote certificates**: the certificate hash is computed entirely from persisted data and
   can be re-checked at `GET /api/votes/:id/certificate/verify`.
 
 **Documents**
 - Upload, classify, download, and reclassify board materials.
-- **Per-document access control** — exclude a specific person from specific materials (conflict-of-
-  interest recusal).
+- **Per-document access control** — an allow-list: a document is visible only to members explicitly
+  granted access (plus admins). Note: on upload only the uploader is granted, so board-wide sharing
+  is not automatic, and exclusion-based recusal is not yet implemented (see SECURITY.md limitations).
 
 **Meetings & tasks**
 - Meetings with agendas and attendance; tasks with assignees and evidence submission/review.
@@ -98,7 +105,8 @@ so the platform is fully usable with the AI turned off.
 - **Optional email** (SMTP) for password-reset and account-invite delivery. With SMTP unconfigured,
   reset links are written to the server log instead and the app runs normally. (The first-boot admin
   one-time password is always log-only.)
-- **Tamper-evident audit trail** — a SHA-256 hash chain binding actor, entity, details, IP, and time.
+- **Hash-chained audit trail** — a SHA-256 hash chain binding actor, entity, details, IP, and time
+  (detects casual edits; not resistant to an actor with DB write access — see SECURITY.md).
 
 There is **no** SCIM / directory-sync integration; accounts are managed in-app.
 
@@ -172,10 +180,13 @@ are required to set a new password immediately.
 
 Add a provider to `.env` and restart (`docker compose up -d`). Two paths:
 
-**Anthropic (default provider)**
+**Anthropic (default provider)** — sends document text off your deployment, so it takes **two**
+settings: the key, and an explicit egress acknowledgement. Without the acknowledgement the Anthropic
+path stays disabled even with a key present.
 
 ```
 ANTHROPIC_API_KEY=sk-ant-your-key-here
+AI_ALLOW_EXTERNAL_PROVIDER=true   # you accept that extracted document text leaves this deployment
 ```
 
 **Local / OpenAI-compatible** — anything that speaks `/v1/chat/completions`, so documents never leave
@@ -263,7 +274,9 @@ Every setting is documented in [`.env.example`](.env.example). The ones you are 
 | `DATABASE_URL` | Yes (defaulted) | PostgreSQL connection string. Preset to match the bundled database. |
 | `APP_PORT` / `DB_PORT` | No | Host ports if 3000 / 5432 are taken. |
 | `APP_BIND` | No | App host bind address. Loopback (`127.0.0.1`) by default; set `0.0.0.0` only to expose it directly. |
-| `ANTHROPIC_API_KEY` | No | Enables AI on the default Anthropic provider. Omit to run without AI. |
+| `ANTHROPIC_API_KEY` | No | The Anthropic key. Enables AI **only together with** `AI_ALLOW_EXTERNAL_PROVIDER=true`. Omit to run without AI. |
+| `AI_ALLOW_EXTERNAL_PROVIDER` | With Anthropic | Must be `true` to allow the Anthropic path (document text leaves the deployment). The local provider does not need it. |
+| `MFA_FRESHNESS_SECONDS` | No | How recently the second factor must be proven before signing/approving/exporting. Default `900` (15 min). |
 | `AI_PROVIDER` | No | `anthropic` (default) or `openai-compatible` for local inference. |
 | `AI_BASE_URL` | With `openai-compatible` | The OpenAI-compatible root, e.g. `http://localhost:11434/v1`. |
 | `AI_API_KEY` | No | Bearer token for the OpenAI-compatible server, if it needs one. |
@@ -304,10 +317,15 @@ membership is the isolation boundary (there is no multi-tenant separation).
 ## Security
 
 LQGovernance handles minutes, resolutions, votes, and confidential documents, so security is a
-first-class concern: JWTs in HttpOnly cookies with server-side revocation on logout/password-change,
-a mandatory `SESSION_SECRET`, bcrypt passwords with forced first-login reset, object-level and
-per-document authorization, a durable Postgres-backed account lockout, a tamper-evident audit trail,
-and AI proposals that are schema-validated and always require human approval.
+first-class concern: **mandatory TOTP two-factor** for admins and board members (re-verified before
+signing, approving, or exporting), **per-user Ed25519 minutes signing** the server cannot forge,
+**fail-closed audit writes** (a mutation rolls back if it cannot be audited) on a verifiable
+hash chain, JWTs in HttpOnly cookies with server-side revocation, bcrypt-cost-12 passwords with
+forced first-login reset, object-level and per-document authorization, a durable Postgres-backed
+account lockout, and AI proposals that are channel-fenced, schema-validated, and always require human
+approval. Prompt injection is **mitigated, not solved**, and there is no application-level encryption
+at rest yet — read the **candid known limitations** in SECURITY.md before using this with real board
+data.
 
 The details, the **candid known limitations**, and a pre-production checklist are in
 **[SECURITY.md](SECURITY.md)**. To report a vulnerability, open a private

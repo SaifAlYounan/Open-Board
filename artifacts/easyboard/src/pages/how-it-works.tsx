@@ -379,7 +379,7 @@ export default function HowItWorks() {
             {[
               { stage: "Draft", color: "#86868b", desc: "Secretary writes or edits using the rich text editor. Not visible to board members." },
               { stage: "In Review", color: "#ff9500", desc: "Board members can read the minutes and submit feedback. Not yet binding." },
-              { stage: "Signing", color: "#0071e3", desc: "Board members are notified to digitally sign. Each signature is SHA-256 timestamped." },
+              { stage: "Signing", color: "#0071e3", desc: "Board members sign with their personal Ed25519 key — a signature over a canonical, timestamped payload the server cannot forge." },
               { stage: "Signed", color: "#34c759", desc: "All required signatures collected. Minutes are locked and immutable." },
             ].map(({ stage, color, desc }) => (
               <div key={stage} className="bg-white border border-[#e5e5e7] rounded-xl p-4">
@@ -405,16 +405,16 @@ export default function HowItWorks() {
           <div className="bg-white border border-[#e5e5e7] rounded-2xl p-6 space-y-5">
             {[
               {
-                title: "JWT Authentication",
-                detail: "Every API request is authenticated with a signed JSON Web Token. Tokens are issued on login, validated on every request, and contain the user's role, ID, and expiry. There are no cookies and no session state on the server.",
+                title: "Authentication & two-factor",
+                detail: "Every API request is authenticated with a signed JSON Web Token, stored in an HttpOnly cookie and revocable server-side via a per-user token version. Admins and board members must also enroll a TOTP second factor, which is re-verified before signing, approving, or exporting.",
               },
               {
                 title: "SHA-256 Resolution Certificates",
                 detail: "When a vote closes, the system computes a SHA-256 hash of the vote ID, final status, approval count, total votes, and close timestamp. This hash is stored permanently and printed on the certificate. Any tampering with the vote record would invalidate the hash.",
               },
               {
-                title: "SHA-256 Minute Signatures",
-                detail: "Each digital signature on meeting minutes records the signatory's ID, the minutes ID, and a timestamp — collectively hashed. The result is a tamper-evident chain that proves who signed, when, and what they signed.",
+                title: "Ed25519 Minute Signatures",
+                detail: "Each signer holds a personal Ed25519 keypair whose private half is wrapped by a passphrase entered at signing and never stored — so the server cannot sign for them. The signature commits to the exact minutes text, signer, and timestamp, and verifies in-app or offline. Any later edit fails verification.",
               },
               {
                 title: "Role-Based Access Control",

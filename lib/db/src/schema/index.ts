@@ -25,3 +25,7 @@ export * from "./passwordResetTokens";
 export * from "./loginLockouts";
 export * from "./aiUsage";
 export * from "./deletedRecords";
+export * from "./legalHolds";
+export * from "./accessEvents";
+export * from "./mfa";
+export * from "./signingKeys";

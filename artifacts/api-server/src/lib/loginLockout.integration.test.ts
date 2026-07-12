@@ -4,9 +4,9 @@
  * the other *.integration.test.ts suites.
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("login lockout store (Postgres-backed)", () => {
   const KEY = "lockout-store-test@test.local";

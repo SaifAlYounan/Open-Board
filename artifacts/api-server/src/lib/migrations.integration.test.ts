@@ -9,10 +9,10 @@
  * paths are exercised for real, not against an already-migrated schema.
  */
 import { describe, it, expect, afterAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import pg from "pg";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 const { Pool, Client } = pg;
 

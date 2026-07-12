@@ -11,10 +11,10 @@
  *  - board-scoped emits reach members of that board and nobody else.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import http from "http";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("realtime — socket authz", () => {
   let ioServer: any;

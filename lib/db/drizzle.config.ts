@@ -20,7 +20,10 @@ export default defineConfig({
   schema: path.join(__dirname, "./src/schema/index.ts"),
   // Versioned SQL migrations (issue #17). `drizzle-kit generate` writes here;
   // boot (and CI) apply them with drizzle's journaled migrate().
-  out: path.join(__dirname, "./migrations"),
+  // NOTE: `out` MUST be relative — an absolute path trips a drizzle-kit bug that
+  // prepends "./" to it and fails to find the meta snapshots. Run drizzle-kit
+  // from this package dir (pnpm --filter @workspace/db) so the relative path resolves.
+  out: "./migrations",
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL,

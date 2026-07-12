@@ -1,5 +1,4 @@
 import { Router } from "express";
-import crypto from "crypto";
 import {
   db,
   minutesTable,
@@ -12,14 +11,23 @@ import {
   accessControlTable,
 } from "@workspace/db";
 import { eq, and, ne, inArray } from "drizzle-orm";
-import { requireAuth, requireAdmin } from "../lib/auth";
+import { requireAuth, requireAdmin, requireFreshMfa } from "../lib/auth";
 import { sanitizeRichHtml, sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
-import { grantDefaultAccess } from "../lib/access";
+import { grantDefaultAccess, hasAccess } from "../lib/access";
 import { groupBy } from "../lib/group";
-import { audit } from "../lib/auditLog";
+import { audit, auditInTx } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 import { writeLimiter } from "../lib/rateLimiters";
+import { activeSigningKey } from "./signingKeys";
+import {
+  PAYLOAD_VERSION,
+  WrongPassphraseError,
+  sha256Hex,
+  signPayload,
+  unwrapPrivateKey,
+  verifySignatureRow,
+} from "../lib/signing";
 
 const COMMENT_COLORS = [
   "#ff3b30", "#ff9500", "#34c759", "#0071e3", "#5856d6", "#af52de",
@@ -136,25 +144,34 @@ router.post("/minutes", requireAuth, requireAdmin, writeLimiter, async (req, res
       res.status(409).json({ error: `Minutes in '${existing.status}' are locked and cannot be edited. Return them to review first.` });
       return;
     }
-    const [updated] = await db.update(minutesTable).set({ content: cleanContent, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
     const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
-    audit(req, "minutes_saved", "minutes", existing.id, { meetingTitle: meeting?.title });
+    // Fail-closed (P0.6): the update and its audit entry commit together.
+    const [updated] = await db.transaction(async (tx) => {
+      const rows = await tx.update(minutesTable).set({ content: cleanContent, updatedAt: new Date() }).where(eq(minutesTable.id, existing.id)).returning();
+      await auditInTx(tx, req, "minutes_saved", "minutes", existing.id, { meetingTitle: meeting?.title });
+      return rows;
+    });
     res.json({ ...updated, meetingTitle: meeting?.title || null, meetingDate: meeting?.date || null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
     return;
   }
 
-  const [minutes] = await db
-    .insert(minutesTable)
-    .values({ meetingId, content: cleanContent })
-    .returning();
-
-  // Grant access based on board
   const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, meetingId));
-  if (meeting?.boardId) {
-    await grantDefaultAccess("minutes", minutes.id, meeting.boardId);
-  }
+  // Fail-closed (P0.6): the minutes, their access grants, and the audit entry
+  // commit together.
+  const minutes = await db.transaction(async (tx) => {
+    const [m] = await tx
+      .insert(minutesTable)
+      .values({ meetingId, content: cleanContent })
+      .returning();
 
-  audit(req, "minutes_saved", "minutes", minutes.id, { meetingTitle: meeting?.title });
+    // Grant access based on board
+    if (meeting?.boardId) {
+      await grantDefaultAccess("minutes", m.id, meeting.boardId, [], tx);
+    }
+
+    await auditInTx(tx, req, "minutes_saved", "minutes", m.id, { meetingTitle: meeting?.title });
+    return m;
+  });
   res.status(201).json({
     ...minutes,
     meetingTitle: meeting?.title || null,
@@ -268,18 +285,22 @@ router.patch("/minutes/:id", requireAuth, requireAdmin, writeLimiter, async (req
     return;
   }
 
-  const [minutes] = await db
-    .update(minutesTable)
-    .set({ content: sanitizeRichHtml(content), updatedAt: new Date() })
-    .where(eq(minutesTable.id, id))
-    .returning();
+  // Fail-closed (P0.6): the update and its audit entry commit together.
+  const minutes = await db.transaction(async (tx) => {
+    const [m] = await tx
+      .update(minutesTable)
+      .set({ content: sanitizeRichHtml(content), updatedAt: new Date() })
+      .where(eq(minutesTable.id, id))
+      .returning();
+    if (!m) return null;
+    await auditInTx(tx, req, "minutes_content_updated", "minutes", id, { contentLength: String(content).length });
+    return m;
+  });
 
   if (!minutes) {
     res.status(404).json({ error: "Minutes not found" });
     return;
   }
-
-  await audit(req, "minutes_content_updated", "minutes", id, { contentLength: String(content).length });
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
@@ -333,17 +354,22 @@ router.patch("/minutes/:id/status", requireAuth, requireAdmin, writeLimiter, asy
     }
   }
 
-  const [minutes] = await db
-    .update(minutesTable)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(minutesTable.id, id))
-    .returning();
-
-  await audit(req, "minutes_status_changed", "minutes", id, { from: current.status, to: status });
+  // Fail-closed (P0.6): the status change and its audit entry commit together.
+  const [minutes] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(minutesTable)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(minutesTable.id, id))
+      .returning();
+    await auditInTx(tx, req, "minutes_status_changed", "minutes", id, { from: current.status, to: status });
+    return rows;
+  });
   res.json({ ...minutes, meetingTitle: null, meetingDate: null, boardName: null, signatureCount: 0, commentCount: 0, hasSigned: false });
 });
 
-router.post("/minutes/:id/sign", requireAuth, writeLimiter, async (req, res): Promise<void> => {
+// P0.2 — signing binds the organization: a password alone can never reach it.
+// The session must have proven a second factor, and proven it recently.
+router.post("/minutes/:id/sign", requireAuth, requireFreshMfa, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
@@ -375,20 +401,83 @@ router.post("/minutes/:id/sign", requireAuth, writeLimiter, async (req, res): Pr
     }
   }
 
-  const timestamp = new Date().toISOString();
-  const hash = crypto
-    .createHash("sha256")
-    .update(minutes.content + user.name + timestamp)
-    .digest("hex");
+  // P0.1 (F6) — a REAL signature, not a decorative hash.
+  //
+  // The signer's private key is unwrapped here with the passphrase they just
+  // typed, used once, and dropped. The server holds no plaintext key and cannot
+  // sign for them. Everything the signature commits to is persisted, so it can
+  // be verified later — including offline, with no database at all.
+  const { passphrase } = req.body ?? {};
+  if (typeof passphrase !== "string" || !passphrase) {
+    res.status(400).json({
+      error: "Your signing passphrase is required to sign.",
+      code: "signing_passphrase_required",
+    });
+    return;
+  }
+
+  const key = await activeSigningKey(user.id);
+  if (!key) {
+    res.status(403).json({
+      error: "You have no signing key. Enroll one before signing minutes.",
+      code: "signing_key_required",
+    });
+    return;
+  }
+
+  let privateKey;
+  try {
+    privateKey = unwrapPrivateKey(key, passphrase);
+  } catch (err) {
+    if (err instanceof WrongPassphraseError) {
+      await audit(req, "minutes_sign_failed", "minutes", id, { reason: "wrong_passphrase" });
+      res.status(401).json({ error: "That signing passphrase is not correct." });
+      return;
+    }
+    throw err;
+  }
+
+  // The instant that is signed is the instant that is stored — the old code
+  // signed a timestamp it then threw away, which is why nothing verified.
+  const signedAt = new Date();
+  const contentSha256 = sha256Hex(minutes.content);
+  const signature = signPayload(privateKey, {
+    minutesId: id,
+    contentSha256,
+    signerId: user.id,
+    signerName: user.name,
+    signedAt: signedAt.toISOString(),
+    algorithm: key.algorithm,
+    publicKey: key.publicKey,
+  });
 
   try {
-    const [sig] = await db
-      .insert(minutesSignaturesTable)
-      .values({ minutesId: id, personId: user.id, signatureHash: hash })
-      .returning();
+    // Fail-closed (P0.6): the signature and its audit entry commit together.
+    const [sig] = await db.transaction(async (tx) => {
+      const rows = await tx
+        .insert(minutesSignaturesTable)
+        .values({
+          minutesId: id,
+          personId: user.id,
+          signature,
+          algorithm: key.algorithm,
+          signingKeyId: key.id,
+          publicKey: key.publicKey,
+          contentSha256,
+          signerName: user.name,
+          payloadVersion: PAYLOAD_VERSION,
+          signedAt,
+        })
+        .returning();
+      await auditInTx(tx, req, "minutes_signed", "minutes", id, {
+        signingKeyId: key.id,
+        fingerprint: key.fingerprint,
+        contentSha256,
+      });
+      return rows;
+    });
 
     const { passwordHash: _, ...safePerson } = user;
-    audit(req, "minutes_signed", "minutes", id);
     res.json({ ...sig, person: safePerson });
   } catch (err: unknown) {
     const anyErr = err as { code?: string; cause?: { code?: string } };
@@ -400,6 +489,126 @@ router.post("/minutes/:id/sign", requireAuth, writeLimiter, async (req, res): Pr
     logger.error({ err }, "Failed to record minutes signature");
     res.status(500).json({ error: "Failed to record signature" });
   }
+});
+
+/**
+ * P0.1 — verify every signature on these minutes (F6).
+ *
+ * Answers the question the old code could not: *is this document still the one
+ * these people signed?* Each signature is checked twice over — the content hash
+ * it committed to must still match the live text, and the Ed25519 signature must
+ * verify over the canonical payload rebuilt from persisted data. Pre-P0.1 rows
+ * report `legacy_unverifiable`, never "verified".
+ */
+router.get("/minutes/:id/signature/verify", requireAuth, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  const [minutes] = await db.select().from(minutesTable).where(eq(minutesTable.id, id));
+  if (!minutes) {
+    res.status(404).json({ error: "Minutes not found" });
+    return;
+  }
+  if (!(await hasAccess(user.id, user.role, "minutes", id))) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  const sigs = await db.select().from(minutesSignaturesTable).where(eq(minutesSignaturesTable.minutesId, id));
+  const signers = sigs.length
+    ? await db
+        .select({ id: peopleTable.id, name: peopleTable.name, email: peopleTable.email })
+        .from(peopleTable)
+        .where(inArray(peopleTable.id, sigs.map((s) => s.personId!).filter(Boolean)))
+    : [];
+  const signerById = new Map(signers.map((s) => [s.id, s]));
+
+  const results = sigs.map((s) => {
+    const { status, reason } = verifySignatureRow(s, minutes.content);
+    return {
+      signatureId: s.id,
+      signerId: s.personId,
+      signerName: s.signerName ?? signerById.get(s.personId ?? "")?.name ?? null,
+      signerEmail: signerById.get(s.personId ?? "")?.email ?? null,
+      signedAt: s.signedAt,
+      algorithm: s.algorithm,
+      publicKey: s.publicKey,
+      status,
+      ...(reason ? { reason } : {}),
+    };
+  });
+
+  const verified = results.filter((r) => r.status === "verified").length;
+  const invalid = results.filter((r) => r.status === "invalid").length;
+  const legacy = results.filter((r) => r.status === "legacy_unverifiable").length;
+
+  // 409 when something is actually WRONG (a signature that should verify and
+  // does not). Legacy rows are not wrong, they are merely unprovable.
+  res.status(invalid > 0 ? 409 : 200).json({
+    minutesId: id,
+    contentSha256: sha256Hex(minutes.content),
+    ok: invalid === 0,
+    counts: { verified, invalid, legacy_unverifiable: legacy },
+    signatures: results,
+    caveat:
+      "A verified signature proves the signer's key signed this exact text, and that the server could not have signed for them. It does not, on its own, defeat an operator who replaced the recorded public key — check the signer's key fingerprint against a copy held outside this system. See docs/SIGNING.md.",
+  });
+});
+
+/**
+ * P0.1 — the signed-minutes bundle: everything needed to verify OFFLINE, with
+ * no database and no server (`node scripts/verify-minutes.mjs bundle.json`).
+ * This is what you hand a regulator, a court, or a successor system.
+ */
+router.get("/minutes/:id/export", requireAuth, async (req, res): Promise<void> => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = req.user!;
+
+  const [minutes] = await db.select().from(minutesTable).where(eq(minutesTable.id, id));
+  if (!minutes) {
+    res.status(404).json({ error: "Minutes not found" });
+    return;
+  }
+  if (!(await hasAccess(user.id, user.role, "minutes", id))) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  const sigs = await db.select().from(minutesSignaturesTable).where(eq(minutesSignaturesTable.minutesId, id));
+  const [meeting] = minutes.meetingId
+    ? await db.select().from(meetingsTable).where(eq(meetingsTable.id, minutes.meetingId))
+    : [null];
+
+  const bundle = {
+    payloadVersion: PAYLOAD_VERSION,
+    exportedAt: new Date().toISOString(),
+    minutes: {
+      id: minutes.id,
+      meetingId: minutes.meetingId,
+      meetingTitle: meeting?.title ?? null,
+      status: minutes.status,
+      content: minutes.content,
+      contentSha256: sha256Hex(minutes.content),
+    },
+    signatures: sigs.map((s) => ({
+      signatureId: s.id,
+      signerId: s.personId,
+      signerName: s.signerName,
+      signedAt: (s.signedAt instanceof Date ? s.signedAt : new Date(s.signedAt)).toISOString(),
+      algorithm: s.algorithm,
+      publicKey: s.publicKey,
+      contentSha256: s.contentSha256,
+      payloadVersion: s.payloadVersion,
+      signature: s.signature,
+    })),
+  };
+
+  await audit(req, "minutes_exported", "minutes", id, { signatureCount: sigs.length });
+
+  const filename = `minutes-${id}-signed.json`;
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(JSON.stringify(bundle, null, 2));
 });
 
 router.get("/minutes/:id/comments", requireAuth, async (req, res): Promise<void> => {
@@ -504,12 +713,15 @@ router.post("/minutes/:id/comments", requireAuth, writeLimiter, async (req, res)
   ).length;
   const color = COMMENT_COLORS[colorIdx % COMMENT_COLORS.length];
 
-  const [comment] = await db
-    .insert(minutesSuggestionsTable)
-    .values({ minutesId: id, personId: user.id, originalText: cleanOriginalText, commentText: cleanCommentText, color })
-    .returning();
-
-  await audit(req, "minutes_comment_added", "minutes", id, { commentId: comment.id });
+  // Fail-closed (P0.6): the comment and its audit entry commit together.
+  const [comment] = await db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(minutesSuggestionsTable)
+      .values({ minutesId: id, personId: user.id, originalText: cleanOriginalText, commentText: cleanCommentText, color })
+      .returning();
+    await auditInTx(tx, req, "minutes_comment_added", "minutes", id, { commentId: rows[0].id });
+    return rows;
+  });
   const { passwordHash: _, ...safePerson } = user;
   res.status(201).json({ ...comment, person: safePerson });
 });

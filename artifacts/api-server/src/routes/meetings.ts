@@ -11,13 +11,14 @@ import {
 } from "@workspace/db";
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
+import { isUnderHold } from "../lib/legalHold";
 import { sanitizeText } from "../lib/sanitize";
 import { createMeetingBody, updateMeetingBody, parseBody, MEETING_TRANSITIONS } from "../lib/governanceSchemas";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
 import { groupBy } from "../lib/group";
 import { grantDefaultAccess } from "../lib/access";
-import { audit } from "../lib/auditLog";
+import { auditInTx } from "../lib/auditLog";
 import { retainDeleted } from "../lib/retention";
 import { writeLimiter } from "../lib/rateLimiters";
 import { emitInvalidate } from "../lib/realtime";
@@ -147,49 +148,56 @@ router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, re
   const cleanTitle = sanitizeText(title);
   const cleanLocation = location ? sanitizeText(location) : undefined;
 
-  const [meeting] = await db
-    .insert(meetingsTable)
-    .values({ boardId, title: cleanTitle, date: new Date(date), location: cleanLocation })
-    .returning();
-
-  // Create agenda items — coerce unknown types to a safe default rather than crashing on insert
-  if (agendaItems?.length) {
-    await db.insert(agendaItemsTable).values(
-      agendaItems.map((item) => ({
-        meetingId: meeting.id,
-        position: item.position,
-        title: sanitizeText(item.title),
-        type: (AGENDA_TYPES.includes(item.type) ? item.type : "information") as AgendaType,
-        description: item.description ? sanitizeText(item.description) : undefined,
-      }))
-    );
-  }
-
-  // Set up attendance for all board members
-  const members = await db
-    .select()
-    .from(boardMembershipsTable)
-    .where(eq(boardMembershipsTable.boardId, boardId));
-
-  if (members.length) {
-    await db
-      .insert(attendanceTable)
-      .values(
-        members.map((m) => ({
-          meetingId: meeting.id,
-          personId: m.personId!,
-          status: "pending" as const,
-        }))
-      )
-      .onConflictDoNothing();
-  }
-
-  // Grant access
-  await grantDefaultAccess("meeting", meeting.id, boardId);
-
   const [board] = boardId
     ? await db.select().from(boardsTable).where(eq(boardsTable.id, boardId))
     : [null];
+
+  // Fail-closed (P0.6): the meeting, its agenda, attendance, access grants, and
+  // the audit entry commit together.
+  const meeting = await db.transaction(async (tx) => {
+    const [m] = await tx
+      .insert(meetingsTable)
+      .values({ boardId, title: cleanTitle, date: new Date(date), location: cleanLocation })
+      .returning();
+
+    // Create agenda items — coerce unknown types to a safe default rather than crashing on insert
+    if (agendaItems?.length) {
+      await tx.insert(agendaItemsTable).values(
+        agendaItems.map((item) => ({
+          meetingId: m.id,
+          position: item.position,
+          title: sanitizeText(item.title),
+          type: (AGENDA_TYPES.includes(item.type) ? item.type : "information") as AgendaType,
+          description: item.description ? sanitizeText(item.description) : undefined,
+        }))
+      );
+    }
+
+    // Set up attendance for all board members
+    const members = await tx
+      .select()
+      .from(boardMembershipsTable)
+      .where(eq(boardMembershipsTable.boardId, boardId));
+
+    if (members.length) {
+      await tx
+        .insert(attendanceTable)
+        .values(
+          members.map((mem) => ({
+            meetingId: m.id,
+            personId: mem.personId!,
+            status: "pending" as const,
+          }))
+        )
+        .onConflictDoNothing();
+    }
+
+    // Grant access
+    await grantDefaultAccess("meeting", m.id, boardId, [], tx);
+
+    await auditInTx(tx, req, "meeting_created", "meeting", m.id, { title: m.title, boardName: board?.name });
+    return m;
+  });
 
   res.status(201).json({
     ...meeting,
@@ -197,7 +205,6 @@ router.post("/meetings", requireAuth, requireAdmin, writeLimiter, async (req, re
     boardAbbreviation: board?.abbreviation || null,
     agendaItemCount: agendaItems?.length || 0,
   });
-  audit(req, "meeting_created", "meeting", meeting.id, { title: meeting.title, boardName: board?.name });
   emitInvalidate("meetings", { boardId, id: meeting.id });
 });
 
@@ -263,7 +270,18 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (re
   if (location != null) updates.location = sanitizeText(location);
   if (status != null) updates.status = status;
 
-  const [meeting] = await db.update(meetingsTable).set(updates).where(eq(meetingsTable.id, id)).returning();
+  // Fail-closed (P0.6): the update and its audit entries commit together.
+  const meeting = await db.transaction(async (tx) => {
+    const [m] = await tx.update(meetingsTable).set(updates).where(eq(meetingsTable.id, id)).returning();
+    if (!m) return null;
+    await auditInTx(tx, req, "meeting_updated", "meeting", id, { title: m.title });
+    if (status === "cancelled") {
+      // Distinct audit event for the lifecycle cancel (cancel ≠ delete — the
+      // meeting, agenda, and attendance stay on the record).
+      await auditInTx(tx, req, "meeting_cancelled", "meeting", id, { title: m.title });
+    }
+    return m;
+  });
   if (!meeting) {
     res.status(404).json({ error: "Meeting not found" });
     return;
@@ -274,12 +292,6 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (re
     : [null];
 
   const updatedItems = await db.select().from(agendaItemsTable).where(eq(agendaItemsTable.meetingId, id));
-  audit(req, "meeting_updated", "meeting", id, { title: meeting.title });
-  if (status === "cancelled") {
-    // Distinct audit event for the lifecycle cancel (cancel ≠ delete — the
-    // meeting, agenda, and attendance stay on the record).
-    await audit(req, "meeting_cancelled", "meeting", id, { title: meeting.title });
-  }
   emitInvalidate("meetings", { boardId: meeting.boardId, id });
   res.json({ ...meeting, boardName: board?.name, boardAbbreviation: board?.abbreviation, agendaItemCount: updatedItems.length });
 });
@@ -287,9 +299,16 @@ router.patch("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (re
 router.delete("/meetings/:id", requireAuth, requireAdmin, writeLimiter, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const [meeting] = await db.select().from(meetingsTable).where(eq(meetingsTable.id, id));
-  if (meeting) await retainDeleted(req, "meeting", id, meeting);
-  await db.delete(meetingsTable).where(eq(meetingsTable.id, id));
-  await audit(req, "meeting_deleted", "meeting", id, { title: meeting?.title });
+  if (meeting && (await isUnderHold("meeting", id, meeting.boardId))) {
+    res.status(409).json({ error: "This meeting is under a legal hold and cannot be deleted." });
+    return;
+  }
+  // Fail-closed (P0.6): retention snapshot, delete, and audit commit together.
+  await db.transaction(async (tx) => {
+    if (meeting) await retainDeleted(req, "meeting", id, meeting, tx);
+    await tx.delete(meetingsTable).where(eq(meetingsTable.id, id));
+    await auditInTx(tx, req, "meeting_deleted", "meeting", id, { title: meeting?.title });
+  });
   emitInvalidate("meetings", { boardId: meeting?.boardId, id });
   res.sendStatus(204);
 });

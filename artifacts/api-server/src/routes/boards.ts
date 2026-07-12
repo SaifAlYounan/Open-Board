@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db, boardsTable, boardMembershipsTable, peopleTable, organizationsTable } from "@workspace/db";
+import { recordAccessEvent } from "../lib/access";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
-import { audit } from "../lib/auditLog";
+import { auditInTx } from "../lib/auditLog";
 import { sanitizeText } from "../lib/sanitize";
 import { parsePagination } from "../lib/pagination";
 import { sql } from "drizzle-orm";
@@ -83,12 +84,16 @@ router.patch("/boards/:id", requireAuth, requireAdmin, async (req, res): Promise
   const updates: Record<string, unknown> = {};
   if (name != null) updates.name = sanitizeText(String(name));
   if (proxyLimit != null) updates.proxyLimit = proxyLimit;
-  const [board] = await db.update(boardsTable).set(updates).where(eq(boardsTable.id, id)).returning();
+  const board = await db.transaction(async (tx) => {
+    const [b] = await tx.update(boardsTable).set(updates).where(eq(boardsTable.id, id)).returning();
+    if (!b) return null;
+    await auditInTx(tx, req, "board_updated", "board", id, { changed: Object.keys(updates), ...(proxyLimit != null ? { proxyLimit } : {}) });
+    return b;
+  });
   if (!board) {
     res.status(404).json({ error: "Board not found" });
     return;
   }
-  await audit(req, "board_updated", "board", id, { changed: Object.keys(updates), ...(proxyLimit != null ? { proxyLimit } : {}) });
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)` })
     .from(boardMembershipsTable)
@@ -201,12 +206,16 @@ router.post("/boards/:id/members", requireAuth, requireAdmin, async (req, res): 
     return;
   }
 
-  await db
-    .insert(boardMembershipsTable)
-    .values({ boardId, personId, roleInBoard: roleInBoard || "member", votingWeight: votingWeight ?? 1 })
-    .onConflictDoNothing();
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(boardMembershipsTable)
+      .values({ boardId, personId, roleInBoard: roleInBoard || "member", votingWeight: votingWeight ?? 1 })
+      .onConflictDoNothing();
 
-  await audit(req, "board_member_added", "board", boardId, { personId, roleInBoard: roleInBoard || "member", votingWeight: votingWeight ?? 1 });
+    // P0.10 — record the membership change so access can be reconstructed as-of a date.
+    await recordAccessEvent("board", boardId, personId, "board_joined", req.user!.id, tx);
+    await auditInTx(tx, req, "board_member_added", "board", boardId, { personId, roleInBoard: roleInBoard || "member", votingWeight: votingWeight ?? 1 });
+  });
   res.status(201).json({ ok: true });
 });
 
@@ -232,33 +241,38 @@ router.patch("/boards/:id/members/:personId", requireAuth, requireAdmin, async (
   const updates: Record<string, unknown> = {};
   if (roleInBoard != null) updates.roleInBoard = roleInBoard;
   if (votingWeight != null) updates.votingWeight = votingWeight;
-  await db
-    .update(boardMembershipsTable)
-    .set(updates)
-    .where(
-      and(
-        eq(boardMembershipsTable.boardId, boardId),
-        eq(boardMembershipsTable.personId, personId)
-      )
-    );
-  // Note: already-cast ballots keep their snapshotted weight — a weight change
-  // applies to future casts only, never to a ballot already on the record.
-  await audit(req, "board_member_role_changed", "board", boardId, { personId, ...(roleInBoard != null ? { roleInBoard } : {}), ...(votingWeight != null ? { votingWeight } : {}) });
+  await db.transaction(async (tx) => {
+    await tx
+      .update(boardMembershipsTable)
+      .set(updates)
+      .where(
+        and(
+          eq(boardMembershipsTable.boardId, boardId),
+          eq(boardMembershipsTable.personId, personId)
+        )
+      );
+    // Note: already-cast ballots keep their snapshotted weight — a weight change
+    // applies to future casts only, never to a ballot already on the record.
+    await auditInTx(tx, req, "board_member_role_changed", "board", boardId, { personId, ...(roleInBoard != null ? { roleInBoard } : {}), ...(votingWeight != null ? { votingWeight } : {}) });
+  });
   res.json({ ok: true });
 });
 
 router.delete("/boards/:id/members/:personId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   const boardId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const personId = Array.isArray(req.params.personId) ? req.params.personId[0] : req.params.personId;
-  await db
-    .delete(boardMembershipsTable)
-    .where(
-      and(
-        eq(boardMembershipsTable.boardId, boardId),
-        eq(boardMembershipsTable.personId, personId)
-      )
-    );
-  await audit(req, "board_member_removed", "board", boardId, { personId });
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(boardMembershipsTable)
+      .where(
+        and(
+          eq(boardMembershipsTable.boardId, boardId),
+          eq(boardMembershipsTable.personId, personId)
+        )
+      );
+    await recordAccessEvent("board", boardId, personId, "board_left", req.user!.id, tx);
+    await auditInTx(tx, req, "board_member_removed", "board", boardId, { personId });
+  });
   res.sendStatus(204);
 });
 

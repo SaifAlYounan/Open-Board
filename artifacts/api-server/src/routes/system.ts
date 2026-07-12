@@ -33,8 +33,8 @@ import {
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { peopleTable, organizationsTable } from "@workspace/db";
-import { requireAuth, requireAdmin } from "../lib/auth";
-import { audit } from "../lib/auditLog";
+import { requireAuth, requireAdmin, requireFreshMfa } from "../lib/auth";
+import { audit, auditInTx } from "../lib/auditLog";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -51,7 +51,8 @@ router.get("/organization", requireAuth, async (_req, res): Promise<void> => {
 // Full governance-data export — a board must be able to take its records with it.
 // Admin-only; returns a single JSON bundle (people are included without password
 // hashes). Downloaded as an attachment.
-router.get("/system/export", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+// P0.2 — the export is the whole board record in one file. Second factor required.
+router.get("/system/export", requireAuth, requireAdmin, requireFreshMfa, async (req, res): Promise<void> => {
   const [org] = await db.select().from(organizationsTable).limit(1);
   const people = (await db.select().from(peopleTable)).map(({ passwordHash: _p, ...rest }) => rest);
 
@@ -88,6 +89,15 @@ router.get("/system/export", requireAuth, requireAdmin, async (req, res): Promis
   res.send(JSON.stringify(bundle, null, 2));
 });
 
+// Non-secret runtime config the admin UI needs (e.g. to hide demo-only controls).
+router.get("/system/config", requireAuth, (_req, res): void => {
+  res.json({ demoMode: process.env.DEMO_MODE === "true" });
+});
+
+// P0.8 — the destructive "reset all data" wipe must not exist in a real
+// deployment. It is registered ONLY when DEMO_MODE=true; in production the route
+// is physically absent (404), not merely guarded inside the handler.
+if (process.env.DEMO_MODE === "true") {
 router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): Promise<void> => {
   if (req.body?.confirm !== "RESET") {
     res.status(400).json({ error: "Confirmation required. Send { confirm: 'RESET' } in the request body." });
@@ -144,9 +154,10 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
       await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "minutes"));
       await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "task"));
       await tx.delete(accessControlTable).where(eq(accessControlTable.entityType, "document"));
-    });
 
-    await audit(req, "data_reset", undefined, undefined, { clearedBy: req.user?.email });
+      // Fail-closed (P0.6): the reset and its audit entry commit together.
+      await auditInTx(tx, req, "data_reset", undefined, undefined, { clearedBy: req.user?.email });
+    });
     res.json({
       ok: true,
       message: "All transactional data cleared. Company, people, and board rooms are preserved.",
@@ -156,5 +167,6 @@ router.post("/system/reset-data", requireAuth, requireAdmin, async (req, res): P
     res.status(500).json({ error: "Reset failed — see server logs" });
   }
 });
+}
 
 export default router;

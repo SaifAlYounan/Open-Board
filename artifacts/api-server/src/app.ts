@@ -107,6 +107,14 @@ if (staticDir && fs.existsSync(path.join(staticDir, "index.html"))) {
   logger.info({ staticDir }, "Serving frontend static build");
 }
 
+// Any unmatched /api request returns JSON 404 — never Express's default HTML,
+// which breaks clients that call res.json() on the response (e.g. the admin
+// "Reset All Data" action when that route is absent outside DEMO_MODE). Mounted
+// after all /api routers, before the error handler.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err?.message?.startsWith("CORS:")) {
     res.status(403).json({ error: "Forbidden" });

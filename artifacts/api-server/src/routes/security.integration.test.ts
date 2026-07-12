@@ -5,11 +5,11 @@
  * CI provides a throwaway Postgres service (see .github/workflows/ci.yml).
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { integrationSuite } from "../testutil/integrationSuite";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 
-const HAS_DB = !!process.env.DATABASE_URL;
-const d = HAS_DB ? describe : describe.skip;
+const d = integrationSuite;
 
 d("security routes", () => {
   let app: any;
