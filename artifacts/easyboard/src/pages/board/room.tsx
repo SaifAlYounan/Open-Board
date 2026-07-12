@@ -20,6 +20,9 @@ const VOTE_OPTIONS = [
   { key: 'approved_with_comments', label: 'Approved with Comments', color: '#34c759', needsComment: true },
   { key: 'not_approved', label: 'Not Approved', color: '#ff3b30' },
   { key: 'not_approved_with_comments', label: 'Not Approved with Comments', color: '#ff3b30', needsComment: true },
+  // A cast ballot that approves nothing: counts toward quorum and closing,
+  // drops out of the default majority denominator. Distinct from recusal.
+  { key: 'abstained', label: 'Abstain', color: '#86868b' },
 ];
 
 export default function BoardRoom() {

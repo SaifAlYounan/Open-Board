@@ -1315,6 +1315,7 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     closedAt: vote.closedAt,
     deadline: vote.deadline,
     hash: vote.certificateHash,
+    certificateVersion: vote.certificateVersion,
     // Weighted totals (safe under secret ballots — aggregates only, same
     // disclosure level as the existing head counts).
     ...weightedFields(members, records, new Set(ruleRecusals.map((r) => r.personId))),

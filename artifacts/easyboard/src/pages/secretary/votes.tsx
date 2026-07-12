@@ -235,7 +235,7 @@ export default function SecretaryVotes() {
                     <div className="mt-3 space-y-3">
                       <div className="p-4 bg-[#f5f5f7] rounded-xl">
                         <div className="text-xs font-medium text-[#1d1d1f] mb-2">Recused Members</div>
-                        <p className="text-xs text-[#86868b] mb-2">Members who must abstain from this vote due to a conflict of interest.</p>
+                        <p className="text-xs text-[#86868b] mb-2">Members excluded from voting on this resolution due to a conflict of interest. A recused member is removed from the eligible total — unlike an abstention, which is a ballot the member casts.</p>
                         <div className="flex flex-wrap gap-2">
                           {votingMembers.map((m: any) => {
                             const pid = m.personId;
