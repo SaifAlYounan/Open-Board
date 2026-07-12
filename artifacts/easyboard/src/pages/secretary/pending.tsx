@@ -69,9 +69,23 @@ export default function PendingActions() {
     });
   }, [meetings, actions]);
 
-  const handleApprove = (id: string, overrideData?: unknown) => {
+  const handleApprove = (id: string, overrideData?: unknown, action?: any) => {
+    // Item 6 — the approver decides with the facts on the table: an unverified
+    // quote or an unopened source produces an explicit confirm, and approving
+    // over a missing quote sends the audited override.
     const payload: any = {};
     if (overrideData) payload.actionData = overrideData;
+    if (action && action.sourceQuoteVerified === false) {
+      const reason = window.prompt(
+        'The AI\'s quoted passage was NOT found in the source document — it may be hallucinated.\n\n' +
+        'To approve anyway, state why (recorded on the audit trail). Cancel to go back.',
+      );
+      if (reason == null || reason.trim() === '') return;
+      payload.overrideUnverifiedQuote = true;
+      payload.overrideReason = reason.trim();
+    } else if (action && action.documentId && action.sourceViewedByYou === false) {
+      if (!window.confirm('You have not opened the source document. Approve anyway? (Recorded on the audit trail.)')) return;
+    }
     approveMutation.mutate({ id, data: payload }, {
       onSuccess: () => {
         toast({ title: 'Action approved', description: 'The entity has been created.' });
@@ -80,7 +94,8 @@ export default function PendingActions() {
         setEditingId(null);
       },
       onError: (err: any) => {
-        // 422 carries a specific reason (unresolved assignee/board, malformed data).
+        // 422 carries a specific reason (unresolved assignee/board, malformed data,
+        // or the server-side quote re-check refusing an un-overridden approval).
         toast({ title: 'Approval failed', description: err.data?.error || err.message || 'Please try again.', variant: 'destructive' });
       }
     });
@@ -89,7 +104,7 @@ export default function PendingActions() {
   const handleApproveMinutes = (action: any) => {
     const baseData = action.actionData || {};
     const meetingId = selectedMeetings[action.id] || undefined;
-    handleApprove(action.id, { ...baseData, meetingId });
+    handleApprove(action.id, { ...baseData, meetingId }, action);
   };
 
   const handleReject = (id: string) => {
@@ -103,7 +118,7 @@ export default function PendingActions() {
   };
 
   const handleEditSave = (action: any) => {
-    handleApprove(action.id, editFormData);
+    handleApprove(action.id, editFormData, action);
   };
 
   function startEdit(action: any) {
@@ -301,9 +316,17 @@ export default function PendingActions() {
                   </div>
 
                   {action.aiSourceQuote && (
-                    <blockquote className="border-l-2 border-[#0071e3]/40 pl-3 text-sm italic text-[#6e6e73]">
+                    <blockquote className={`border-l-2 pl-3 text-sm italic text-[#6e6e73] ${action.sourceQuoteVerified === false ? 'border-[#ff3b30]' : 'border-[#0071e3]/40'}`}>
                       “{action.aiSourceQuote}”
-                      <span className="block not-italic text-xs text-[#86868b] mt-1">— from the source document</span>
+                      {action.sourceQuoteVerified === true && (
+                        <span className="block not-italic text-xs text-[#34c759] mt-1">✓ quote found in the source document</span>
+                      )}
+                      {action.sourceQuoteVerified === false && (
+                        <span className="block not-italic text-xs font-medium text-[#ff3b30] mt-1">✕ quote NOT found in the source document — possibly hallucinated. Open the source before deciding.</span>
+                      )}
+                      {action.sourceQuoteVerified == null && (
+                        <span className="block not-italic text-xs text-[#86868b] mt-1">— from the source document (not machine-checked)</span>
+                      )}
                     </blockquote>
                   )}
 
@@ -350,7 +373,7 @@ export default function PendingActions() {
                   {!isEditing && (
                     <div className="flex items-center gap-2 pt-2 border-t border-[#f5f5f7]">
                       <button
-                        onClick={() => isCreateMinutes ? handleApproveMinutes(action) : handleApprove(action.id)}
+                        onClick={() => isCreateMinutes ? handleApproveMinutes(action) : handleApprove(action.id, undefined, action)}
                         disabled={approveMutation.isPending}
                         className="flex items-center gap-1.5 px-4 py-2 bg-[#34c759] text-white rounded-xl text-sm font-medium hover:bg-[#30b84f] transition-colors disabled:opacity-50"
                         data-testid="button-approve-action"

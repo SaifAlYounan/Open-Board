@@ -115,7 +115,8 @@ export default function VoteCertificate() {
                       <div className="flex items-center gap-4 text-xs text-[#86868b] bg-[#f5f5f7] rounded-xl px-4 py-3" data-testid="cert-weighted-tally">
                         <span className="font-medium text-[#5856d6]">Weighted tally</span>
                         <span><strong className="text-[#34c759]">{cert.approvalsWeight}</strong> for</span>
-                        <span><strong className="text-[#ff3b30]">{(cert.castWeight ?? 0) - (cert.approvalsWeight ?? 0)}</strong> against</span>
+                        <span><strong className="text-[#ff3b30]">{(cert.castWeight ?? 0) - (cert.approvalsWeight ?? 0) - (cert.abstainWeight ?? 0)}</strong> against</span>
+                        {(cert.abstainWeight ?? 0) > 0 && <span><strong className="text-[#86868b]">{cert.abstainWeight}</strong> abstained</span>}
                         <span className="ml-auto">{cert.castWeight}/{cert.totalWeight} weight cast</span>
                       </div>
                     )}
@@ -153,13 +154,28 @@ export default function VoteCertificate() {
                         </div>
                       </div>
                     )}
+                    {(cert.recusals || []).length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-[#86868b] uppercase tracking-wide mb-2">Recused Members (Conflict of Interest)</div>
+                        <div className="space-y-2">
+                          {cert.recusals.map((r: any) => (
+                            <div key={r.personId} className="flex items-center justify-between text-sm">
+                              <span className="text-[#1d1d1f]"><strong>{r.name || "Unknown"}</strong> — excluded from this vote</span>
+                              <span className="text-xs text-[#86868b] italic">{r.reason || "conflict of interest"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
                 );
               })()}
 
               {cert.hash && (
                 <div className="bg-[#f5f5f7] rounded-xl p-4">
-                  <div className="text-xs font-medium text-[#86868b] uppercase tracking-wide mb-1">Certificate Hash (SHA-256)</div>
+                  <div className="text-xs font-medium text-[#86868b] uppercase tracking-wide mb-1">
+                    {cert.certificateVersion === 3 ? "Signed Certificate (Ed25519 over SHA-256)" : "Certificate Hash (SHA-256, legacy unsigned)"}
+                  </div>
                   <div className="text-xs font-mono text-[#1d1d1f] break-all">{cert.hash}</div>
                 </div>
               )}

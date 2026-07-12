@@ -45,6 +45,7 @@ describe("vote tally", () => {
   const tally = (records: { decision: string }[]) => ({
     approvals: records.filter((r) => r.decision?.startsWith("approved")).length,
     against: records.filter((r) => r.decision?.startsWith("not_approved") || r.decision?.startsWith("rejected")).length,
+    abstained: records.filter((r) => r.decision === "abstained").length,
     total: records.length,
   });
 
@@ -55,13 +56,16 @@ describe("vote tally", () => {
       { decision: "not_approved" },
       { decision: "not_approved_with_comments" },
     ]);
-    expect(t).toEqual({ approvals: 2, against: 2, total: 4 });
+    expect(t).toEqual({ approvals: 2, against: 2, abstained: 0, total: 4 });
   });
 
-  it("does not count an unknown/abstain decision as against", () => {
-    const t = tally([{ decision: "approved" }, { decision: "abstain" }]);
+  it("an abstained ballot is cast (in the total) but neither for nor against", () => {
+    // No longer a placeholder: "abstained" is a real ballot decision since the
+    // external-review fixes — it participates without approving.
+    const t = tally([{ decision: "approved" }, { decision: "abstained" }]);
     expect(t.approvals).toBe(1);
     expect(t.against).toBe(0);
+    expect(t.abstained).toBe(1);
     expect(t.total).toBe(2);
   });
 });

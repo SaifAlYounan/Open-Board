@@ -1,8 +1,20 @@
 import crypto from "crypto";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, peopleTable, boardMembershipsTable, boardsTable, passwordResetTokensTable } from "@workspace/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import {
+  db,
+  peopleTable,
+  boardMembershipsTable,
+  boardsTable,
+  passwordResetTokensTable,
+  voteRecordsTable,
+  minutesSignaturesTable,
+  auditTrailTable,
+  attendanceTable,
+  documentsTable,
+  tasksTable,
+} from "@workspace/db";
+import { eq, and, inArray, sql, or, count } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { auditInTx } from "../lib/auditLog";
 import { sanitizeText } from "../lib/sanitize";
@@ -194,6 +206,39 @@ router.delete("/people/:id", requireAuth, requireAdmin, async (req, res): Promis
     res.status(409).json({ error: "Cannot delete the last active administrator." });
     return;
   }
+
+  // A person who has ACTED in the governance record — cast a ballot, signed
+  // minutes, appeared on the audit trail, attended, uploaded, been assigned —
+  // is part of that record and is never hard-deleted (external-review item 7:
+  // this previously died on unguarded foreign keys as an unhandled 500).
+  // Deactivate instead; the account keeps its history and loses all access.
+  const [[ballots], [signatures], [auditRows], [attendance], [uploads], [assignedTasks]] = await Promise.all([
+    db.select({ n: count() }).from(voteRecordsTable).where(or(eq(voteRecordsTable.personId, id), eq(voteRecordsTable.castBy, id))),
+    db.select({ n: count() }).from(minutesSignaturesTable).where(eq(minutesSignaturesTable.personId, id)),
+    db.select({ n: count() }).from(auditTrailTable).where(eq(auditTrailTable.personId, id)),
+    db.select({ n: count() }).from(attendanceTable).where(or(eq(attendanceTable.personId, id), eq(attendanceTable.proxyHolderId, id))),
+    db.select({ n: count() }).from(documentsTable).where(eq(documentsTable.uploadedBy, id)),
+    db.select({ n: count() }).from(tasksTable).where(eq(tasksTable.assigneeId, id)),
+  ]);
+  const references: Record<string, number> = {
+    ballots: ballots.n,
+    signatures: signatures.n,
+    auditEntries: auditRows.n,
+    attendance: attendance.n,
+    uploads: uploads.n,
+    assignedTasks: assignedTasks.n,
+  };
+  const referenced = Object.entries(references).filter(([, n]) => n > 0);
+  if (referenced.length > 0) {
+    res.status(409).json({
+      error:
+        "This person is part of the governance record and cannot be hard-deleted. " +
+        "Deactivate the account instead (PATCH { active: false }) — it keeps the record intact and revokes all access.",
+      references: Object.fromEntries(referenced),
+    });
+    return;
+  }
+
   // Fail-closed (P0.6): the delete and its audit entry commit together.
   await db.transaction(async (tx) => {
     await tx.delete(peopleTable).where(eq(peopleTable.id, id));

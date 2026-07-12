@@ -4,48 +4,120 @@ export type ApprovalRule = {
   type: string;
   minApprovals: number | null;
   quorum: number | null;
+  /** What pool the quorum is measured against. null = the vote-type default
+   *  (attendance for meeting votes, cast for everything else). */
+  quorumBasis?: "attendance" | "cast" | null;
+  /** What denominator fractional rules divide by. null = the rule-type default
+   *  (eligible for unanimous, votes-cast-excluding-abstentions otherwise). */
+  denominatorBasis?: "eligible" | "cast" | null;
 } | null;
 
+/** The two vote fields the tally semantics depend on. */
+export type VoteLike = { type: string; meetingId: string | null };
+
 /**
- * Whether enough voting weight was cast to make the vote decisive.
+ * The resolved measurement bases for one evaluation (external-review items
+ * 2–3). Everything downstream — quorum, denominator, the certificate — uses
+ * these resolved values, so the certificate can state on what basis the
+ * outcome was decided.
+ */
+export type ResolvedBases = {
+  /** What the quorum was actually measured against. */
+  quorumBasisKind: "attendance" | "cast";
+  /** The weight in that pool (compared against rule.quorum). */
+  quorumWeight: number;
+  /** What fractional rules actually divided by. */
+  denominatorKind: "eligible" | "cast";
+  /** The divisor: eligible weight, or votes cast excluding abstentions. */
+  denominatorWeight: number;
+};
+
+/**
+ * Whether enough voting weight is present to make the vote decisive.
  * A null/absent quorum means "no quorum requirement".
  *
  * The quorum threshold is expressed in WEIGHT units — the same units the rest
  * of the tally uses. On an unweighted board every member's weight is 1, so
- * weight cast == ballots cast and this is exactly the old head-count quorum.
+ * this is exactly a head-count quorum. `quorumWeight` is the RESOLVED basis
+ * pool (attendance weight for meeting votes, ballots cast otherwise) — see
+ * `resolveBases`.
  */
-export function meetsQuorum(rule: ApprovalRule, castWeight: number): boolean {
+export function meetsQuorum(rule: ApprovalRule, quorumWeight: number): boolean {
   if (!rule || rule.quorum == null) return true;
-  return castWeight >= rule.quorum;
+  return quorumWeight >= rule.quorum;
 }
 
 /**
- * Decide a vote's outcome. All three magnitudes are WEIGHT sums (on an
- * unweighted board — every weight 1 — they equal the old head counts, so this
- * is a strict generalization of the unweighted rules):
+ * Resolve what this vote's quorum and denominator are measured against.
  *
- * Quorum is a precondition for ANY approval: if the rule sets a quorum and less
- * weight was cast than that, the resolution cannot carry — it is rejected,
+ * Quorum basis (item 3 — quorum attaches to who is present, for votes taken
+ * at a meeting):
+ *   - rule.quorumBasis wins when set;
+ *   - else a vote of type "meeting" attached to a meeting uses ATTENDANCE —
+ *     the summed weight of eligible, non-recused members whose attendance is
+ *     confirmed (or held by proxy);
+ *   - else (circulation and all other types) the weight of ballots CAST —
+ *     which includes abstentions, because an abstention is participation.
+ *   - A meeting vote whose meeting has NO attendance recorded falls back to
+ *     the cast basis (a cast ballot proves presence) and reports "cast", so
+ *     the certificate never claims an attendance basis that was never taken.
+ *
+ * Denominator basis (item 2 — what "a majority" is a majority OF):
+ *   - rule.denominatorBasis wins when set;
+ *   - else "unanimous" divides by ELIGIBLE weight (the written-consent
+ *     reading: every eligible member must approve, an abstention defeats it);
+ *   - else fractional rules divide by votes cast EXCLUDING abstentions (the
+ *     Robert's-Rules reading: a majority of those voting for-or-against).
+ */
+export function resolveBases(
+  vote: VoteLike,
+  rule: ApprovalRule,
+  tally: Tally,
+  attendanceWeight: number | null,
+): ResolvedBases {
+  const isMeetingVote = vote.type === "meeting" && vote.meetingId != null;
+  const wantsAttendance = rule?.quorumBasis === "attendance" || (rule?.quorumBasis == null && isMeetingVote);
+  const attendanceAvailable = attendanceWeight != null;
+  const quorumBasisKind = wantsAttendance && attendanceAvailable ? "attendance" : "cast";
+  const quorumWeight = quorumBasisKind === "attendance" ? attendanceWeight! : tally.castWeight;
+
+  const denominatorKind = rule?.denominatorBasis ?? (rule?.type === "unanimous" ? "eligible" : "cast");
+  const denominatorWeight = denominatorKind === "eligible" ? tally.totalWeight : tally.castWeight - tally.abstainWeight;
+
+  return { quorumBasisKind, quorumWeight, denominatorKind, denominatorWeight };
+}
+
+/**
+ * Decide a vote's outcome over the resolved bases. All magnitudes are WEIGHT
+ * sums (on an unweighted board — every weight 1 — they equal head counts, so
+ * this is a strict generalization of the unweighted rules).
+ *
+ * Quorum is a precondition for ANY approval: if the rule sets a quorum and the
+ * resolved quorum pool is lighter than that, the resolution cannot carry —
  * regardless of how the votes that WERE cast split.
  *
- * @param approvalsWeight  summed weight of "approved*" ballots among the valid (non-recused) records
- * @param totalWeight      summed weight of the eligible (non-recused) voters
- * @param castWeight       summed weight of the valid ballots actually cast
+ * An abstention is a cast ballot that approves nothing: it counts toward the
+ * cast quorum basis, and — under the default "cast" denominator — drops out of
+ * the divisor, so a resolution carries on a majority of votes cast
+ * for-or-against. A zero denominator (nobody voted for-or-against) approves
+ * nothing.
  */
 export function evaluateByRule(
   rule: ApprovalRule,
-  approvalsWeight: number,
-  totalWeight: number,
-  castWeight: number,
+  tally: Tally,
+  bases: ResolvedBases,
 ): "approved" | "rejected" {
-  if (!meetsQuorum(rule, castWeight)) return "rejected";
-  if (!rule) return approvalsWeight > totalWeight / 2 ? "approved" : "rejected";
+  if (!meetsQuorum(rule, bases.quorumWeight)) return "rejected";
+  const approvals = tally.approvalsWeight;
+  const denom = bases.denominatorWeight;
+  const majority = () => (approvals > denom / 2 ? "approved" : "rejected");
+  if (!rule) return majority();
   switch (rule.type) {
-    case "unanimous":      return approvalsWeight === totalWeight ? "approved" : "rejected";
-    case "two_thirds":     return approvalsWeight >= Math.ceil((totalWeight * 2) / 3) ? "approved" : "rejected";
-    case "three_quarters": return approvalsWeight >= Math.ceil((totalWeight * 3) / 4) ? "approved" : "rejected";
-    case "custom":         return rule.minApprovals ? (approvalsWeight >= rule.minApprovals ? "approved" : "rejected") : (approvalsWeight > totalWeight / 2 ? "approved" : "rejected");
-    default:               return approvalsWeight > totalWeight / 2 ? "approved" : "rejected";
+    case "unanimous":      return denom > 0 && approvals === denom ? "approved" : "rejected";
+    case "two_thirds":     return denom > 0 && approvals >= Math.ceil((denom * 2) / 3) ? "approved" : "rejected";
+    case "three_quarters": return denom > 0 && approvals >= Math.ceil((denom * 3) / 4) ? "approved" : "rejected";
+    case "custom":         return rule.minApprovals ? (approvals >= rule.minApprovals ? "approved" : "rejected") : majority();
+    default:               return majority();
   }
 }
 
@@ -60,14 +132,18 @@ export type Tally = {
   totalVoters: number;
   /** their summed voting weight (a cast ballot's persisted snapshot wins over the live membership weight) */
   totalWeight: number;
-  /** head count of valid (non-recused) ballots cast */
+  /** head count of valid (non-recused) ballots cast — abstentions included */
   votesCast: number;
-  /** summed weight of the valid ballots cast */
+  /** summed weight of the valid ballots cast — abstentions included */
   castWeight: number;
   /** head count of valid "approved*" ballots */
   approvalsCount: number;
   /** summed weight of the valid "approved*" ballots */
   approvalsWeight: number;
+  /** head count of valid "abstained" ballots (cast, but approving nothing) */
+  abstainCount: number;
+  /** summed weight of the valid "abstained" ballots */
+  abstainWeight: number;
 };
 
 /**
@@ -99,16 +175,47 @@ export function computeTally(
   let castWeight = 0;
   let approvalsCount = 0;
   let approvalsWeight = 0;
+  let abstainCount = 0;
+  let abstainWeight = 0;
   for (const r of validRecords) {
     const w = r.weight ?? 1;
     castWeight += w;
     if (r.decision.startsWith("approved")) {
       approvalsCount += 1;
       approvalsWeight += w;
+    } else if (r.decision === "abstained") {
+      abstainCount += 1;
+      abstainWeight += w;
     }
   }
 
-  return { totalVoters, totalWeight, votesCast: validRecords.length, castWeight, approvalsCount, approvalsWeight };
+  return { totalVoters, totalWeight, votesCast: validRecords.length, castWeight, approvalsCount, approvalsWeight, abstainCount, abstainWeight };
+}
+
+/**
+ * Summed weight of the eligible, non-recused members who are PRESENT — the
+ * attendance quorum pool for a meeting vote. Weight resolution matches
+ * `computeTally` exactly (a cast ballot's persisted snapshot wins over the
+ * live membership weight), so quorum and outcome are always measured in the
+ * same units. `presentIds` = members whose attendance status is confirmed or
+ * proxy; the caller passes NULL attendance to `resolveBases` when the meeting
+ * has no attendance recorded at all.
+ */
+export function computeAttendanceWeight(
+  members: EligibleMember[],
+  records: BallotRecord[],
+  presentIds: ReadonlySet<string>,
+  recusedIds: ReadonlySet<string | null> = new Set(),
+): number {
+  const isRecused = (pid: string | null) => pid != null && recusedIds.has(pid);
+  const recordByPerson = new Map(records.filter((r) => r.personId && !isRecused(r.personId)).map((r) => [r.personId!, r]));
+  let weight = 0;
+  for (const m of members) {
+    if (!m.personId || isRecused(m.personId) || !presentIds.has(m.personId)) continue;
+    const record = recordByPerson.get(m.personId);
+    weight += record ? record.weight ?? 1 : m.weight ?? 1;
+  }
+  return weight;
 }
 
 export type CertificateRecord = {

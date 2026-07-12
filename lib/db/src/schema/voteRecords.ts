@@ -6,7 +6,11 @@ export const voteRecordsTable = pgTable("vote_records", {
   id: uuid("id").primaryKey().defaultRandom(),
   voteId: uuid("vote_id").references(() => votesTable.id),
   personId: uuid("person_id").references(() => peopleTable.id),
-  decision: text("decision", { enum: ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"] }).notNull(),
+  // "abstained" is a CAST ballot (external-review item 2): it counts toward
+  // quorum/participation but toward neither the approval numerator nor — under
+  // the default "cast" denominator — the denominator. It is distinct from
+  // recusal (approval_rule_recusals), which EXCLUDES a member from the vote.
+  decision: text("decision", { enum: ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments", "abstained"] }).notNull(),
   comment: text("comment"),
   // When set, this ballot was cast by `castBy` acting as proxy FOR `personId`
   // (the ballot always belongs to — and weighs as — the principal in

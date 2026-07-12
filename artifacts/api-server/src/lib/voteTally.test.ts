@@ -4,9 +4,37 @@ import {
   evaluateByRule,
   meetsQuorum,
   computeTally,
+  resolveBases,
+  computeAttendanceWeight,
   computeCertificateHash,
   computeLegacyCertificateHash,
 } from "./voteTally";
+import type { ApprovalRule, Tally, VoteLike } from "./voteTally";
+
+// Shorthand: a tally with the given weights (head counts default to weights —
+// unit-weight style — unless overridden).
+function tally(t: Partial<Tally>): Tally {
+  return {
+    totalVoters: t.totalWeight ?? 0,
+    totalWeight: 0,
+    votesCast: t.castWeight ?? 0,
+    castWeight: 0,
+    approvalsCount: t.approvalsWeight ?? 0,
+    approvalsWeight: 0,
+    abstainCount: t.abstainWeight ?? 0,
+    abstainWeight: 0,
+    ...t,
+  };
+}
+
+const CIRCULATION: VoteLike = { type: "circulation", meetingId: null };
+const MEETING: VoteLike = { type: "meeting", meetingId: "m-1" };
+
+// Evaluate a circulation vote end-to-end with default bases (the common case in
+// these unit tests).
+function evalCirculation(rule: ApprovalRule, t: Tally): "approved" | "rejected" {
+  return evaluateByRule(rule, t, resolveBases(CIRCULATION, rule, t, null));
+}
 
 describe("meetsQuorum", () => {
   it("is always met when no rule or no quorum is set", () => {
@@ -28,62 +56,162 @@ describe("meetsQuorum", () => {
   });
 });
 
+describe("resolveBases — quorum basis by vote type (external-review item 3)", () => {
+  const rule = { type: "majority", minApprovals: null, quorum: 3, quorumBasis: null, denominatorBasis: null } as ApprovalRule;
+
+  it("circulation votes measure quorum over ballots cast", () => {
+    const b = resolveBases(CIRCULATION, rule, tally({ totalWeight: 5, castWeight: 2 }), null);
+    expect(b.quorumBasisKind).toBe("cast");
+    expect(b.quorumWeight).toBe(2);
+  });
+
+  it("meeting votes measure quorum over attendance", () => {
+    const b = resolveBases(MEETING, rule, tally({ totalWeight: 5, castWeight: 1 }), 4);
+    expect(b.quorumBasisKind).toBe("attendance");
+    expect(b.quorumWeight).toBe(4);
+  });
+
+  it("a meeting vote with NO attendance recorded falls back to cast (and says so)", () => {
+    const b = resolveBases(MEETING, rule, tally({ totalWeight: 5, castWeight: 2 }), null);
+    expect(b.quorumBasisKind).toBe("cast");
+    expect(b.quorumWeight).toBe(2);
+  });
+
+  it("an explicit rule.quorumBasis overrides the vote-type default", () => {
+    const castRule = { ...rule!, quorumBasis: "cast" } as ApprovalRule;
+    const b = resolveBases(MEETING, castRule, tally({ totalWeight: 5, castWeight: 2 }), 4);
+    expect(b.quorumBasisKind).toBe("cast");
+    expect(b.quorumWeight).toBe(2);
+  });
+
+  it("abstentions count toward the cast quorum basis (participation)", () => {
+    // 2 approve + 1 abstain = castWeight 3.
+    const b = resolveBases(CIRCULATION, rule, tally({ totalWeight: 5, castWeight: 3, approvalsWeight: 2, abstainWeight: 1 }), null);
+    expect(b.quorumWeight).toBe(3);
+  });
+
+  it("denominator defaults: unanimous divides by eligible, fractional rules by votes cast excluding abstentions", () => {
+    const t = tally({ totalWeight: 5, castWeight: 4, approvalsWeight: 2, abstainWeight: 1 });
+    const unanimous = { type: "unanimous", minApprovals: null, quorum: null } as ApprovalRule;
+    expect(resolveBases(CIRCULATION, unanimous, t, null).denominatorKind).toBe("eligible");
+    expect(resolveBases(CIRCULATION, unanimous, t, null).denominatorWeight).toBe(5);
+    expect(resolveBases(CIRCULATION, rule, t, null).denominatorKind).toBe("cast");
+    expect(resolveBases(CIRCULATION, rule, t, null).denominatorWeight).toBe(3); // 4 cast − 1 abstain
+  });
+
+  it("an explicit rule.denominatorBasis overrides the rule-type default", () => {
+    const t = tally({ totalWeight: 5, castWeight: 4, approvalsWeight: 2, abstainWeight: 1 });
+    const eligibleMajority = { type: "majority", minApprovals: null, quorum: null, denominatorBasis: "eligible" } as ApprovalRule;
+    expect(resolveBases(CIRCULATION, eligibleMajority, t, null).denominatorWeight).toBe(5);
+    const castUnanimous = { type: "unanimous", minApprovals: null, quorum: null, denominatorBasis: "cast" } as ApprovalRule;
+    expect(resolveBases(CIRCULATION, castUnanimous, t, null).denominatorWeight).toBe(3);
+  });
+});
+
 describe("evaluateByRule — quorum gate", () => {
   it("rejects a resolution that passes on votes but misses quorum", () => {
     // 2 of 2 cast votes approve, but the rule requires a quorum of 3.
-    const rule = { type: "majority", minApprovals: null, quorum: 3 };
-    expect(evaluateByRule(rule, 2, 2, 2)).toBe("rejected");
+    const rule = { type: "majority", minApprovals: null, quorum: 3 } as ApprovalRule;
+    expect(evalCirculation(rule, tally({ totalWeight: 2, castWeight: 2, approvalsWeight: 2 }))).toBe("rejected");
   });
 
-  it("applies the normal rule once quorum is met", () => {
-    const rule = { type: "majority", minApprovals: null, quorum: 3 };
-    // 3 cast, 2 approve, 5 eligible → majority of eligible not reached
-    expect(evaluateByRule(rule, 2, 5, 3)).toBe("rejected");
-    // 3 cast, 3 approve, 5 eligible → 3 > 2.5 → approved
-    expect(evaluateByRule(rule, 3, 5, 3)).toBe("approved");
+  it("meeting quorum attaches to attendance, not ballots: few ballots can carry a well-attended meeting", () => {
+    // Quorum 4. Attendance weight 5, but only 1 ballot cast (an approval).
+    // Old behavior measured quorum over ballots cast → rejected. Quorum now
+    // attaches to who is PRESENT; the majority is of votes cast.
+    const rule = { type: "majority", minApprovals: null, quorum: 4 } as ApprovalRule;
+    const t = tally({ totalWeight: 5, castWeight: 1, approvalsWeight: 1 });
+    expect(evaluateByRule(rule, t, resolveBases(MEETING, rule, t, 5))).toBe("approved");
+    // And a poorly attended meeting fails quorum even if everyone present approves.
+    const t2 = tally({ totalWeight: 5, castWeight: 2, approvalsWeight: 2 });
+    expect(evaluateByRule(rule, t2, resolveBases(MEETING, rule, t2, 2))).toBe("rejected");
   });
 
-  it("weighted quorum: heavy abstention-free ballots meet quorum a head count would miss", () => {
-    // 5 total weight, quorum 4. One member of weight 4 approves (castWeight 4).
-    const rule = { type: "majority", minApprovals: null, quorum: 4 };
-    expect(evaluateByRule(rule, 4, 5, 4)).toBe("approved");
-    // Two weight-1 members cast (castWeight 2) → quorum missed → rejected.
-    expect(evaluateByRule(rule, 2, 5, 2)).toBe("rejected");
+  it("weighted quorum: heavy ballots meet quorum a head count would miss", () => {
+    const rule = { type: "majority", minApprovals: null, quorum: 4 } as ApprovalRule;
+    expect(evalCirculation(rule, tally({ totalWeight: 5, castWeight: 4, approvalsWeight: 4 }))).toBe("approved");
+    expect(evalCirculation(rule, tally({ totalWeight: 5, castWeight: 2, approvalsWeight: 2 }))).toBe("rejected");
+  });
+});
+
+describe("evaluateByRule — abstentions (external-review item 2)", () => {
+  it("an abstention counts toward quorum but not toward the outcome", () => {
+    // Quorum 3. Ballots: 2 approve, 1 abstain → castWeight 3 meets quorum;
+    // majority is of votes cast for-or-against: 2 > (3−1)/2 → approved.
+    const rule = { type: "majority", minApprovals: null, quorum: 3 } as ApprovalRule;
+    const t = tally({ totalWeight: 5, castWeight: 3, approvalsWeight: 2, abstainWeight: 1 });
+    expect(evalCirculation(rule, t)).toBe("approved");
+  });
+
+  it("abstentions drop out of the majority denominator", () => {
+    // 5 eligible: 2 approve, 1 against, 2 abstain. Majority of votes cast
+    // for-or-against: 2 > 3/2 → approved (a majority-of-eligible reading
+    // would have rejected 2 of 5).
+    const t = tally({ totalWeight: 5, castWeight: 5, approvalsWeight: 2, abstainWeight: 2 });
+    expect(evalCirculation(null, t)).toBe("approved");
+  });
+
+  it("everyone abstaining approves nothing", () => {
+    const t = tally({ totalWeight: 3, castWeight: 3, approvalsWeight: 0, abstainWeight: 3 });
+    expect(evalCirculation(null, t)).toBe("rejected");
+    const unanimous = { type: "unanimous", minApprovals: null, quorum: null, denominatorBasis: "cast" } as ApprovalRule;
+    expect(evalCirculation(unanimous, t)).toBe("rejected");
+  });
+
+  it("an abstention defeats default (written-consent) unanimity", () => {
+    const rule = { type: "unanimous", minApprovals: null, quorum: null } as ApprovalRule;
+    const t = tally({ totalWeight: 3, castWeight: 3, approvalsWeight: 2, abstainWeight: 1 });
+    expect(evalCirculation(rule, t)).toBe("rejected");
+  });
+
+  it("unanimity of votes cast (configured) lets an abstainer stand aside", () => {
+    const rule = { type: "unanimous", minApprovals: null, quorum: null, denominatorBasis: "cast" } as ApprovalRule;
+    const t = tally({ totalWeight: 3, castWeight: 3, approvalsWeight: 2, abstainWeight: 1 });
+    expect(evalCirculation(rule, t)).toBe("approved");
+  });
+
+  it("unanimity-of-cast on a meeting vote is reachable with a non-voter (item 3's unreachability fix)", () => {
+    // 3 eligible, only 2 cast (both approve), attendance 3 meets quorum 3.
+    // Default unanimity (eligible) stays unreachable — by design for written
+    // consent — but the configurable cast basis resolves it.
+    const rule = { type: "unanimous", minApprovals: null, quorum: 3, denominatorBasis: "cast" } as ApprovalRule;
+    const t = tally({ totalWeight: 3, castWeight: 2, approvalsWeight: 2 });
+    expect(evaluateByRule(rule, t, resolveBases(MEETING, rule, t, 3))).toBe("approved");
   });
 });
 
 describe("evaluateByRule — rule types (weight units)", () => {
-  it("simple majority needs more than half of eligible weight", () => {
-    expect(evaluateByRule(null, 3, 5, 5)).toBe("approved");
-    expect(evaluateByRule(null, 2, 5, 5)).toBe("rejected");
-    expect(evaluateByRule(null, 2, 4, 4)).toBe("rejected"); // exactly half is not a majority
+  it("simple majority needs more than half of the votes cast", () => {
+    expect(evalCirculation(null, tally({ totalWeight: 5, castWeight: 5, approvalsWeight: 3 }))).toBe("approved");
+    expect(evalCirculation(null, tally({ totalWeight: 5, castWeight: 5, approvalsWeight: 2 }))).toBe("rejected");
+    expect(evalCirculation(null, tally({ totalWeight: 4, castWeight: 4, approvalsWeight: 2 }))).toBe("rejected"); // exactly half is not a majority
   });
 
   it("unanimous needs every eligible weight to approve", () => {
-    const rule = { type: "unanimous", minApprovals: null, quorum: null };
-    expect(evaluateByRule(rule, 4, 4, 4)).toBe("approved");
-    expect(evaluateByRule(rule, 3, 4, 4)).toBe("rejected");
+    const rule = { type: "unanimous", minApprovals: null, quorum: null } as ApprovalRule;
+    expect(evalCirculation(rule, tally({ totalWeight: 4, castWeight: 4, approvalsWeight: 4 }))).toBe("approved");
+    expect(evalCirculation(rule, tally({ totalWeight: 4, castWeight: 4, approvalsWeight: 3 }))).toBe("rejected");
   });
 
-  it("two_thirds needs at least ceil(2/3) of eligible weight", () => {
-    const rule = { type: "two_thirds", minApprovals: null, quorum: null };
-    expect(evaluateByRule(rule, 4, 6, 6)).toBe("approved"); // ceil(4)=4
-    expect(evaluateByRule(rule, 3, 6, 6)).toBe("rejected");
+  it("two_thirds needs at least ceil(2/3) of the votes cast", () => {
+    const rule = { type: "two_thirds", minApprovals: null, quorum: null } as ApprovalRule;
+    expect(evalCirculation(rule, tally({ totalWeight: 6, castWeight: 6, approvalsWeight: 4 }))).toBe("approved"); // ceil(4)=4
+    expect(evalCirculation(rule, tally({ totalWeight: 6, castWeight: 6, approvalsWeight: 3 }))).toBe("rejected");
   });
 
   it("custom uses minApprovals (in weight units) when set", () => {
-    const rule = { type: "custom", minApprovals: 2, quorum: null };
-    expect(evaluateByRule(rule, 2, 10, 2)).toBe("approved");
-    expect(evaluateByRule(rule, 1, 10, 1)).toBe("rejected");
+    const rule = { type: "custom", minApprovals: 2, quorum: null } as ApprovalRule;
+    expect(evalCirculation(rule, tally({ totalWeight: 10, castWeight: 2, approvalsWeight: 2 }))).toBe("approved");
+    expect(evalCirculation(rule, tally({ totalWeight: 10, castWeight: 1, approvalsWeight: 1 }))).toBe("rejected");
   });
 
   it("a heavy minority can outvote a light majority (the point of weights)", () => {
     // 3 members: weights 1, 1, 3 (total 5). The two weight-1 members approve,
     // the weight-3 member rejects → approvalsWeight 2 of 5 → rejected, even
     // though 2 of 3 heads approved.
-    expect(evaluateByRule(null, 2, 5, 5)).toBe("rejected");
+    expect(evalCirculation(null, tally({ totalWeight: 5, castWeight: 5, approvalsWeight: 2 }))).toBe("rejected");
     // And the reverse: only the weight-3 member approves → 3 > 2.5 → approved.
-    expect(evaluateByRule(null, 3, 5, 5)).toBe("approved");
+    expect(evalCirculation(null, tally({ totalWeight: 5, castWeight: 5, approvalsWeight: 3 }))).toBe("approved");
   });
 });
 
@@ -106,6 +234,26 @@ describe("computeTally", () => {
       castWeight: 4,
       approvalsCount: 1,
       approvalsWeight: 1,
+      abstainCount: 0,
+      abstainWeight: 0,
+    });
+  });
+
+  it("an abstained ballot is cast (quorum/participation) but approves nothing", () => {
+    const t = computeTally(members, [
+      { personId: "a", decision: "approved", weight: 1 },
+      { personId: "b", decision: "abstained", weight: 2 },
+      { personId: "c", decision: "not_approved", weight: 3 },
+    ]);
+    expect(t).toEqual({
+      totalVoters: 3,
+      totalWeight: 6,
+      votesCast: 3,
+      castWeight: 6, // abstention participates
+      approvalsCount: 1,
+      approvalsWeight: 1, // …but never approves
+      abstainCount: 1,
+      abstainWeight: 2,
     });
   });
 
@@ -131,6 +279,8 @@ describe("computeTally", () => {
       castWeight: 1,
       approvalsCount: 1,
       approvalsWeight: 1,
+      abstainCount: 0,
+      abstainWeight: 0,
     });
   });
 
@@ -155,6 +305,8 @@ describe("computeTally", () => {
       castWeight: 2,
       approvalsCount: 1,
       approvalsWeight: 1,
+      abstainCount: 0,
+      abstainWeight: 0,
     });
   });
 
@@ -224,10 +376,10 @@ describe("computeTally — proxy ballots", () => {
 
 describe("weight=1 regression equivalence (weighted tally is a strict generalization)", () => {
   // Sweep every small scenario: with all weights at 1, feeding the weighted
-  // tally into evaluateByRule must reproduce the old head-count outcome for
-  // every rule type and quorum, exactly.
+  // tally into evaluateByRule must reproduce the plain head-count outcome for
+  // every rule type, quorum, and abstention split, exactly.
   const ruleVariants = (n: number) => {
-    const rules: ({ type: string; minApprovals: number | null; quorum: number | null } | null)[] = [null];
+    const rules: ApprovalRule[] = [null];
     for (const type of ["majority", "unanimous", "two_thirds", "three_quarters"]) {
       for (const quorum of [null, 1, Math.max(1, n - 1), n, n + 1]) {
         rules.push({ type, minApprovals: null, quorum });
@@ -237,33 +389,75 @@ describe("weight=1 regression equivalence (weighted tally is a strict generaliza
     return rules;
   };
 
+  // Head-count reference implementation of the SAME semantics, written
+  // independently of the weighted code path.
+  function headCountOutcome(rule: ApprovalRule, n: number, cast: number, approvals: number, abstains: number): "approved" | "rejected" {
+    if (rule?.quorum != null && cast < rule.quorum) return "rejected";
+    const forOrAgainst = cast - abstains;
+    const denom = rule?.type === "unanimous" ? n : forOrAgainst;
+    switch (rule?.type) {
+      case "unanimous":      return approvals === denom && denom > 0 ? "approved" : "rejected";
+      case "two_thirds":     return approvals >= Math.ceil((denom * 2) / 3) && denom > 0 ? "approved" : "rejected";
+      case "three_quarters": return approvals >= Math.ceil((denom * 3) / 4) && denom > 0 ? "approved" : "rejected";
+      case "custom":         return rule.minApprovals ? (approvals >= rule.minApprovals ? "approved" : "rejected") : (approvals > denom / 2 ? "approved" : "rejected");
+      default:               return approvals > denom / 2 ? "approved" : "rejected";
+    }
+  }
+
   it("reproduces head-count outcomes for every rule/quorum/split up to 6 members", () => {
     let checked = 0;
     for (let n = 1; n <= 6; n++) {
       const members = Array.from({ length: n }, (_, i) => ({ personId: `p${i}`, weight: 1 }));
       for (let cast = 0; cast <= n; cast++) {
         for (let approvals = 0; approvals <= cast; approvals++) {
-          const records = Array.from({ length: cast }, (_, i) => ({
-            personId: `p${i}`,
-            decision: i < approvals ? "approved" : "not_approved",
-            weight: 1,
-          }));
-          const t = computeTally(members, records);
-          // With unit weights the weight sums ARE the head counts…
-          expect(t.totalWeight).toBe(n);
-          expect(t.castWeight).toBe(cast);
-          expect(t.approvalsWeight).toBe(approvals);
-          for (const rule of ruleVariants(n)) {
-            // …so the weighted evaluation is literally the old evaluation.
-            expect(evaluateByRule(rule, t.approvalsWeight, t.totalWeight, t.castWeight)).toBe(
-              evaluateByRule(rule, approvals, n, cast),
-            );
-            checked++;
+          for (let abstains = 0; abstains <= cast - approvals; abstains++) {
+            const records = Array.from({ length: cast }, (_, i) => ({
+              personId: `p${i}`,
+              decision: i < approvals ? "approved" : i < approvals + abstains ? "abstained" : "not_approved",
+              weight: 1,
+            }));
+            const t = computeTally(members, records);
+            // With unit weights the weight sums ARE the head counts…
+            expect(t.totalWeight).toBe(n);
+            expect(t.castWeight).toBe(cast);
+            expect(t.approvalsWeight).toBe(approvals);
+            expect(t.abstainWeight).toBe(abstains);
+            for (const rule of ruleVariants(n)) {
+              // …so the weighted evaluation equals the head-count evaluation.
+              expect(evalCirculation(rule, t)).toBe(headCountOutcome(rule, n, cast, approvals, abstains));
+              checked++;
+            }
           }
         }
       }
     }
     expect(checked).toBeGreaterThan(1000);
+  });
+});
+
+describe("computeAttendanceWeight", () => {
+  const members = [
+    { personId: "a", weight: 1 },
+    { personId: "b", weight: 2 },
+    { personId: "c", weight: 3 },
+  ];
+
+  it("sums the weight of present eligible members only", () => {
+    expect(computeAttendanceWeight(members, [], new Set(["a", "c"]))).toBe(4);
+    expect(computeAttendanceWeight(members, [], new Set())).toBe(0);
+  });
+
+  it("excludes recused members even when present", () => {
+    expect(computeAttendanceWeight(members, [], new Set(["a", "c"]), new Set(["c"]))).toBe(1);
+  });
+
+  it("a present member's cast-ballot weight snapshot wins over the live membership weight", () => {
+    const records = [{ personId: "b", decision: "approved", weight: 5 }];
+    expect(computeAttendanceWeight(members, records, new Set(["b"]))).toBe(5);
+  });
+
+  it("ignores attendance of people who are not eligible members", () => {
+    expect(computeAttendanceWeight(members, [], new Set(["ghost", "a"]))).toBe(1);
   });
 });
 

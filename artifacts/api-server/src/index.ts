@@ -6,6 +6,7 @@ import { logger } from "./lib/logger";
 import { logMailerStatus } from "./lib/mailer";
 import { attachRealtime } from "./lib/realtime";
 import { checkStartupConfig } from "./lib/startupChecks";
+import { startDeadlineSweep } from "./lib/voteDeadline";
 import { providerIsExternal, externalProviderAllowed, aiConfigured, externalProviderKeyPresentButNotAllowed, getProvider } from "./lib/aiProvider";
 import { seed } from "./seed";
 
@@ -62,6 +63,11 @@ async function boot(): Promise<void> {
     } catch (err) {
       logger.error({ err }, "Seed failed — non-fatal");
     }
+
+    // Deadline enforcement (external-review item 4): hourly sweep + one pass
+    // at boot, covering votes nobody reads (lapse mints a certificate, so it
+    // must not wait for a viewer). Read/cast paths enforce lazily on touch.
+    startDeadlineSweep();
   });
 }
 

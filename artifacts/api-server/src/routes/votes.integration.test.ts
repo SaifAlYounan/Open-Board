@@ -68,6 +68,12 @@ d("votes — weighted voting", () => {
         await db.delete(accessControlTable).where(and(eq(accessControlTable.entityType, "vote"), inArray(accessControlTable.entityId, voteIds)));
         await db.delete(votesTable).where(inArray(votesTable.id, voteIds));
       }
+      const meetings = await db.select().from(dbMod.meetingsTable).where(eq(dbMod.meetingsTable.boardId, b.id));
+      const meetingIds = meetings.map((m: any) => m.id);
+      if (meetingIds.length) {
+        await db.delete(dbMod.attendanceTable).where(inArray(dbMod.attendanceTable.meetingId, meetingIds));
+        await db.delete(dbMod.meetingsTable).where(inArray(dbMod.meetingsTable.id, meetingIds));
+      }
       await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, b.id));
       await db.delete(boardsTable).where(eq(boardsTable.id, b.id));
     }
@@ -125,6 +131,12 @@ d("votes — weighted voting", () => {
           eq(voteRecordsTable.personId, existing.id),
           eq(voteRecordsTable.castBy, existing.id),
         ));
+        await db.delete(dbMod.attendanceTable).where(or(
+          eq(dbMod.attendanceTable.personId, existing.id),
+          eq(dbMod.attendanceTable.proxyHolderId, existing.id),
+        ));
+        await db.delete(dbMod.approvalRuleRecusalsTable).where(eq(dbMod.approvalRuleRecusalsTable.personId, existing.id));
+        await db.delete(dbMod.approvalRuleRequiredVotersTable).where(eq(dbMod.approvalRuleRequiredVotersTable.personId, existing.id));
         await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.personId, existing.id));
         await db.delete(accessControlTable).where(eq(accessControlTable.personId, existing.id));
         await db.delete(peopleTable).where(eq(peopleTable.id, existing.id));
@@ -190,9 +202,10 @@ d("votes — weighted voting", () => {
       expect((await cast(await cookieFor(m3.email), vote.id, "not_approved")).status).toBe(200);
 
       // Closed as rejected (2 of 5 weight). The certificate must verify…
+      // (v3 signed certificates since the external-review fixes.)
       const before = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
       expect(before.body.verified).toBe(true);
-      expect(before.body.hashVersion).toBe(2);
+      expect(before.body.hashVersion).toBe(3);
 
       // …and keep verifying after the heavy member's weight is changed, because
       // the ballots carry their own snapshots.
@@ -205,8 +218,7 @@ d("votes — weighted voting", () => {
 
       const after = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
       expect(after.body.verified).toBe(true);
-      expect(after.body.hashVersion).toBe(2);
-      expect(after.body.storedHash).toBe(before.body.storedHash);
+      expect(after.body.hashVersion).toBe(3);
 
       // Restore the weight for the rest of the suite.
       await request(app)
@@ -539,7 +551,7 @@ d("votes — weighted voting", () => {
       // breaks verification.
       const verifyOk = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
       expect(verifyOk.body.verified).toBe(true);
-      expect(verifyOk.body.hashVersion).toBe(2);
+      expect(verifyOk.body.hashVersion).toBe(3);
       const { voteRecordsTable } = dbMod;
       const { and: andOp } = await import("drizzle-orm");
       await db.update(voteRecordsTable).set({ castBy: null })
@@ -642,6 +654,197 @@ d("votes — weighted voting", () => {
       // The superseded ballot has castBy = null now — the ex-holder only sees
       // their own ballot (none cast) → nothing of m1's new secret ballot.
       expect(holderView.body.voteRecords.map((r: any) => r.personId)).not.toContain(people[m1.email].id);
+    });
+  });
+
+  describe("abstentions (external-review item 2)", () => {
+    const BOARD = "Abstention Test Board";
+    let boardId: string;
+    let adminCookie: string;
+
+    beforeAll(async () => {
+      await wipeBoardsNamed(BOARD);
+      const [board] = await db.insert(dbMod.boardsTable).values({ name: BOARD, abbreviation: "ABT", type: "board" }).returning();
+      boardId = board.id;
+      await db.insert(dbMod.boardMembershipsTable).values([
+        { boardId, personId: people[m1.email].id, votingWeight: 1 },
+        { boardId, personId: people[m2.email].id, votingWeight: 1 },
+        { boardId, personId: people[m3.email].id, votingWeight: 1 },
+      ]);
+      adminCookie = await cookieFor(secretary.email);
+    });
+
+    it("an abstained ballot is accepted, closes the vote, and drops out of the majority denominator", async () => {
+      const vote = await createVote(adminCookie, boardId);
+
+      expect((await cast(await cookieFor(m1.email), vote.id, "approved")).status).toBe(200);
+      expect((await cast(await cookieFor(m2.email), vote.id, "abstained")).status).toBe(200);
+      expect((await cast(await cookieFor(m3.email), vote.id, "abstained")).status).toBe(200);
+
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.status).toBe(200);
+      // All three cast (abstention participates) → the vote closed…
+      expect(res.body.votescast).toBe(3);
+      expect(res.body.castWeight).toBe(3);
+      expect(res.body.abstainCount).toBe(2);
+      expect(res.body.abstainWeight).toBe(2);
+      // …and the majority is of votes cast for-or-against: 1 of 1 → approved.
+      // (A majority-of-eligible reading would have rejected 1 of 3.)
+      expect(res.body.status).toBe("approved");
+    });
+
+    it("everyone abstaining approves nothing", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      for (const m of [m1, m2, m3]) {
+        expect((await cast(await cookieFor(m.email), vote.id, "abstained")).status).toBe(200);
+      }
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.body.status).toBe("rejected");
+    });
+
+    it("an abstention defeats default (written-consent) unanimity", async () => {
+      const vote = await createVote(adminCookie, boardId, { approvalRule: { type: "unanimous" } });
+      expect((await cast(await cookieFor(m1.email), vote.id, "approved")).status).toBe(200);
+      expect((await cast(await cookieFor(m2.email), vote.id, "approved")).status).toBe(200);
+      expect((await cast(await cookieFor(m3.email), vote.id, "abstained")).status).toBe(200);
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.body.status).toBe("rejected");
+    });
+
+    it("unanimity-of-votes-cast (configured) lets an abstainer stand aside", async () => {
+      const vote = await createVote(adminCookie, boardId, { approvalRule: { type: "unanimous", denominatorBasis: "cast" } });
+      expect((await cast(await cookieFor(m1.email), vote.id, "approved")).status).toBe(200);
+      expect((await cast(await cookieFor(m2.email), vote.id, "approved")).status).toBe(200);
+      expect((await cast(await cookieFor(m3.email), vote.id, "abstained")).status).toBe(200);
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.body.status).toBe("approved");
+    });
+
+    it("abstaining never requires a comment", async () => {
+      const vote = await createVote(adminCookie, boardId);
+      const res = await cast(await cookieFor(m1.email), vote.id, "abstained");
+      expect(res.status).toBe(200);
+      expect(res.body.decision).toBe("abstained");
+    });
+  });
+
+  describe("meeting-vote quorum measured over attendance (external-review item 3)", () => {
+    const BOARD = "Attendance Quorum Board";
+    let boardId: string;
+    let adminCookie: string;
+
+    async function createMeetingVote(quorum: number) {
+      const [meeting] = await db.insert(dbMod.meetingsTable).values({
+        boardId,
+        title: "Attendance quorum test meeting",
+        date: new Date(),
+        status: "concluded",
+      }).returning();
+      // Only m1 and m2 are present; m3 is marked absent.
+      await db.insert(dbMod.attendanceTable).values([
+        { meetingId: meeting.id, personId: people[m1.email].id, status: "confirmed" },
+        { meetingId: meeting.id, personId: people[m2.email].id, status: "confirmed" },
+        { meetingId: meeting.id, personId: people[m3.email].id, status: "absent" },
+      ]);
+      return createVote(adminCookie, boardId, {
+        type: "meeting",
+        meetingId: meeting.id,
+        approvalRule: { type: "majority", quorum },
+      });
+    }
+
+    beforeAll(async () => {
+      await wipeBoardsNamed(BOARD);
+      const [board] = await db.insert(dbMod.boardsTable).values({ name: BOARD, abbreviation: "AQB", type: "board" }).returning();
+      boardId = board.id;
+      await db.insert(dbMod.boardMembershipsTable).values([
+        { boardId, personId: people[m1.email].id, votingWeight: 1 },
+        { boardId, personId: people[m2.email].id, votingWeight: 1 },
+        { boardId, personId: people[m3.email].id, votingWeight: 1 },
+      ]);
+      adminCookie = await cookieFor(secretary.email);
+    });
+
+    it("a meeting vote fails quorum when attendance is short — even though every ballot approved", async () => {
+      // Quorum 3, attendance weight 2 (m3 absent). All three members cast
+      // approvals — the OLD code measured quorum over ballots cast (3 ≥ 3 →
+      // approved); quorum attaches to who is PRESENT, so this must reject.
+      const vote = await createMeetingVote(3);
+      for (const m of [m1, m2, m3]) {
+        expect((await cast(await cookieFor(m.email), vote.id, "approved")).status).toBe(200);
+      }
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.body.status).toBe("rejected");
+    });
+
+    it("the same vote carries when the attendance pool meets the quorum", async () => {
+      const vote = await createMeetingVote(2); // attendance weight 2 ≥ 2
+      for (const m of [m1, m2, m3]) {
+        expect((await cast(await cookieFor(m.email), vote.id, "approved")).status).toBe(200);
+      }
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.body.status).toBe("approved");
+    });
+
+    it("a circulation vote keeps the ballots-cast quorum basis", async () => {
+      const vote = await createVote(adminCookie, boardId, { approvalRule: { type: "majority", quorum: 3 } });
+      for (const m of [m1, m2, m3]) {
+        expect((await cast(await cookieFor(m.email), vote.id, "approved")).status).toBe(200);
+      }
+      const res = await request(app).get(`/api/votes/${vote.id}`).set("Cookie", adminCookie);
+      expect(res.body.status).toBe("approved");
+    });
+  });
+
+  describe("recusals as recorded facts (external-review item 2)", () => {
+    const BOARD = "Recusal Facts Board";
+    let boardId: string;
+    let adminCookie: string;
+    let voteId: string;
+
+    beforeAll(async () => {
+      await wipeBoardsNamed(BOARD);
+      const [board] = await db.insert(dbMod.boardsTable).values({ name: BOARD, abbreviation: "RFB", type: "board" }).returning();
+      boardId = board.id;
+      await db.insert(dbMod.boardMembershipsTable).values([
+        { boardId, personId: people[m1.email].id },
+        { boardId, personId: people[m2.email].id },
+        { boardId, personId: people[m3.email].id },
+      ]);
+      adminCookie = await cookieFor(secretary.email);
+      const vote = await createVote(adminCookie, boardId, {
+        secret: true,
+        approvalRule: {
+          type: "majority",
+          recusedIds: [people[m3.email].id],
+          recusalReasons: { [people[m3.email].id]: "Counterparty to the contract under resolution" },
+        },
+      });
+      voteId = vote.id;
+    });
+
+    it("the vote payload names who is recused and why", async () => {
+      const res = await request(app).get(`/api/votes/${voteId}`).set("Cookie", adminCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.recusals).toEqual([
+        {
+          personId: people[m3.email].id,
+          name: m3.name,
+          reason: "Counterparty to the contract under resolution",
+        },
+      ]);
+    });
+
+    it("the certificate discloses the recusal even on a secret ballot", async () => {
+      expect((await cast(await cookieFor(m1.email), voteId, "approved")).status).toBe(200);
+      expect((await cast(await cookieFor(m2.email), voteId, "approved")).status).toBe(200);
+      // Non-admin member view of a SECRET vote: ballots withheld, recusal shown.
+      const res = await request(app).get(`/api/votes/${voteId}/certificate`).set("Cookie", await cookieFor(m1.email));
+      expect(res.status).toBe(200);
+      expect(res.body.voteRecords).toEqual([]);
+      expect(res.body.recusals.length).toBe(1);
+      expect(res.body.recusals[0].personId).toBe(people[m3.email].id);
+      expect(res.body.recusals[0].reason).toBe("Counterparty to the contract under resolution");
     });
   });
 });

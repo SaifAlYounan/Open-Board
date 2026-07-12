@@ -22,7 +22,9 @@ import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { createVoteBody, updateVoteBody, parseBody } from "../lib/governanceSchemas";
-import { evaluateByRule, computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
+import { computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
+import { isEligibleVoter, loadEvaluationContext, evaluateOutcome, recusalFacts, mintCertificate, verifyCertificateV3 } from "../lib/voteClose";
+import { enforceDeadlineIfPassed, applyDeadlinePolicy } from "../lib/voteDeadline";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -81,16 +83,6 @@ type MembershipRow = { personId: string | null; roleInBoard: string | null; voti
 type BallotRow = { personId: string | null; decision: string; weight: number };
 
 /**
- * The single eligibility predicate for who may vote on a resolution: every
- * board member except observers and board secretaries. Reused everywhere a
- * voter set is derived (the weighted tally, the cast path, workflow stats) so
- * head counts and weight sums always describe the SAME set of people.
- */
-function isEligibleVoter(m: { roleInBoard: string | null }): boolean {
-  return m.roleInBoard !== "observer" && m.roleInBoard !== "secretary";
-}
-
-/**
  * Weighted aggregates for a vote's API payloads, computed the same way the
  * evaluation path computes them: over eligible voting members (no observers,
  * no board secretaries, no recused members). On an unweighted board these
@@ -103,7 +95,7 @@ function weightedFields(boardMembers: MembershipRow[], voteRecords: BallotRow[],
     .filter(isEligibleVoter)
     .map((m) => ({ personId: m.personId, weight: m.votingWeight }));
   const t = computeTally(eligible, voteRecords, recusedIds);
-  return { totalVoters: t.totalVoters, totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight };
+  return { totalVoters: t.totalVoters, totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight, abstainCount: t.abstainCount, abstainWeight: t.abstainWeight };
 }
 
 function buildApprovalSummary(rule: {
@@ -112,11 +104,12 @@ function buildApprovalSummary(rule: {
   quorum: number | null;
   weighted: boolean;
   deadlineBehavior: string;
+  extendDays?: number | null;
 }): string {
   const behaviors: Record<string, string> = {
     lapse: "lapses if unresolved by deadline",
-    extend: "auto-extends 7 days",
-    notify: "notifies secretary when deadline passes",
+    extend: `auto-extends ${rule.extendDays ?? 7} days once, then lapses`,
+    notify: "notifies the secretary when the deadline passes (stays open)",
   };
 
   const ruleDesc: Record<string, string> = {
@@ -155,13 +148,26 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
     conds.push(inArray(votesTable.id, ids));
   }
 
-  const votes = await db
+  let votes = await db
     .select()
     .from(votesTable)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(votesTable.createdAt)
     .limit(limit)
     .offset(offset);
+
+  // Lazy deadline enforcement over the page (item 4): expired open votes get
+  // their policy applied, then just those rows are re-read. One batched pass,
+  // no per-row writes for the common (nothing-expired) case.
+  const expired = votes.filter((v) => v.status === "open" && v.deadline && v.deadline.getTime() <= Date.now());
+  if (expired.length) {
+    for (const v of expired) {
+      await applyDeadlinePolicy(v.id).catch((err) => logger.error({ err, voteId: v.id }, "Deadline policy failed on list read"));
+    }
+    const refreshed = await db.select().from(votesTable).where(inArray(votesTable.id, expired.map((v) => v.id)));
+    const byId = new Map(refreshed.map((v) => [v.id, v]));
+    votes = votes.map((v) => byId.get(v.id) ?? v);
+  }
 
   // Batch-load everything the page needs — one query per relation, not per vote.
   const voteIds = votes.map((v) => v.id);
@@ -297,6 +303,9 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
           quorum: rule.quorum,
           weighted: rule.weighted || false,
           deadlineBehavior: rule.deadlineBehavior || "lapse",
+          extendDays: rule.extendDays ?? 7,
+          quorumBasis: rule.quorumBasis ?? null,
+          denominatorBasis: rule.denominatorBasis ?? null,
         })
         .returning();
 
@@ -307,7 +316,11 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
       }
       if (rule.recusedIds?.length) {
         await tx.insert(approvalRuleRecusalsTable).values(
-          rule.recusedIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
+          rule.recusedIds.map((pid: string) => ({
+            ruleId: insertedRule.id,
+            personId: pid,
+            reason: rule.recusalReasons?.[pid] ? sanitizeText(rule.recusalReasons[pid]) : null,
+          }))
         );
       }
     }
@@ -339,10 +352,16 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
+  }
+
+  // Lazy deadline enforcement (item 4): a read of an expired open vote applies
+  // its deadline policy first, then serves the post-policy state.
+  if (await enforceDeadlineIfPassed(vote)) {
+    [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   }
 
   if (!await hasAccess(user.id, user.role, "vote", id)) {
@@ -429,11 +448,18 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
           quorum: approvalRule.quorum,
           weighted: approvalRule.weighted || false,
           deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
+          extendDays: approvalRule.extendDays,
         }),
         recusedIds: ruleRecusals.map((r) => r.personId),
         requiredVoterIds: ruleRequiredVoters.map((r) => r.personId),
       }
     : null;
+
+  // Recusals as first-class facts (personId, name, reason) — distinct from the
+  // ballot records. A recusal is administrative (who was EXCLUDED and why), not
+  // a ballot, so it is visible even on secret ballots — like the proxy grants
+  // above (external-review item 2).
+  const recusals = await recusalFacts(ruleRecusals);
 
   const docs = await db
     .select()
@@ -544,6 +570,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
       : voteRecordsWithPeople,
     proxies: proxiesWithNames,
     myProxies,
+    recusals,
     boardMembers: boardMembersWithPeople,
     approvalRule: ruleWithSummary,
     certificateHash: vote.certificateHash,
@@ -588,11 +615,13 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     if (["approved", "rejected", "lapsed", "cancelled"].includes(status)) {
       const closedAt = new Date();
       updates.closedAt = closedAt;
-      // Only generate certificate hash for finalized (non-cancelled) statuses.
-      // Same instant for the hash and the stored column so it stays verifiable.
+      // Only generate a certificate for finalized (non-cancelled) statuses.
+      // Same instant for the certificate and the stored column so it stays
+      // verifiable; signed v3 when the server key is configured.
       if (["approved", "rejected", "lapsed"].includes(status)) {
-        const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
-        updates.certificateHash = computeCertificateHash(id, status, closedAt, records);
+        const [fullVote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+        const ctx = await loadEvaluationContext(fullVote);
+        Object.assign(updates, await mintCertificate(fullVote, status, closedAt, ctx));
       }
     }
   }
@@ -713,7 +742,13 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
-    const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    // Lazy deadline enforcement BEFORE the open check (item 4): a late ballot
+    // is refused under "lapse" and accepted under "extend" — the policy, not
+    // the accident of nobody having read the vote since the deadline, decides.
+    if (vote && (await enforceDeadlineIfPassed(vote))) {
+      [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    }
     if (!vote || vote.status !== "open") {
       res.status(400).json({ error: "Vote is not open" });
       return;
@@ -724,7 +759,9 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
-    const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"];
+    // "abstained" is a cast ballot: it participates (quorum, closing the vote)
+    // but approves nothing — distinct from recusal, which excludes the member.
+    const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments", "abstained"];
     if (!VALID_DECISIONS.includes(decision)) {
       res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
       return;
@@ -859,52 +896,24 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
     }
 
     if (vote.boardId) {
-      const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
-      const eligibleMembers = allMembers.filter(isEligibleVoter);
+      // One shared load for everything the outcome depends on: eligible
+      // members, rule + recusals + required voters, ballots, the weighted
+      // tally, and — for meeting votes — the attendance pool the quorum is
+      // measured against (external-review item 3).
+      const ctx = await loadEvaluationContext(vote);
 
-      // Fetch the approval rule and recusals so we can exclude recused members from quorum
-      const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
-      const recusals = rule
-        ? await db.select().from(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id))
-        : [];
-      const recusedIds = new Set(recusals.map((r) => r.personId));
+      if (ctx.tally.votesCast >= ctx.tally.totalVoters && ctx.tally.totalVoters > 0) {
+        const newStatus = evaluateOutcome(ctx);
 
-      // Required voters: if any, ALL of them must have approved
-      const requiredVoterRows = rule
-        ? await db.select().from(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, rule.id))
-        : [];
-      const requiredIds = requiredVoterRows.map((r) => r.personId);
-
-      const allRecords = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
-      const validRecords = allRecords.filter((r) => !recusedIds.has(r.personId!));
-
-      // Weighted tally: outcome and quorum are decided over voting WEIGHT.
-      // Every weight defaults to 1, so an unweighted board evaluates exactly
-      // as the old head-count tally did.
-      const tally = computeTally(
-        eligibleMembers.map((m) => ({ personId: m.personId, weight: m.votingWeight })),
-        allRecords,
-        recusedIds,
-      );
-
-      if (tally.votesCast >= tally.totalVoters && tally.totalVoters > 0) {
-        let newStatus: "approved" | "rejected";
-        if (requiredIds.length > 0) {
-          const allRequiredApproved = requiredIds.every((pid) =>
-            validRecords.some((r) => r.personId === pid && r.decision.startsWith("approved"))
-          );
-          newStatus = allRequiredApproved ? evaluateByRule(rule, tally.approvalsWeight, tally.totalWeight, tally.castWeight) : "rejected";
-        } else {
-          newStatus = evaluateByRule(rule, tally.approvalsWeight, tally.totalWeight, tally.castWeight);
-        }
-
-        // One instant for both the stored column and the certificate, so the
-        // certificate hash can be recomputed and verified later.
+        // One instant for both the stored column and the certificate. The
+        // v3 certificate freezes the payload and Ed25519-signs it (fail-closed
+        // when the server key is misconfigured — better no close than an
+        // unsigned certificate that claims to be tamper-evident).
         const closedAt = new Date();
-        const hash = computeCertificateHash(id, newStatus, closedAt, allRecords);
+        const cert = await mintCertificate(vote, newStatus, closedAt, ctx);
         await db
           .update(votesTable)
-          .set({ status: newStatus as any, closedAt, certificateHash: hash })
+          .set({ status: newStatus as any, closedAt, ...cert })
           .where(eq(votesTable.id, id));
         setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
       }
@@ -1235,10 +1244,13 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
+  }
+  if (await enforceDeadlineIfPassed(vote)) {
+    [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   }
 
   if (!await hasAccess(user.id, user.role, "vote", id)) {
@@ -1303,6 +1315,7 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     closedAt: vote.closedAt,
     deadline: vote.deadline,
     hash: vote.certificateHash,
+    certificateVersion: vote.certificateVersion,
     // Weighted totals (safe under secret ballots — aggregates only, same
     // disclosure level as the existing head counts).
     ...weightedFields(members, records, new Set(ruleRecusals.map((r) => r.personId))),
@@ -1314,23 +1327,39 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
         quorum: approvalRule.quorum,
         weighted: approvalRule.weighted || false,
         deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
+        extendDays: approvalRule.extendDays,
       }),
     } : null,
     voteRecords: showIndividualData ? recordsWithPeople : [],
     proxies: proxiesWithNames,
+    // Recusals are administrative facts (who was excluded and why), not
+    // ballots — disclosed on the certificate regardless of secrecy, so an
+    // excluded conflict of interest is provable from the record (item 2).
+    recusals: await recusalFacts(ruleRecusals),
   });
 });
 
-// Recompute the certificate hash from persisted data and compare it to the
-// stored hash — proves the vote record hasn't been altered since it closed.
+// Verify the vote's certificate.
+//
+// v3 (signed): three independent checks — stored payload hashes to the stored
+// hash; the Ed25519 signature verifies over the frozen payload (non-circular:
+// forging it needs SERVER_SIGNING_SECRET, which is not in the database); and a
+// payload rebuilt from the live rows still matches the frozen one. The
+// response carries the signing-key fingerprint for the out-of-band check.
+//
+// v2/v1 (legacy, pre-signing): recompute-and-compare of an unkeyed hash over
+// the same rows being checked — internal consistency only, labeled signed:false.
 router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
+  }
+  if (await enforceDeadlineIfPassed(vote)) {
+    [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   }
   if (!await hasAccess(user.id, user.role, "vote", id)) {
     res.status(403).json({ error: "Access denied" });
@@ -1342,10 +1371,15 @@ router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promi
   }
   const closedAt = vote.closedAt;
 
+  if (vote.certificateVersion === 3) {
+    res.json(await verifyCertificateV3(vote));
+    return;
+  }
+
   const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
   const recomputed = computeCertificateHash(id, vote.status ?? "", closedAt, records);
   if (recomputed === vote.certificateHash) {
-    res.json({ verified: true, storedHash: vote.certificateHash, recomputedHash: recomputed, hashVersion: 2 });
+    res.json({ verified: true, signed: false, storedHash: vote.certificateHash, recomputedHash: recomputed, hashVersion: 2 });
     return;
   }
   // Votes closed before weighted/proxy voting were hashed with the v1 format —
@@ -1353,6 +1387,7 @@ router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promi
   const legacy = computeLegacyCertificateHash(id, vote.status ?? "", closedAt, records);
   res.json({
     verified: legacy === vote.certificateHash,
+    signed: false,
     storedHash: vote.certificateHash,
     recomputedHash: legacy === vote.certificateHash ? legacy : recomputed,
     hashVersion: legacy === vote.certificateHash ? 1 : null,

@@ -31,8 +31,17 @@ export const approvalRuleBody = z
     quorum: z.number().int().positive().nullish(),
     weighted: z.boolean().nullish(),
     deadlineBehavior: z.enum(DEADLINE_BEHAVIORS).nullish(),
+    // One automatic extension window (days) when deadlineBehavior = "extend".
+    extendDays: z.number().int().min(1).max(365).nullish(),
+    // What the quorum is measured against / what fractional rules divide by.
+    // null = the vote-type / rule-type default (see lib/voteTally.resolveBases).
+    quorumBasis: z.enum(["attendance", "cast"]).nullish(),
+    denominatorBasis: z.enum(["eligible", "cast"]).nullish(),
     requiredVoterIds: z.array(uuid).max(200).nullish(),
     recusedIds: z.array(uuid).max(200).nullish(),
+    // Reasons for the recusals above, keyed by person id (item 2 — a recusal
+    // is a recorded fact with a why, not just an access-control hole).
+    recusalReasons: z.record(uuid, short).nullish(),
   })
   .strip();
 

@@ -37,28 +37,57 @@ type AuditRow = {
   ipAddress: string | null;
   createdAt: Date | null;
   prevHash: string | null;
+  /** Identifier of the HMAC key that sealed THIS row's prev_hash link; null = unkeyed sha256. */
+  keyId?: string | null;
 };
+
+export type AuditKey = { key: Buffer; id: string };
+
+// --- Chain keying (external-review item 1) -----------------------------------
+// The audit HMAC key is derived (HKDF) from SERVER_SIGNING_SECRET — the same
+// secret that wraps the server's certificate-signing key, one secret with two
+// derived uses. The key id is a digest OF THE KEY (never the secret), stored on
+// each row so a verifier knows which regime sealed each link.
+let cachedAuditKey: AuditKey | null | undefined;
+
+export function getAuditKey(env: NodeJS.ProcessEnv = process.env): AuditKey | null {
+  if (cachedAuditKey !== undefined) return cachedAuditKey;
+  const secret = env.SERVER_SIGNING_SECRET;
+  if (!secret || secret.trim().length === 0) {
+    cachedAuditKey = null;
+    return null;
+  }
+  const key = Buffer.from(crypto.hkdfSync("sha256", secret, Buffer.alloc(0), "openboard-audit-chain-v1", 32));
+  cachedAuditKey = { key, id: crypto.createHash("sha256").update(key).digest("hex").slice(0, 16) };
+  return cachedAuditKey;
+}
+
+/** Test hook: force re-derivation after changing SERVER_SIGNING_SECRET. */
+export function resetAuditKeyCache(): void {
+  cachedAuditKey = undefined;
+}
 
 // Hash EVERY attributable field, not just id/action/createdAt — otherwise an
 // attacker with DB write access could rewrite who did what (personId), to which
 // object (entityType/entityId), or the details/ipAddress without breaking the chain.
-function hashRow(row: AuditRow): string {
-  return crypto
-    .createHash("sha256")
-    .update(
-      [
-        row.id,
-        row.personId ?? "",
-        row.action,
-        row.entityType ?? "",
-        row.entityId ?? "",
-        stableStringify(row.details ?? null),
-        row.ipAddress ?? "",
-        row.createdAt?.toISOString() ?? "",
-        row.prevHash ?? "",
-      ].join("|"),
-    )
-    .digest("hex");
+//
+// With a key this is HMAC-SHA-256; without, plain SHA-256 (the legacy regime).
+// Each link is computed under the CURRENT row's regime, so the first keyed row
+// seals the whole unkeyed history behind it: recomputing any earlier link then
+// requires the key, which is not in the database.
+function hashRow(row: AuditRow, key: Buffer | null = null): string {
+  const material = [
+    row.id,
+    row.personId ?? "",
+    row.action,
+    row.entityType ?? "",
+    row.entityId ?? "",
+    stableStringify(row.details ?? null),
+    row.ipAddress ?? "",
+    row.createdAt?.toISOString() ?? "",
+    row.prevHash ?? "",
+  ].join("|");
+  return (key ? crypto.createHmac("sha256", key) : crypto.createHash("sha256")).update(material).digest("hex");
 }
 
 const AUDIT_ROW_COLUMNS = {
@@ -71,6 +100,7 @@ const AUDIT_ROW_COLUMNS = {
   ipAddress: auditTrailTable.ipAddress,
   createdAt: auditTrailTable.createdAt,
   prevHash: auditTrailTable.prevHash,
+  keyId: auditTrailTable.keyId,
 } as const;
 
 /**
@@ -88,10 +118,14 @@ const AUDIT_ROW_COLUMNS = {
  * LAST in the transaction (audit after the mutation) so audited transactions
  * hold it as briefly as possible and always acquire locks in the same order.
  *
- * Each row stores prev_hash = SHA-256 over the previous row, forming a hash
- * chain (verify with `verifyAuditChain`). This detects a naive row edit; it is
- * NOT resistant to an actor with DB write access, who can re-seal the chain —
- * that needs the external anchor described in SECURITY.md.
+ * Each row stores prev_hash over the previous row, forming a hash chain
+ * (verify with `verifyAuditChain`). With SERVER_SIGNING_SECRET configured the
+ * link is HMAC-SHA-256 under a derived key that is not in the database, so the
+ * chain is tamper-evident against an actor with DATABASE write access — they
+ * cannot re-seal without the key. It is NOT resistant to an actor who also
+ * compromises the app server (env + database); that needs the external anchor
+ * described in SECURITY.md. Without the secret the link is plain sha256 and
+ * detects naive edits only.
  */
 export async function auditInTx(
   tx: DbClient,
@@ -114,6 +148,7 @@ export async function auditInTx(
       .orderBy(desc(auditTrailTable.seq))
       .limit(1);
 
+    const auditKey = getAuditKey();
     await tx.insert(auditTrailTable).values({
       personId,
       action,
@@ -121,7 +156,11 @@ export async function auditInTx(
       entityId: entityId ?? null,
       details: details ?? null,
       ipAddress: ip,
-      prevHash: prev ? hashRow(prev) : null,
+      // The link to the predecessor is sealed under THIS row's regime: HMAC
+      // when the server key is configured, sha256 otherwise. keyId records
+      // which, so the verifier replays each link the way it was written.
+      prevHash: prev ? hashRow(prev, auditKey?.key ?? null) : null,
+      keyId: auditKey?.id ?? null,
     });
   } catch (err) {
     logger.error({ err, action, entityType, entityId }, "AUDIT WRITE FAILED — rolling the mutation back (fail-closed)");
@@ -150,47 +189,70 @@ export async function audit(
 export interface AuditVerifyResult {
   ok: boolean;
   count: number;
+  /** How many rows carry a keyed (HMAC) link. */
+  keyedCount?: number;
   /** 1-based position of the first row whose stored prev_hash does not match the
    *  recomputed hash of its predecessor. Undefined when ok. */
   brokenAtIndex?: number;
   brokenRowId?: string;
+  /** Why the chain failed, beyond a plain link mismatch. */
+  reason?: "link_mismatch" | "key_required" | "key_mismatch" | "keying_regressed";
 }
 
 /**
- * Replay the audit chain and check every link (P0.6). Rows are ordered exactly
- * as the writers chained them (by the monotonic `seq`). Each row's stored
- * `prev_hash` must equal the recomputed hash of the row before it; the first
- * row must have a null `prev_hash`.
+ * Replay the audit chain and check every link (P0.6 + external-review item 1).
+ * Rows are ordered exactly as the writers chained them (by the monotonic
+ * `seq`). Each row's stored `prev_hash` must equal the recomputed hash of the
+ * row before it — HMAC under the audit key for rows whose keyId is set, plain
+ * sha256 for legacy rows — and the first row must have a null `prev_hash`.
+ * Keying must be monotonic: once a row is keyed, an unkeyed successor is a
+ * tamper signal ("keying_regressed"), because the writer never downgrades.
  *
- * IMPORTANT (F2): this detects a naive edit — a row changed without recomputing
- * the forward hashes. It does NOT, on its own, detect a full re-seal by an actor
- * with database write access, because every hash input lives in the row and the
- * algorithm is public. Detecting a re-seal requires the external anchor (a signed
- * chain head held off the database host); see SECURITY.md.
+ * WHAT THIS PROVES. Any edit BEFORE the first keyed row now requires the HMAC
+ * key to re-seal (the keyed link pins the whole unkeyed history), and any edit
+ * after it requires the key outright. The key is derived from
+ * SERVER_SIGNING_SECRET, which is not in the database — so this is
+ * tamper-evidence against an actor with DATABASE write access.
+ *
+ * THE HONEST LIMIT. An actor who compromises the APP SERVER (env + database)
+ * holds the secret and can re-seal everything — including stripping every
+ * keyId to make the chain look pre-keying. Detecting THAT needs the external
+ * anchor (a signed chain head held off the host); see SECURITY.md.
  */
-/**
- * Pure chain check over already-ordered rows (deterministic, DB-free — the unit
- * of the verifier). Rows MUST be in chain order (ascending seq).
- */
-export function verifyChainRows(rows: AuditRow[]): AuditVerifyResult {
+export function verifyChainRows(rows: AuditRow[], key: AuditKey | null = null): AuditVerifyResult {
   let prev: AuditRow | null = null;
+  let keyedCount = 0;
+  let seenKeyed = false;
   for (let i = 0; i < rows.length; i++) {
-    const expectedPrevHash = prev ? hashRow(prev) : null;
-    if ((rows[i].prevHash ?? null) !== expectedPrevHash) {
-      return { ok: false, count: rows.length, brokenAtIndex: i + 1, brokenRowId: rows[i].id };
+    const rowKeyId = rows[i].keyId ?? null;
+    const fail = (reason: AuditVerifyResult["reason"]): AuditVerifyResult =>
+      ({ ok: false, count: rows.length, keyedCount, brokenAtIndex: i + 1, brokenRowId: rows[i].id, reason });
+
+    if (rowKeyId) {
+      keyedCount += 1;
+      seenKeyed = true;
+      if (!key) return fail("key_required");
+      if (key.id !== rowKeyId) return fail("key_mismatch");
+    } else if (seenKeyed) {
+      // The writer keys every row once the secret is configured; a keyed row
+      // followed by an unkeyed one means someone rewrote history.
+      return fail("keying_regressed");
     }
+
+    const expectedPrevHash = prev ? hashRow(prev, rowKeyId ? key!.key : null) : null;
+    if ((rows[i].prevHash ?? null) !== expectedPrevHash) return fail("link_mismatch");
     prev = rows[i];
   }
-  return { ok: true, count: rows.length };
+  return { ok: true, count: rows.length, keyedCount };
 }
 
-/** Fetch the whole chain in order and verify it. See F2 caveat above. */
+/** Fetch the whole chain in order and verify it under the configured key. See limits above. */
 export async function verifyAuditChain(dbc: DbClient = db): Promise<AuditVerifyResult> {
   const rows = (await dbc
     .select({ ...AUDIT_ROW_COLUMNS })
     .from(auditTrailTable)
     .orderBy(asc(auditTrailTable.seq))) as AuditRow[];
-  return verifyChainRows(rows);
+  return verifyChainRows(rows, getAuditKey());
 }
 
 /** Exposed for the standalone/offline verifier and tests. */

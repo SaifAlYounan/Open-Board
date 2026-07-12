@@ -77,5 +77,11 @@ jobs:
       - name: Test (unit + integration)
         run: pnpm -r --if-present run test
 
+      # "Stored, rendered, never consulted" shipped twice (quorum in 2.x,
+      # deadlineBehavior in 3.x) — this makes the bug class mechanical: every
+      # enum schema column must be consulted in a decision somewhere in server code.
+      - name: Dead-config check
+        run: node artifacts/api-server/scripts/check-dead-config.mjs
+
       - name: Build
         run: pnpm -r --if-present run build

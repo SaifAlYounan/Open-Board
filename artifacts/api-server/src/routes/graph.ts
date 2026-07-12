@@ -18,8 +18,27 @@ import {
 } from "@workspace/db";
 import { eq, inArray, ilike, or, sql, and, lt, ne } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { accessibleEntityIds } from "../lib/access";
 
 const router = Router();
+
+type AclEntityType = "document" | "vote" | "meeting" | "task" | "minutes";
+
+/**
+ * Per-request ENTITY-level visibility (external-review item 7): the graph
+ * previously scoped by board membership only, so a member explicitly denied a
+ * document (a recusal, an expired grant) still saw its title and edges here
+ * while the document routes correctly 403'd. Same model as everywhere else —
+ * membership OR unexpired grant, MINUS deny (lib/access.ts) — resolved once
+ * per request. Admins see everything, as on the entity routes.
+ */
+async function entityVisibility(user: { id: string; role: string }): Promise<(type: AclEntityType, id: string) => boolean> {
+  if (user.role === "admin") return () => true;
+  const types: AclEntityType[] = ["document", "vote", "meeting", "task", "minutes"];
+  const sets = new Map<AclEntityType, Set<string>>();
+  await Promise.all(types.map(async (t) => sets.set(t, new Set(await accessibleEntityIds(user.id, t)))));
+  return (type, id) => sets.get(type)!.has(id);
+}
 
 interface GraphNode {
   id: string;
@@ -78,6 +97,8 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
     }
   };
 
+  const canSee = await entityVisibility(user);
+
   const boards = await db.select().from(boardsTable).where(inArray(boardsTable.id, accessibleBoardIds));
   for (const b of boards) {
     addNode({ id: b.id, type: "board", label: b.abbreviation || b.name });
@@ -101,7 +122,8 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const votes = await db.select().from(votesTable).where(inArray(votesTable.boardId, accessibleBoardIds));
+  const votes = (await db.select().from(votesTable).where(inArray(votesTable.boardId, accessibleBoardIds)))
+    .filter((v) => canSee("vote", v.id));
   for (const v of votes) {
     addNode({
       id: v.id,
@@ -162,10 +184,12 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const meetings = await db
-    .select()
-    .from(meetingsTable)
-    .where(inArray(meetingsTable.boardId, accessibleBoardIds));
+  const meetings = (
+    await db
+      .select()
+      .from(meetingsTable)
+      .where(inArray(meetingsTable.boardId, accessibleBoardIds))
+  ).filter((m) => canSee("meeting", m.id));
   for (const m of meetings) {
     addNode({
       id: m.id,
@@ -180,10 +204,13 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
 
   const meetingIds = meetings.map((m) => m.id);
 
-  const allMinutes = await db
-    .select()
-    .from(minutesTable)
-    .where(meetingIds.length > 0 ? inArray(minutesTable.meetingId, meetingIds) : eq(minutesTable.id, ""));
+  // (meetingIds can be empty — the old `eq(minutesTable.id, "")` fallback threw
+  // on the uuid cast, 500ing the whole graph for any member with no meetings.)
+  const allMinutes = (
+    meetingIds.length > 0
+      ? await db.select().from(minutesTable).where(inArray(minutesTable.meetingId, meetingIds))
+      : []
+  ).filter((m) => canSee("minutes", m.id));
   for (const m of allMinutes) {
     addNode({
       id: m.id,
@@ -226,7 +253,8 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
 
       const docIds = agendaDocs.map((ad) => ad.documentId).filter(Boolean) as string[];
       if (docIds.length > 0) {
-        const docs = await db.select().from(documentsTable).where(inArray(documentsTable.id, docIds));
+        const docs = (await db.select().from(documentsTable).where(inArray(documentsTable.id, docIds)))
+          .filter((d) => canSee("document", d.id));
         for (const d of docs) {
           addNode({
             id: d.id,
@@ -247,10 +275,12 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const boardDocs = await db
-    .select()
-    .from(documentsTable)
-    .where(inArray(documentsTable.boardId, accessibleBoardIds));
+  const boardDocs = (
+    await db
+      .select()
+      .from(documentsTable)
+      .where(inArray(documentsTable.boardId, accessibleBoardIds))
+  ).filter((d) => canSee("document", d.id));
   for (const d of boardDocs) {
     addNode({
       id: d.id,
@@ -261,10 +291,12 @@ router.get("/graph", requireAuth, async (req, res): Promise<void> => {
     if (d.boardId) edges.push({ source: d.boardId, target: d.id, relationship: "document" });
   }
 
-  const tasks = await db
-    .select()
-    .from(tasksTable)
-    .where(inArray(tasksTable.boardId, accessibleBoardIds));
+  const tasks = (
+    await db
+      .select()
+      .from(tasksTable)
+      .where(inArray(tasksTable.boardId, accessibleBoardIds))
+  ).filter((t) => canSee("task", t.id));
   for (const t of tasks) {
     addNode({
       id: t.id,
@@ -337,15 +369,17 @@ router.get("/graph/summary", requireAuth, async (req, res): Promise<void> => {
   if (accessibleBoardIds.length === 0) { res.json({ votes: {}, meetings: {}, documents: {}, tasks: {}, minutes: {}, people: {}, projects: [], timeline: [] }); return; }
 
   const now = new Date();
+  const canSee = await entityVisibility(user);
 
-  const votes = await db.select().from(votesTable).where(inArray(votesTable.boardId, accessibleBoardIds));
-  const meetings = await db.select().from(meetingsTable).where(inArray(meetingsTable.boardId, accessibleBoardIds));
+  const votes = (await db.select().from(votesTable).where(inArray(votesTable.boardId, accessibleBoardIds))).filter((v) => canSee("vote", v.id));
+  const meetings = (await db.select().from(meetingsTable).where(inArray(meetingsTable.boardId, accessibleBoardIds))).filter((m) => canSee("meeting", m.id));
   const meetingIds = meetings.map((m) => m.id);
-  const docs = await db.select().from(documentsTable).where(inArray(documentsTable.boardId, accessibleBoardIds));
-  const tasks = await db.select().from(tasksTable).where(inArray(tasksTable.boardId, accessibleBoardIds));
-  const mins = meetingIds.length > 0
+  const docs = (await db.select().from(documentsTable).where(inArray(documentsTable.boardId, accessibleBoardIds))).filter((d) => canSee("document", d.id));
+  const tasks = (await db.select().from(tasksTable).where(inArray(tasksTable.boardId, accessibleBoardIds))).filter((t) => canSee("task", t.id));
+  const mins = (meetingIds.length > 0
     ? await db.select().from(minutesTable).where(inArray(minutesTable.meetingId, meetingIds))
-    : [];
+    : []
+  ).filter((m) => canSee("minutes", m.id));
 
   const memberships = await db.select().from(boardMembershipsTable).where(inArray(boardMembershipsTable.boardId, accessibleBoardIds));
   const memberPersonIds = new Set(memberships.filter((m) => m.roleInBoard !== "observer").map((m) => m.personId));
@@ -493,19 +527,22 @@ router.get("/graph/search", requireAuth, async (req, res): Promise<void> => {
   const isSpecial = (kw: string) => lower === kw || lower.includes(kw);
   const now = new Date();
 
-  const allVotes = await db.select().from(votesTable).where(inArray(votesTable.boardId, accessibleBoardIds));
-  const allMeetings = await db.select().from(meetingsTable).where(inArray(meetingsTable.boardId, accessibleBoardIds));
-  const allDocs = await db.select().from(documentsTable).where(inArray(documentsTable.boardId, accessibleBoardIds));
-  const allTasks = await db.select().from(tasksTable).where(inArray(tasksTable.boardId, accessibleBoardIds));
+  const canSee = await entityVisibility(user);
+
+  const allVotes = (await db.select().from(votesTable).where(inArray(votesTable.boardId, accessibleBoardIds))).filter((v) => canSee("vote", v.id));
+  const allMeetings = (await db.select().from(meetingsTable).where(inArray(meetingsTable.boardId, accessibleBoardIds))).filter((m) => canSee("meeting", m.id));
+  const allDocs = (await db.select().from(documentsTable).where(inArray(documentsTable.boardId, accessibleBoardIds))).filter((d) => canSee("document", d.id));
+  const allTasks = (await db.select().from(tasksTable).where(inArray(tasksTable.boardId, accessibleBoardIds))).filter((t) => canSee("task", t.id));
   const boardMemberships = await db.select().from(boardMembershipsTable).where(inArray(boardMembershipsTable.boardId, accessibleBoardIds));
   const accessiblePersonIds = [...new Set(boardMemberships.map((m) => m.personId).filter(Boolean) as string[])];
   const allPeople = accessiblePersonIds.length > 0
     ? await db.select().from(peopleTable).where(inArray(peopleTable.id, accessiblePersonIds))
     : [];
   const meetingIds = allMeetings.map((m) => m.id);
-  const allMinutes = meetingIds.length > 0
+  const allMinutes = (meetingIds.length > 0
     ? await db.select().from(minutesTable).where(inArray(minutesTable.meetingId, meetingIds))
-    : [];
+    : []
+  ).filter((m) => canSee("minutes", m.id));
   const boards = await db.select().from(boardsTable).where(inArray(boardsTable.id, accessibleBoardIds));
   const boardMap = new Map(boards.map((b) => [b.id, b]));
 

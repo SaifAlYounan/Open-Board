@@ -92,12 +92,15 @@ function MemberRow({ record, member, isRecused, isRequired, weight }: { record?:
   }
 
   const isApproved = record.decision.startsWith('approved');
-  const color = isApproved ? '#34c759' : '#ff3b30';
+  const isAbstain = record.decision === 'abstained';
+  // Abstain is a CAST ballot, neither for nor against — neutral, not "rejected".
+  const color = isApproved ? '#34c759' : isAbstain ? '#86868b' : '#ff3b30';
   const decisionLabel = ({
     approved: 'Approved',
     approved_with_comments: 'Approved with Comments',
     not_approved: 'Not Approved',
     not_approved_with_comments: 'Not Approved with Comments',
+    abstained: 'Abstained',
   } as Record<string, string>)[record.decision] || record.decision;
 
   return (
@@ -328,12 +331,14 @@ export default function SecretaryVoteDetail() {
     const records = cert.voteRecords || [];
     const approvals = records.filter((r: any) => r.decision?.startsWith('approved')).length;
     const against = records.filter((r: any) => r.decision?.startsWith('not_approved') || r.decision?.startsWith('rejected')).length;
+    const abstained = records.filter((r: any) => r.decision === 'abstained').length;
     const total = records.length;
     const isSecret = cert.secret === true;
     // Weighted totals come from the API (computed over eligible members even
     // when individual secret-ballot records are withheld).
     const approvalsWeight = cert.approvalsWeight ?? approvals;
     const castWeight = cert.castWeight ?? total;
+    const abstainWeight = cert.abstainWeight ?? abstained;
     const totalWeight = cert.totalWeight ?? null;
     const certIsWeighted = records.some((r: any) => (r.weight ?? 1) !== 1) || approvalsWeight !== approvals || castWeight !== total;
     const statusColor = { approved: '#34c759', rejected: '#ff3b30', lapsed: '#86868b', open: '#0071e3' }[cert.status as string] || '#86868b';
@@ -362,6 +367,7 @@ export default function SecretaryVoteDetail() {
   td { padding: 10px; border-bottom: 1px solid #f5f5f7; }
   .approved { color: #34c759; font-weight: 600; }
   .rejected { color: #ff3b30; font-weight: 600; }
+  .abstained { color: #86868b; font-weight: 600; }
   .hash-box { background: #f5f5f7; border-radius: 10px; padding: 14px; font-family: 'SF Mono', 'Courier New', monospace; font-size: 11px; word-break: break-all; color: #86868b; }
   .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e5e7; text-align: center; font-size: 11px; color: #86868b; }
   .tally { display: flex; gap: 24px; justify-content: center; margin: 16px 0; }
@@ -404,12 +410,14 @@ export default function SecretaryVoteDetail() {
     <div class="tally">
       <div class="tally-item"><div class="num" style="color:#34c759">${approvals}</div><div class="lbl">For</div></div>
       <div class="tally-item"><div class="num" style="color:#ff3b30">${against}</div><div class="lbl">Against</div></div>
+      ${abstained > 0 ? `<div class="tally-item"><div class="num" style="color:#86868b">${abstained}</div><div class="lbl">Abstained</div></div>` : ''}
       <div class="tally-item"><div class="num">${total}</div><div class="lbl">Votes Cast</div></div>
     </div>
     ${certIsWeighted ? `
     <div class="tally" style="border-top:1px solid #e5e5e7;padding-top:12px;">
       <div class="tally-item"><div class="num" style="color:#34c759">${approvalsWeight}</div><div class="lbl">For (Weight)</div></div>
-      <div class="tally-item"><div class="num" style="color:#ff3b30">${castWeight - approvalsWeight}</div><div class="lbl">Against (Weight)</div></div>
+      <div class="tally-item"><div class="num" style="color:#ff3b30">${castWeight - approvalsWeight - abstainWeight}</div><div class="lbl">Against (Weight)</div></div>
+      ${abstainWeight > 0 ? `<div class="tally-item"><div class="num" style="color:#86868b">${abstainWeight}</div><div class="lbl">Abstained (Weight)</div></div>` : ''}
       <div class="tally-item"><div class="num">${castWeight}${totalWeight != null ? ` / ${totalWeight}` : ''}</div><div class="lbl">Weight Cast / Eligible</div></div>
     </div>
     <p style="text-align:center;font-size:12px;color:#86868b;">This board uses weighted voting — the outcome and quorum are decided over voting weight.</p>
@@ -431,7 +439,7 @@ export default function SecretaryVoteDetail() {
           <tr>
             <td>${esc(r.person?.name || 'Unknown')}${r.castBy ? `<br/><span style="font-size:11px;color:#5856d6;">by proxy: ${esc(r.castByName || 'proxy holder')}</span>` : ''}</td>
             ${certIsWeighted ? `<td>${esc(String(r.weight ?? 1))}</td>` : ''}
-            <td class="${r.decision.startsWith('approved') ? 'approved' : 'rejected'}">${esc(r.decision.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))}</td>
+            <td class="${r.decision.startsWith('approved') ? 'approved' : r.decision === 'abstained' ? 'abstained' : 'rejected'}">${esc(r.decision.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))}</td>
             <td>${r.votedAt ? new Date(r.votedAt).toLocaleString('en-AU') : '—'}</td>
             <td style="font-style:italic;color:#86868b;">${esc(r.comment || '')}</td>
           </tr>
@@ -459,11 +467,31 @@ export default function SecretaryVoteDetail() {
   </div>
   ` : ''}
 
+  ${(cert.recusals || []).length > 0 ? `
+  <div class="section">
+    <div class="section-title">Recused Members (Conflict of Interest)</div>
+    <table>
+      <thead><tr><th>Member</th><th>Reason</th></tr></thead>
+      <tbody>
+        ${(cert.recusals || []).map((r: any) => `
+          <tr>
+            <td>${esc(r.name || r.personId || 'Unknown')}</td>
+            <td style="font-style:italic;color:#86868b;">${esc(r.reason || '—')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <p style="font-size:11px;color:#86868b;margin-top:8px;">A recused member is excluded from the vote entirely — removed from the eligible total, unlike an abstention (a cast ballot).</p>
+  </div>
+  ` : ''}
+
   ${cert.hash ? `
   <div class="section">
-    <div class="section-title">Integrity Certificate (SHA-256)</div>
+    <div class="section-title">Integrity Certificate</div>
     <div class="hash-box">${cert.hash}</div>
-    <p style="font-size:11px;color:#86868b;margin-top:8px;">This cryptographic hash certifies the integrity and immutability of this resolution record.</p>
+    <p style="font-size:11px;color:#86868b;margin-top:8px;">${cert.certificateVersion === 3
+      ? "This record is Ed25519-signed by the deployment's server key over a frozen payload (ballots, tally, bases, recusals, attendance). Verify in-app or offline; tamper-evident against database compromise, not against a compromised application server — see SECURITY.md."
+      : 'Legacy unsigned hash: proves internal consistency of this record only. Votes closed since the signing upgrade carry an Ed25519-signed certificate.'}</p>
   </div>
   ` : ''}
 
@@ -815,7 +843,10 @@ export default function SecretaryVoteDetail() {
                 />
                 <div className="mt-3 flex items-center gap-4 text-xs text-[#86868b]">
                   <span><strong className="text-[#34c759]">{voteData.approvalsCount}</strong> for</span>
-                  <span><strong className="text-[#ff3b30]">{voteData.votescast - voteData.approvalsCount}</strong> against</span>
+                  <span><strong className="text-[#ff3b30]">{voteData.votescast - voteData.approvalsCount - (voteData.abstainCount ?? 0)}</strong> against</span>
+                  {(voteData.abstainCount ?? 0) > 0 && (
+                    <span><strong className="text-[#86868b]">{voteData.abstainCount}</strong> abstained</span>
+                  )}
                   <span><strong className="text-[#86868b]">{voteData.totalVoters - voteData.votescast}</strong> pending</span>
                   <span className="ml-auto">{voteData.votescast}/{voteData.totalVoters} voted</span>
                 </div>
@@ -823,7 +854,10 @@ export default function SecretaryVoteDetail() {
                   <div className="mt-2 flex items-center gap-4 text-xs text-[#86868b] bg-[#f5f5f7] rounded-lg px-3 py-2" data-testid="weighted-tally">
                     <span className="font-medium text-[#5856d6]">Weighted tally</span>
                     <span><strong className="text-[#34c759]">{voteData.approvalsWeight}</strong> for</span>
-                    <span><strong className="text-[#ff3b30]">{(voteData.castWeight ?? 0) - (voteData.approvalsWeight ?? 0)}</strong> against</span>
+                    <span><strong className="text-[#ff3b30]">{(voteData.castWeight ?? 0) - (voteData.approvalsWeight ?? 0) - (voteData.abstainWeight ?? 0)}</strong> against</span>
+                    {(voteData.abstainWeight ?? 0) > 0 && (
+                      <span><strong className="text-[#86868b]">{voteData.abstainWeight}</strong> abstained</span>
+                    )}
                     <span className="ml-auto">{voteData.castWeight}/{voteData.totalWeight} weight cast</span>
                   </div>
                 )}
