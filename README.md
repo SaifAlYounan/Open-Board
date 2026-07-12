@@ -1,20 +1,32 @@
 # LQGovernance — Board Management Portal
 
-An **AI-native, self-hosted platform for running a board's governance**. You upload a document —
-a resolution, a report, a piece of correspondence — and the AI reads it and proposes the next
-governance action: a task, a circulation vote, or a meeting. A human on the board secretariat then
-approves or rejects that proposal. **Nothing is ever created without a person signing off.** Because
-it is self-hosted, your board's documents stay on infrastructure you control.
+A **self-hosted platform for running a board's governance**: circulation and meeting votes with real
+quorum rules, minutes with cryptographic signatures, tasks with evidence, documents with per-member
+access control — and an optional AI layer that reads what you upload and *proposes* the next
+governance action for a human to approve. **Nothing is ever created without a person signing off**,
+and because it is self-hosted, your board's records stay on infrastructure you control.
 
-The AI is optional and pluggable. It runs against **Anthropic** or **any OpenAI-compatible / local
-model** (Ollama, vLLM, LM Studio, llama.cpp, …), and only when you configure a key or an endpoint.
-Without one, the AI features are simply switched off and **every other part of the app works exactly
-the same** — you drive the governance workflows by hand.
+> **Beta, and honest about it.** It runs, it is tested (300+ tests, integration suites against a real
+> Postgres), and its limitations are written down rather than glossed over — including the ones found
+> by people reviewing it adversarially. Read [SECURITY.md](SECURITY.md), including its **known
+> limitations**, before you put real board data in it.
 
-> **Beta, and honest about it.** It runs, it is tested, and its limitations are written down rather
-> than glossed over. Read [SECURITY.md](SECURITY.md) and do your own review before you put real board
-> data in it. Issues and known gaps live in the open at
-> [github.com/LegalQuants/LQGovernance-OpenBoard](https://github.com/LegalQuants/LQGovernance-OpenBoard).
+## The arc (read this before trusting anything below)
+
+This README describes the code as it stands after four rounds of scrutiny, and the honest lesson of
+those rounds is that **this project's documentation has repeatedly promised more than the code did**.
+The sequence: built and donated to LegalQuants → audited (F1–F12; the headline was that minutes
+signatures were decorative) → hardened to the bar (per-user Ed25519 signing, mandatory TOTP,
+fail-closed audit, injection fencing) → **externally reviewed**, which showed the integrity features
+were internally consistent rather than tamper-evident, and the governance model wrong where a
+corporate secretary looks first: no abstain, quorum measured over ballots instead of attendance,
+deadline behaviors that never fired, a vote certificate whose verification was circular.
+
+All of it was fixed, with tests watched failing first, and the fixes are what this document now
+describes. The recurring "stored, displayed, never consulted" bug class is hunted mechanically in CI
+(`check-dead-config.mjs` — its first run caught a fourth live instance: workflow stages promised an
+approval type their votes never applied). Every claim below is re-derived from the code; if you find
+one that is not, that is a bug — report it.
 
 ---
 
@@ -37,310 +49,236 @@ the same** — you drive the governance workflows by hand.
 
 The human-in-the-loop is the whole point:
 
-1. **Upload.** A document lands in the portal (a resolution to circulate, a management report, an
-   email).
+1. **Upload.** A document lands in the portal. Its text is extracted and persisted.
 2. **Propose.** If an AI provider is configured, the AI classifies the document and drafts a
-   *proposed* governance action — never an executed one. Every proposal is validated against a strict
-   schema both when it is queued and again when it runs; anything unknown is rejected.
-3. **Approve.** The proposal sits in the secretariat's pending-actions queue. An admin (acting as the
-   board secretary) reviews it and approves or rejects. Only on approval does anything real get
-   created.
-4. **Act & record.** The approved task/vote/meeting goes live, members are notified in real time, and
-   every step is written to a hash-chained audit trail (see SECURITY.md for what that does and does
-   not defend against).
+   *proposed* action — never an executed one — validated against a strict schema when queued and
+   again when it runs.
+3. **Approve — with the facts on the table.** The proposal sits in the secretariat's queue showing
+   whether the AI's quoted passage was actually **found in the document**, and whether *you* have
+   opened the source. A missing quote blocks approval unless you override with a reason; the
+   override, the check result, and whether you viewed the source all land on the audit trail.
+4. **Act & record.** The approved vote/task/meeting goes live, members are notified in real time,
+   every step is written to an HMAC-keyed audit chain, and a closed vote gets an Ed25519-signed
+   certificate.
 
-Every action the AI can propose can also be created **manually** through the same validated contract,
-so the platform is fully usable with the AI turned off.
+Everything the AI can propose can also be created **manually** through the same validated contract —
+the platform is fully usable with the AI off.
 
 ---
 
 ## What it does
 
-**Boards & people**
-- Multiple boards per organization, each with its own membership.
-- Global account roles: **admin**, **management**, **member**, **observer**. Admins run the
-  secretariat and approve actions; management can be assigned tasks and submit evidence; members vote;
-  observers are read-only and are blocked from every mutating action. A per-board **secretary**
-  membership role records who serves as secretary on a given board.
-- New accounts (including the first-boot admin) are issued a one-time password and are **forced to
-  reset it on first sign-in**.
-
-**Voting**
-- **Circulation votes** with an outcome decided against a configurable **approval rule** (threshold,
-  quorum, and behavior).
-- **Weighted voting** — each membership carries a voting weight, and outcome and quorum are decided
-  over total weight, not a raw head count.
-- **Proxy voting** — per-vote grants let one member cast an **attributed** ballot on behalf of
-  another (the ballot is recorded against the principal, stamped with who cast it).
-- The **same tally logic** drives both casting and display, and eligible-voter totals exclude
-  observers and non-voting roles consistently.
+**Voting — with the governance semantics a secretary will check**
+- **Five ballot options** including **Abstain**: an abstention is a cast ballot — it counts toward
+  quorum and closing, never toward approval, and drops out of the default majority denominator
+  (majority of votes cast for-or-against, the Robert's Rules reading).
+- **Quorum measured where it attaches**: meeting votes over **attendance** (present + proxy weight),
+  circulation votes over ballots cast. Configurable per rule; the certificate records which basis
+  decided the outcome.
+- **Approval rules** — majority / two-thirds / three-quarters / unanimous / custom threshold, with
+  configurable quorum and denominator bases. Unanimity defaults to the written-consent reading (all
+  eligible members; an abstention defeats it).
+- **Recusals are recorded facts**: who was excluded for a conflict of interest, and why, appears on
+  the vote and its certificate — even for secret ballots. Distinct from abstention, and the UI says so.
+- **Deadlines fire**: lapse (close over ballots received, certificate minted), extend once by a
+  configurable window, or notify the secretary — enforced on every touch of an expired vote plus an
+  hourly sweep, idempotent under concurrency.
+- **Weighted voting** and **attributed proxy voting** (the ballot is recorded against the principal,
+  stamped with who cast it; a principal casting in person supersedes their proxy).
+- **Signed certificates (v3)**: a payload frozen at close — ballots, tally, bases, recusals,
+  attendance snapshot — Ed25519-signed by the server key. Verification is **not circular**: it checks
+  the stored hash, the signature, and the live rows independently, so flipping ballots in the
+  database and re-hashing no longer passes. Legacy certificates still verify, labeled unsigned.
 
 **Minutes & signatures**
-- Draft, comment on, and **sign** minutes, with object-level checks on who may sign.
-- **Cryptographic minutes signatures**: each signer enrolls a personal **Ed25519** key whose private
-  half is wrapped by a passphrase entered at signing and never stored — so the server cannot sign for
-  a director. Verify in-app (`GET /api/minutes/:id/signature/verify`) or **offline** from an exported
-  bundle (`GET /api/minutes/:id/export` + `artifacts/api-server/scripts/verify-minutes.mjs`). Old
-  signatures report `legacy_unverifiable`. See [docs/SIGNING.md](docs/SIGNING.md).
-- **Verifiable vote certificates**: the certificate hash is computed entirely from persisted data and
-  can be re-checked at `GET /api/votes/:id/certificate/verify`.
+- Draft, comment, sign. Each signer holds a **personal Ed25519 key** wrapped by a passphrase typed at
+  signing and never stored — the server *cannot* sign for a director. Verify in-app or fully offline.
+  eIDAS *advanced*, not *qualified* — [docs/SIGNING.md](docs/SIGNING.md) states the exact limits.
 
-**Documents**
-- Upload, classify, download, and reclassify board materials.
-- **Per-document access control** — an allow-list: a document is visible only to members explicitly
-  granted access (plus admins). Note: on upload only the uploader is granted, so board-wide sharing
-  is not automatic, and exclusion-based recusal is not yet implemented (see SECURITY.md limitations).
-
-**Meetings & tasks**
-- Meetings with agendas and attendance; tasks with assignees and evidence submission/review.
-- Manual create/edit/cancel flows with validated state transitions (a closed vote, a completed task,
-  or a cancelled meeting can't be silently mutated). Cancel is distinct from delete.
+**Documents, meetings, tasks**
+- Upload, classify, download board materials with **per-document access control** under one model:
+  membership OR explicit grant, MINUS explicit deny — deny (recusal) always wins, everywhere,
+  including the knowledge graph and search.
+- Meetings with agendas and attendance (which the vote tally actually consults); tasks with
+  assignees, evidence submission, and review.
 
 **Platform**
-- **Real-time updates** over Socket.IO — mutations invalidate the right views for the members of the
-  affected board only.
-- **Soft delete with snapshots** — governance records are copied into a retention log before deletion
-  and are included in the export.
-- **System data export** for backup / portability.
-- **Optional email** (SMTP) for password-reset and account-invite delivery. With SMTP unconfigured,
-  reset links are written to the server log instead and the app runs normally. (The first-boot admin
-  one-time password is always log-only.)
-- **Hash-chained audit trail** — a SHA-256 hash chain binding actor, entity, details, IP, and time
-  (detects casual edits; not resistant to an actor with DB write access — see SECURITY.md).
-
-There is **no** SCIM / directory-sync integration; accounts are managed in-app.
+- Real-time updates (Socket.IO), scoped to the affected board's members.
+- **HMAC-keyed audit chain** with fail-closed writes: a mutation that cannot be audited rolls back;
+  the chain is tamper-evident against database write access (see SECURITY.md for the exact boundary).
+- Soft delete with retention snapshots; people who have acted in the record can be deactivated but
+  never hard-deleted.
+- Full-record export; optional SMTP for resets/invites; versioned SQL migrations applied at boot.
 
 ---
 
 ## Quick start (Docker)
 
-The only prerequisite is **Docker** (Docker Desktop on macOS/Windows, or Docker Engine on Linux —
-both include Compose) and **Git**. You do not need Node, pnpm, or a separate database; the image
-bundles the app and Compose runs PostgreSQL for you.
-
-**1. Get the code**
+Prerequisites: **Docker** (Desktop or Engine, both include Compose) and **Git**.
 
 ```bash
 git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
 cd LQGovernance-OpenBoard
-```
-
-**2. Create your config**
-
-```bash
 cp .env.example .env
 ```
 
-There is exactly one value you must set — `SESSION_SECRET`, which signs login sessions (the server
-refuses to start without it). Generate one and paste it into `.env`:
-
-```bash
-openssl rand -hex 32
-```
+Set the two secrets in `.env` (generate each with `openssl rand -hex 32`):
 
 ```
-SESSION_SECRET=paste-the-long-random-string-here
+SESSION_SECRET=...            # signs login sessions — the server refuses to start without it
+SERVER_SIGNING_SECRET=...     # keys the audit chain + signs vote certificates (required in production)
 ```
 
-Leave everything else at its default.
-
-**3. Start it**
+Keep `SERVER_SIGNING_SECRET` out of the database and its backups — the tamper-evidence story rests on
+that separation. Then:
 
 ```bash
 docker compose up -d --build
 ```
 
-Compose builds the image, starts PostgreSQL and the app, applies the **versioned SQL migrations** at
-boot, and seeds a single admin account. The first build takes a few minutes; later starts take
-seconds.
-
-**4. Sign in**
-
-Open **http://localhost:3000**. On the very first boot the app prints a one-time admin password to
-the log:
+Open **http://localhost:3000**. First boot prints a one-time admin password to the log:
 
 ```bash
 docker compose logs app | grep "One-time password"
-# FIRST BOOT — admin account created. One-time password: xxxxxxxxxxxxxxxx — log in and change it immediately.
 ```
 
-Sign in with email **`admin@openboard.local`** (override with `ADMIN_EMAIL`) and that password. You
-are required to set a new password immediately.
+Sign in as **`admin@openboard.local`** (override with `ADMIN_EMAIL`) and set a new password. Also
+grab the **server signing key fingerprint** from the log and record it somewhere outside the system.
 
-> **Port already taken?** If 3000 (app) or 5432 (database) are in use, set `APP_PORT=` and/or
-> `DB_PORT=` in `.env` to free ports, then `docker compose up -d` and open the new app port.
-
-> **Just want a demo dataset?** Set `DEMO_MODE=true` (and a `SEED_PASSWORD`) in `.env` before first
-> boot to seed a fictional organization. Never enable it in production — see the safety notes in
-> [`.env.example`](.env.example).
+> Ports taken? Set `APP_PORT` / `DB_PORT` in `.env`. Want demo data? `DEMO_MODE=true` +
+> `SEED_PASSWORD` before first boot — never in production.
 
 ---
 
 ## Turn on AI (optional)
 
-Add a provider to `.env` and restart (`docker compose up -d`). Two paths:
+Two paths, added to `.env`:
 
-**Anthropic (default provider)** — sends document text off your deployment, so it takes **two**
-settings: the key, and an explicit egress acknowledgement. Without the acknowledgement the Anthropic
-path stays disabled even with a key present.
+**Anthropic** — document text leaves your deployment, so it takes the key AND an explicit egress
+acknowledgement (without it the path stays disabled even with a key present):
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-AI_ALLOW_EXTERNAL_PROVIDER=true   # you accept that extracted document text leaves this deployment
+ANTHROPIC_API_KEY=sk-ant-...
+AI_ALLOW_EXTERNAL_PROVIDER=true
 ```
 
-**Local / OpenAI-compatible** — anything that speaks `/v1/chat/completions`, so documents never leave
-your network:
+**Local / OpenAI-compatible** (Ollama, vLLM, LM Studio, …) — text never leaves your network:
 
 ```
 AI_PROVIDER=openai-compatible
-AI_BASE_URL=http://localhost:11434/v1   # your server's OpenAI-compatible root
-AI_MODEL=llama3.1:70b                   # a model your server hosts
-AI_LIGHT_MODEL=llama3.1:8b              # used for the low-stakes modes
-# AI_API_KEY=...                        # only if your server requires a bearer token
+AI_BASE_URL=http://localhost:11434/v1
+AI_MODEL=llama3.1:70b
 ```
 
-Structured replies are requested via JSON-schema `response_format` when the server supports it and
-fall back to prompt-guided JSON when it doesn't; either way the response is validated locally against
-the same strict schemas before it can reach the approval queue. With no provider configured, the AI
-features are disabled and everything else keeps working.
+What the AI actually does, stated plainly: it classifies uploads against keyword-heuristic
+descriptions (works on well-formed English board packs, degrades on unusual or multilingual ones),
+proposes actions for human approval, and answers search questions over **excerpts of the persisted
+document text** — fenced as untrusted data, matched by substring, not semantic retrieval. Every
+proposal is schema-validated and quote-checked. Prompt injection is **mitigated, not solved** — the
+approval queue and the human reading the rendered document are the real control (SECURITY.md).
 
 ---
 
 ## Deploy to production
 
-LQGovernance ships as a **single Docker image** plus a Compose file that adds PostgreSQL and,
-optionally, automatic HTTPS. The common paths:
-
-**Turnkey HTTPS (Caddy).** Point your domain's DNS at the server, open ports 80 and 443, then set in
-`.env`:
+Ships as a single Docker image + Compose. Turnkey HTTPS via the bundled Caddy:
 
 ```
 NODE_ENV=production
 DOMAIN=board.yourcompany.com
 ACME_EMAIL=you@yourcompany.com
 ALLOWED_ORIGIN=https://board.yourcompany.com
+SERVER_SIGNING_SECRET=...   # production refuses to boot without it
 ```
 
 ```bash
 docker compose --profile production up -d --build
 ```
 
-The bundled **Caddy** reverse proxy obtains and renews a Let's Encrypt certificate automatically.
-
-**One-click on Render.** The repo ships a [`render.yaml`](render.yaml) blueprint that provisions a
-managed Postgres, generates `SESSION_SECRET`, wires `ALLOWED_ORIGIN` to your Render URL, and serves
-over HTTPS.
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LegalQuants/LQGovernance-OpenBoard)
-
-**Bring your own proxy.** Run the container and terminate TLS at your own nginx/Traefik/LB, forwarding
-`/api` and `/socket.io` to the app on port 3000 (it trusts one proxy hop).
-
-The full production guide — backups, upgrades, the one-time baseline for pre-migration deployments,
-and operator-provided **encryption at rest** — is in **[DEPLOY.md](DEPLOY.md)**.
+Or one-click on Render ([`render.yaml`](render.yaml)), or bring your own proxy (forward `/api` +
+`/socket.io` to port 3000; one proxy hop). Backups, upgrades, and operator-level encryption at rest:
+**[DEPLOY.md](DEPLOY.md)**.
 
 ---
 
 ## Local development
 
-Only needed to change the code. Requirements: **Node 20.12+** (24 recommended), **pnpm 11**, and
-Docker for the database.
+Node 20.12+ (24 recommended), pnpm 11, Docker for the database.
 
 ```bash
-git clone https://github.com/LegalQuants/LQGovernance-OpenBoard.git
-cd LQGovernance-OpenBoard
 pnpm install
-cp .env.example .env        # set SESSION_SECRET (openssl rand -hex 32)
-docker compose up -d db     # just PostgreSQL, on localhost:5432
-pnpm db:migrate             # apply the versioned migrations
-pnpm dev                    # API + frontend with hot reload
+cp .env.example .env        # set SESSION_SECRET; SERVER_SIGNING_SECRET optional in dev
+docker compose up -d db
+pnpm db:migrate
+pnpm dev                    # API :3000 + frontend :5173 with hot reload
 ```
 
-The frontend runs on **http://localhost:5173** and proxies `/api` to the server on port 3000. Useful
-scripts: `pnpm typecheck`, `pnpm -r test`, `pnpm -r build`, `pnpm db:generate` (author a migration
-after a schema change). See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, including the
-OpenAPI-codegen drift check that CI enforces.
+`pnpm typecheck`, `pnpm -r test` (integration suites need `DATABASE_URL`), `pnpm db:generate` after a
+schema change, `node artifacts/api-server/scripts/check-dead-config.mjs` for the dead-config check
+CI runs. Full workflow: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
 ## Configuration
 
-Every setting is documented in [`.env.example`](.env.example). The ones you are most likely to touch:
+Everything is documented in [`.env.example`](.env.example). The load-bearing ones:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `SESSION_SECRET` | **Yes** | Signs login sessions. `openssl rand -hex 32`. The app will not start without it. |
-| `DATABASE_URL` | Yes (defaulted) | PostgreSQL connection string. Preset to match the bundled database. |
-| `APP_PORT` / `DB_PORT` | No | Host ports if 3000 / 5432 are taken. |
-| `APP_BIND` | No | App host bind address. Loopback (`127.0.0.1`) by default; set `0.0.0.0` only to expose it directly. |
-| `ANTHROPIC_API_KEY` | No | The Anthropic key. Enables AI **only together with** `AI_ALLOW_EXTERNAL_PROVIDER=true`. Omit to run without AI. |
-| `AI_ALLOW_EXTERNAL_PROVIDER` | With Anthropic | Must be `true` to allow the Anthropic path (document text leaves the deployment). The local provider does not need it. |
-| `MFA_FRESHNESS_SECONDS` | No | How recently the second factor must be proven before signing/approving/exporting. Default `900` (15 min). |
-| `AI_PROVIDER` | No | `anthropic` (default) or `openai-compatible` for local inference. |
-| `AI_BASE_URL` | With `openai-compatible` | The OpenAI-compatible root, e.g. `http://localhost:11434/v1`. |
-| `AI_API_KEY` | No | Bearer token for the OpenAI-compatible server, if it needs one. |
-| `AI_MODEL` / `AI_LIGHT_MODEL` | No | Which models to use (Claude names by default; your server's names on `openai-compatible`). |
-| `AI_DAILY_CALL_LIMIT` | No | Daily ceiling on AI calls (cost guard, restart-safe). |
-| `NODE_ENV` | No | `production` enables secure cookies and requires `ALLOWED_ORIGIN`. |
-| `ALLOWED_ORIGIN` | Production | Allowed browser origin(s) for the API (no wildcard in production). |
-| `DOMAIN` / `ACME_EMAIL` | Production | Domain and account email for automatic HTTPS via Caddy. |
-| `ADMIN_EMAIL` / `ORG_NAME` | No | First-boot admin email and organization name. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | Outbound email for password resets and invites. Without `SMTP_HOST`, reset links are logged only. |
-| `APP_BASE_URL` | With SMTP | Public frontend URL used to build reset links inside emails. |
-| `POSTGRES_PASSWORD` | No | Override the dev-grade default database password (required in production). |
-| `DEMO_MODE` / `SEED_PASSWORD` | No | Seed a fictional demo organization. Never enable in production. |
-
-Uploaded files persist in the `uploads` Docker volume and database data in `db-data`; both survive
-restarts and are removed only by `docker compose down -v`.
+| `SESSION_SECRET` | **Yes** | Signs login sessions. The app will not start without it. |
+| `SERVER_SIGNING_SECRET` | **Production** | Keys the audit chain (HMAC) + wraps the certificate-signing key. Dev runs without it in legacy-unsigned mode; production refuses to boot. Keep out of the DB and backups. |
+| `DATABASE_URL` | Defaulted | PostgreSQL connection string. |
+| `ANTHROPIC_API_KEY` + `AI_ALLOW_EXTERNAL_PROVIDER=true` | No | The external AI path — both required together, because document text leaves the deployment. |
+| `AI_PROVIDER` / `AI_BASE_URL` / `AI_MODEL` | No | Local OpenAI-compatible inference instead. |
+| `MFA_FRESHNESS_SECONDS` | No | How recently the second factor must be proven before signing/approving/exporting (default 900). |
+| `NODE_ENV` / `ALLOWED_ORIGIN` / `DOMAIN` / `ACME_EMAIL` | Production | Secure cookies, CORS allowlist, automatic HTTPS. |
+| `SMTP_*` / `APP_BASE_URL` | No | Outbound email for resets/invites; without it, links are logged. |
+| `DEMO_MODE` / `SEED_PASSWORD` | No | Fictional demo org. Never in production. |
 
 ---
 
 ## Architecture
 
-A pnpm monorepo (Node 24) that builds into one Docker image serving the SPA and the API from a single
-Express process:
+A pnpm monorepo building into one Docker image (Express serves the API, Socket.IO, and the SPA):
 
-- `artifacts/easyboard` — the React single-page app (Vite).
-- `artifacts/api-server` — the Express API + Socket.IO server, and the static-file host for the SPA.
-- `lib/db` — the Drizzle schema and **versioned SQL migrations** (`lib/db/migrations`), applied at
-  boot behind a Postgres advisory lock.
-- `lib/api-spec` — the OpenAPI spec (`openapi.yaml`), the single source of truth for the HTTP contract.
-- `lib/api-zod`, `lib/api-client-react` — generated from the spec (orval); CI fails if they drift.
-- `scripts` — build and maintenance tooling.
+- `artifacts/easyboard` — React SPA (Vite).
+- `artifacts/api-server` — Express API; `lib/` holds the tally math, the access model, signing,
+  the audit chain, deadline enforcement; `scripts/` holds the independent offline verifiers.
+- `lib/db` — Drizzle schema + versioned SQL migrations, applied at boot behind an advisory lock.
+- `lib/api-spec` → `lib/api-zod` / `lib/api-client-react` — OpenAPI as the single contract; CI fails
+  on codegen drift.
 
-Data lives in **PostgreSQL**. The store is single-organization per deployment — the per-board
-membership is the isolation boundary (there is no multi-tenant separation).
+PostgreSQL, single organization per deployment; per-board membership is the isolation boundary.
 
 ---
 
 ## Security
 
-LQGovernance handles minutes, resolutions, votes, and confidential documents, so security is a
-first-class concern: **mandatory TOTP two-factor** for admins and board members (re-verified before
-signing, approving, or exporting), **per-user Ed25519 minutes signing** the server cannot forge,
-**fail-closed audit writes** (a mutation rolls back if it cannot be audited) on a verifiable
-hash chain, JWTs in HttpOnly cookies with server-side revocation, bcrypt-cost-12 passwords with
-forced first-login reset, object-level and per-document authorization, a durable Postgres-backed
-account lockout, and AI proposals that are channel-fenced, schema-validated, and always require human
-approval. Prompt injection is **mitigated, not solved**, and there is no application-level encryption
-at rest yet — read the **candid known limitations** in SECURITY.md before using this with real board
-data.
+The short version — the long one with the attacker models is **[SECURITY.md](SECURITY.md)**:
 
-The details, the **candid known limitations**, and a pre-production checklist are in
-**[SECURITY.md](SECURITY.md)**. To report a vulnerability, open a private
-[GitHub Security Advisory](https://github.com/LegalQuants/LQGovernance-OpenBoard/security/advisories/new)
-rather than a public issue. Do your own security review before using this with real board data.
+- Mandatory **TOTP 2FA**, re-proven before binding actions; bcrypt-12; durable lockout; revocable
+  HttpOnly sessions.
+- **Two signing identities**: per-user Ed25519 on minutes (the server cannot forge a director's
+  signature), the server key on vote certificates (machine attestation the database alone cannot
+  forge).
+- **HMAC-keyed, fail-closed audit chain** — tamper-evident against database compromise; **not**
+  against an actor who also owns the app server's environment. No external anchor yet.
+- One access model with deny-wins recusals, enforced through the entity routes, the graph, and search.
+- AI proposals channel-fenced, schema-validated, quote-checked at approval, always human-approved.
+  Injection mitigated, not solved.
+- **No application-level encryption at rest** (plan exists, not built). No independent professional
+  audit yet — the reviews so far are documented in SECURITY.md's arc section.
+
+Report vulnerabilities via a private
+[GitHub Security Advisory](https://github.com/LegalQuants/LQGovernance-OpenBoard/security/advisories/new).
 
 ---
 
 ## Roadmap, contributing, license
 
-- **Roadmap** — this is beta; [open issues](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues)
-  track what's planned and known, and [CHANGELOG.md](CHANGELOG.md) records what has shipped.
-- **Contributing** — welcome, especially from people in board administration, legal, compliance, or
-  corporate-secretarial roles. Domain feedback is as valuable as code. Start with
-  [CONTRIBUTING.md](CONTRIBUTING.md).
-- **License** — [MIT](LICENSE).
-</content>
-</invoke>
+- **Roadmap** — [open issues](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues) track
+  what's planned; [CHANGELOG.md](CHANGELOG.md) records what shipped.
+- **Contributing** — welcome, especially from board administrators, corporate secretaries, and
+  lawyers: the remaining open questions are governance-semantics defaults, and domain feedback is
+  worth more than code. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+- **License** — [MIT](LICENSE). No warranty; see SECURITY.md's assurance note.

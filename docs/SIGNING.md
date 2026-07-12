@@ -1,8 +1,24 @@
-# Electronic signatures on minutes
+# Electronic signatures — minutes (per-user) and vote certificates (server)
 
-This document says exactly what a signature in this system proves, what it does
-not prove, and what it would take to reach a *qualified* signature under eIDAS.
-Read the limits section before you rely on this for anything that matters.
+This document says exactly what each signature in this system proves, what it
+does not prove, and what it would take to reach a *qualified* signature under
+eIDAS. Read the limits sections before you rely on this for anything that
+matters.
+
+There are TWO signing identities, and they answer different questions:
+
+| | Minutes signatures | Vote certificates (v3) |
+|---|---|---|
+| Whose key | each signer's personal Ed25519 key | the SERVER's Ed25519 key |
+| Passphrase | typed by the signer at signing, never stored | `SERVER_SIGNING_SECRET` (environment) |
+| Proves | *this person* signed *this text* | *this deployment* attests *this tally* stood at close |
+| Cannot be forged by | the operator, or anyone with database access | anyone with database access alone |
+| Can be forged by | nobody who lacks the signer's passphrase | an actor who also holds the server's environment secret |
+
+The second is deliberately weaker: a certificate is minted automatically at
+vote close, when no human is present to type anything. It is **machine
+attestation**, not a person's signature — and the docs and the verify response
+say so instead of borrowing the stronger claim.
 
 ## What was wrong before (and why this exists)
 
@@ -128,3 +144,62 @@ jurisdiction, and that is a lawyer's call, not an engineer's.
 - **Revoked keys still verify their past signatures.** A key retires; it does not
   vanish. Signatures made before revocation remain valid, which is what a
   historical record requires.
+
+---
+
+# The server key: signed vote certificates and the keyed audit chain
+
+## What was wrong before (and why this exists)
+
+An external review (2026-07) put it plainly: the vote certificate was
+**circular**. Its hash was derived entirely from the vote records, and `verify`
+recomputed it from those same records — so an actor with database write access
+could flip ballots, rewrite `certificate_hash`, and pass verification. The
+audit chain had the same shape: unkeyed sha256 whose every input lives in the
+row. Both proved internal consistency, neither proved integrity. This section
+is the fix.
+
+## What happens now
+
+**One environment secret, two derived uses.** `SERVER_SIGNING_SECRET` (required
+in production, never stored in the database):
+
+1. **The audit chain is HMAC-keyed.** Each audit row's link to its predecessor
+   is HMAC-SHA-256 under a key derived (HKDF) from the secret; the row records
+   which key sealed it (`key_id`). Each link is computed under the CURRENT
+   row's regime, so the first keyed row pins the entire unkeyed history behind
+   it — re-sealing after an edit anywhere now requires the key. Keying is
+   monotonic: a keyed row followed by an unkeyed one reads as tampering
+   (`keying_regressed`). Verify in-app (`GET /api/audit/verify`) or offline
+   (`scripts/verify-audit.mjs`, which takes the secret via the environment and
+   reimplements the math independently).
+
+2. **Vote certificates are Ed25519-signed (v3).** At close, the server freezes
+   a canonical payload — ballots (including abstentions), the full tally, the
+   resolved quorum/denominator bases, the recusal list with reasons, and the
+   attendance snapshot for meeting votes — and signs it with a server keypair
+   whose private half is stored wrapped (scrypt → AES-256-GCM) under the
+   secret, exactly like a signer's personal key. `GET
+   /api/votes/:id/certificate/verify` runs three independent checks: the
+   stored payload hashes to the stored hash; the signature verifies over the
+   frozen payload; and a payload rebuilt from the live rows still matches.
+   Flipping ballots and rewriting hash + payload consistently now fails on the
+   signature — the closure of the circularity. Pre-v3 certificates keep
+   verifying through the old recompute path, labeled `signed: false`.
+
+The key is auto-provisioned on first use and its **fingerprint** is logged
+prominently — record it out of band, same doctrine as signer fingerprints.
+Minting is **fail-closed**: a configured-but-wrong secret makes the close fail
+rather than silently minting an unsigned certificate.
+
+## The limit you must understand
+
+The secret lives in the server's environment. An actor who compromises the
+**application server** (environment + database) holds it and can re-seal the
+chain, strip its key markers, and re-sign certificates. What this layer buys is
+precisely: **tamper-evidence against database compromise** — the dumped
+database, the leaked backup, the SQL-injection write, the rogue DBA. It is not
+an external anchor (a signed chain head held off the host would be the next
+step), and a v3 certificate is not anyone's personal signature. The verify
+response carries the key fingerprint so an operator who recorded it can detect
+a swapped key.

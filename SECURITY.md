@@ -1,184 +1,198 @@
 # Security Policy
 
 LQGovernance handles board-governance data — minutes, resolutions, votes, and confidential documents.
-Security is a first-class concern. This document explains how to report a vulnerability, what the
-platform does to protect data, and where the current limitations are.
+This document explains how to report a vulnerability, what the platform actually does to protect
+data, **against which attacker each protection holds**, and where the current limitations are. It was
+rewritten from a fresh read of the code after each hardening pass; if you find a claim here the code
+does not honor, that is itself a reportable bug.
+
+## The arc (how this document came to say what it says)
+
+This project has been through four public rounds of scrutiny, each of which changed the code and then
+this document:
+
+1. **Built** as an AI-native board portal, donated to LegalQuants (2026-07).
+2. **Audited** (findings F1–F12): the headline was that the artifacts with the most legal weight —
+   minutes signatures — were decorative. The audit also found the test suite silently skipping its
+   integration half.
+3. **Hardened to the bar (P0)**: per-user Ed25519 minutes signing, mandatory TOTP two-factor,
+   fail-closed audit writes, prompt-injection channel fencing with persisted extracted text.
+4. **Externally reviewed** (2026-07): the reviewer showed the remaining integrity features were
+   *internally consistent, not tamper-evident* (unkeyed audit chain, a circular vote certificate) and
+   that the governance model itself was wrong in places a corporate secretary checks first (no
+   abstain, quorum never measured over attendance, deadlines that never fired). All seven findings
+   were fixed; the fixes are described below in their sections.
+
+The honest pattern across all four rounds: **the least reliable artifact in the repo was the
+documentation.** Hence this rewrite policy — docs are regenerated from the code after every
+substantive round, and a CI check (`check-dead-config.mjs`) mechanically hunts the recurring bug
+class of "stored, displayed, never consulted."
 
 ## Reporting a vulnerability
 
 The canonical repository is **[github.com/LegalQuants/LQGovernance-OpenBoard](https://github.com/LegalQuants/LQGovernance-OpenBoard)**.
 
 **For private disclosure, [open a GitHub Security Advisory](https://github.com/LegalQuants/LQGovernance-OpenBoard/security/advisories/new)**
-("Report a vulnerability"). This keeps the report confidential until a fix is released and lets us
-collaborate on it privately.
+("Report a vulnerability"). If the advisory form is unavailable to you, contact the maintainer
+privately through their [GitHub profile](https://github.com/SaifAlYounan) rather than filing a public
+issue. For non-sensitive matters you may [open a public issue](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues).
 
-If the advisory form is unavailable to you, contact the maintainer privately through their
-[GitHub profile](https://github.com/SaifAlYounan) rather than filing a public issue.
-
-For non-sensitive matters you may instead [open a public issue](https://github.com/LegalQuants/LQGovernance-OpenBoard/issues) —
-this is an open-source project and its code, issues, and known gaps are all public.
-
-Please include:
-- a description of the vulnerability and its impact (what an attacker could do),
-- steps to reproduce, or the affected file/line.
-
-We aim to acknowledge within 48 hours and agree a fix timeline within 7 days. We will not pursue
-researchers acting in good faith.
-
-## Disclosure process
-
-1. Reporter opens a private advisory (or a public issue for non-sensitive matters).
-2. We acknowledge and assess severity.
-3. We develop, test, and release a fix.
-4. We credit the reporter (unless they prefer to remain anonymous).
+Please include a description of the vulnerability and its impact, and steps to reproduce or the
+affected file/line. We aim to acknowledge within 48 hours and agree a fix timeline within 7 days. We
+will not pursue researchers acting in good faith.
 
 ---
 
-## What the platform implements
+## What the platform implements — and against whom
 
-### Human-in-the-loop
-Every AI-proposed action goes through the Secretary's approval queue. The AI classifies documents and
-proposes actions — it never executes them. Each proposal is validated against a strict Zod schema
-**when it is queued and again when it executes**; unknown action types are rejected.
+### Human-in-the-loop for the AI
+
+Every AI-proposed action goes through the Secretary's approval queue; the AI never executes anything.
+Each proposal is validated against a strict Zod schema when queued and again when executed; unknown
+action types are rejected.
+
+Since the external review, the loop is closed with facts, not trust: the AI's `source_quote` is
+re-checked against the **persisted** extracted text **at approval time** (not just at classification),
+a missing quote **blocks** the approval unless the Secretary explicitly overrides with a reason, the
+approval card shows whether the quote was found and whether *this approver ever opened the source
+document*, and the approval's audit entry records all three (`sourceQuoteVerified`, the override +
+reason, `sourceViewed`). This is a **hallucination guard, not an injection defense** — see the
+limitations.
 
 ### Authentication & sessions
-- JWTs are stored in **HttpOnly cookies** (`SameSite=Strict`, `Secure` in production) — never in
-  localStorage. `Authorization: Bearer` is also accepted for programmatic access.
-- A per-user **token version** invalidates every outstanding JWT the moment a password is changed or
-  reset, an account is deactivated, or the user logs out — logout revokes server-side, not just
-  cookie-clearing. Sockets re-check role/active/version against the DB, not the token.
-- `SESSION_SECRET` is mandatory — the server refuses to start without it. Passwords are **bcrypt cost
-  12** (an under-cost hash is transparently upgraded on the owner's next successful sign-in) with a
-  12-character minimum; first-boot and newly created accounts use one-time passwords and are forced to
-  reset on first sign-in.
 
-### Two-factor authentication
-- **TOTP second factor**, mandatory for administrators and for any board member who can vote or sign
-  (an observer seat does not trigger it). Enrollment is two-step — the factor does not count until a
-  code from it is confirmed — and is designed so WebAuthn/passkeys can slot in later.
-- **A correct password alone no longer yields a session** for an enrolled account: login returns a
-  short-lived *challenge* that must be exchanged for a session with a TOTP (or single-use, hashed
-  recovery) code. The challenge is signed with the session secret but is rejected everywhere except
-  the exchange endpoint, so it can never be replayed as a session.
-- A TOTP code cannot be replayed inside its 30-second window (the consumed time-step is recorded), and
-  a wrong second factor feeds the same durable account lockout as a wrong password.
-- The organization-**binding** actions — signing minutes, approving/rejecting an AI proposal, and
-  exporting the full record — require the second factor to have been proven *recently*
-  (`MFA_FRESHNESS_SECONDS`, default 15 min), not merely at some point in the session's life.
+- JWTs in **HttpOnly cookies** (`SameSite=Strict`, `Secure` in production); a per-user token version
+  revokes every outstanding session on password change, deactivation, or logout. Sockets re-check
+  role/active/version against the database.
+- Passwords are **bcrypt cost 12**, 12-character minimum, forced reset on first sign-in. A durable
+  Postgres-backed lockout (30 failures / 24 h) survives restarts and is shared across processes.
+- **TOTP two-factor, mandatory** for administrators and voting/signing members. A correct password
+  alone never yields a session for an enrolled account (login returns a challenge exchangeable only at
+  the verify endpoint), codes cannot be replayed within their window, and the organization-binding
+  actions — signing, approving/rejecting AI proposals, exporting — require the second factor proven
+  **recently** (`MFA_FRESHNESS_SECONDS`, default 15 min).
 
-### Cryptographic minutes signing
-- Minutes are signed with a **per-user Ed25519 key**. Each signer enrolls a keypair whose private half
-  is wrapped by a passphrase entered at signing (scrypt → AES-256-GCM) and **never stored** — so the
-  server, and anyone with database access, **cannot sign on a director's behalf**. This is the
-  *sole-control* property of an eIDAS *advanced* electronic signature.
-- The signature commits to a canonical, fully-persisted payload (content hash, signer, the exact
-  stored timestamp, algorithm, public key), so it is recomputable and verifiable — in-app via
-  `GET /api/minutes/:id/signature/verify`, and **offline** from an exported bundle
-  (`GET /api/minutes/:id/export`) with `artifacts/api-server/scripts/verify-minutes.mjs`, which needs
-  no database and shares no code with the app.
-- Signatures made before this existed are reported `legacy_unverifiable` — never "verified". Full
-  design, the key-substitution limit, and the qualified-signature (QES) gap are in
-  [docs/SIGNING.md](docs/SIGNING.md).
+### The two signing identities
 
-### Authorization
-- Object-level access control on boards, votes, meetings, minutes, and tasks. **Per-document access
-  is an allow-list**: a document is visible only to members who hold an explicit `hasAccess=true`
-  grant (plus admins). Note the current limitation below — on upload a document is granted only to
-  the uploader, so board-wide visibility is not automatic and exclusion-based recusal is not yet
-  implemented.
-- Minutes signing and task-evidence submission enforce object-level checks (board membership /
-  assignee) — not just authentication.
+- **Minutes** carry **per-user Ed25519 signatures**: the private key is wrapped by a passphrase typed
+  at signing and never stored, so the operator — and anyone with full database access — *cannot* sign
+  for a director. eIDAS *advanced*, not *qualified*; verify in-app or offline
+  (`scripts/verify-minutes.mjs`). Pre-signing rows report `legacy_unverifiable`, never "verified".
+- **Vote certificates (v3)** are **Ed25519-signed by the server key** over a payload frozen at close:
+  ballots (including abstentions), the tally, the resolved quorum/denominator bases, recusals with
+  reasons, and the attendance snapshot for meeting votes. Verification runs three independent checks
+  (stored hash, signature, live-rows match), so the pre-v3 attack — flip ballots, recompute the hash,
+  pass verify — now fails on the signature. Machine attestation, not a person's signature. Legacy
+  certificates verify via the old recompute path, labeled `signed: false`.
+
+Full designs and limits: [docs/SIGNING.md](docs/SIGNING.md).
 
 ### Data integrity
-- **Hash-chained audit trail**: each row stores a SHA-256 over the previous row (a hash chain)
-  binding actor, entity, details, IP, and timestamp. Verify it with `GET /api/audit/verify` (admin)
-  or offline with `artifacts/api-server/scripts/verify-audit.mjs` against a database dump. This detects an
-  unsophisticated row edit, but it is **not** tamper-evident against an actor with database write
-  access — the hash inputs are all in the row and the algorithm is public, so such an actor can
-  rewrite a row and re-seal the chain. There is no external anchor yet (see limitations below).
+
+- **HMAC-keyed audit chain**: each row's link is HMAC-SHA-256 under a key derived from
+  `SERVER_SIGNING_SECRET` (never in the database); the first keyed row pins the entire unkeyed
+  history, keying is monotonic (a downgrade reads as tampering), and verification runs in-app
+  (`GET /api/audit/verify`) or offline (`scripts/verify-audit.mjs`, an independent implementation).
+  **Holds against database write access. Does not hold against app-server compromise** (environment +
+  database) — that needs an external anchor, which is not built.
 - **Fail-closed audit writes**: every audited mutation commits in one transaction with its audit
-  entry — if the entry cannot be written, the mutation rolls back and the request fails. Audited
-  reads (document views/downloads, data export) are audited before they are served, so an action
-  that cannot be recorded is denied rather than performed silently. Chain writes are serialized
-  with a Postgres advisory lock, so concurrent requests — including multiple app containers on one
-  database — cannot fork the chain.
-- **Verifiable vote certificates**: the certificate hash is computed entirely from persisted data and
-  can be recomputed via `GET /api/votes/:id/certificate/verify`.
-- **Retention log**: governance records are snapshotted into `deleted_records` before deletion and are
-  included in the data export.
+  entry; audited reads are recorded before they are served. Chain writes are serialized with an
+  advisory lock across processes.
+- **Deadlines fire.** `deadlineBehavior` (lapse / extend-once / notify) is enforced lazily on every
+  read/cast of an expired open vote plus an hourly sweep; lapse mints the signed certificate over the
+  ballots received. (Before the external review this column was stored, displayed, and never
+  consulted.)
+- **Retention log**: governance records are snapshotted before deletion and included in the export. A
+  person who has acted in the record (ballots, signatures, audit rows, attendance, uploads) can never
+  be hard-deleted — deactivation preserves the record and revokes access.
+
+### Governance semantics (what the tally actually computes)
+
+The external review found the product wrong about governance in ways a corporate secretary would
+catch; these are now modeled, tested, and printed on the certificate:
+
+- **Abstain is a first-class ballot**: it counts toward quorum and closing, never toward approval,
+  and drops out of the default fractional denominator (majority of votes cast for-or-against —
+  Robert's Rules reading). Unanimity defaults to the written-consent reading (all eligible must
+  approve; an abstention defeats it). Both bases are configurable per approval rule.
+- **Meeting votes measure quorum over attendance** (present + proxy weight); circulation votes over
+  ballots cast. The certificate records which basis decided the outcome.
+- **Recusal is a recorded fact**, not an access-control hole: who was excluded and why appears on the
+  vote payload and the certificate — even for secret ballots (a recusal is administrative, not a
+  ballot).
+- The defaults ship as the common readings; **which reading your charter requires is a legal
+  question** — confirm before relying on an outcome.
+
+### Authorization
+
+One access model everywhere (`lib/access.ts`): board membership OR an unexpired explicit grant, MINUS
+explicit deny — deny (recusal) always wins. It governs the entity routes, the list endpoints, **the
+knowledge graph and its search** (which previously leaked denied documents' titles and edges to
+recused members), and AI search. Observers are read-only; object-level checks guard signing and
+evidence submission.
+
+### AI boundary
+
+The AI is optional. With no provider configured, everything else works. The default Anthropic path
+requires an explicit egress acknowledgement (`AI_ALLOW_EXTERNAL_PROVIDER=true`) because extracted
+document text leaves the deployment; the `openai-compatible` path keeps text on your network. AI
+search matches the persisted extracted text and hands the model **fenced excerpts** of matched
+documents — through the same channel-separation markers used everywhere untrusted document text
+meets the model, with the prompt rule (asserted by tests) that fenced content is data, never
+instructions. Classification is a keyword-heuristic prompt — expect it to degrade on
+multilingual or unusual board packs; the approval queue is the control.
 
 ### Transport & input hardening
-- Helmet security headers; 1 MB request-body cap; UUID validation on route parameters; `pick()`
-  field-allowlisting to prevent mass assignment.
-- `sanitize-html` on the backend and DOMPurify on the frontend for any rendered rich text.
-- Multi-layer rate limiting: per-IP + per-email on login, per-user on AI and write endpoints.
-- **Durable account lockout**: 30 failed password attempts lock the account for 24 hours. The
-  counter lives in Postgres (atomic increments), so it survives restarts and is shared across
-  every app process; expired entries are cleaned up opportunistically.
-- CORS requires an explicit `ALLOWED_ORIGIN` allowlist in production (no wildcard fallback); dev
-  accepts localhost only.
-- File uploads are limited by size and MIME/extension; downloads are path-traversal-contained to the
-  uploads directory.
 
-### Deployment model
-- **Single-organization per deployment.** There is no multi-tenant isolation — the per-board
-  membership is the boundary.
-- Self-hosted: your **database and files** stay on your infrastructure, in your jurisdiction. This
-  guarantee holds for the AI pipeline **only when AI is disabled or the local (`openai-compatible`)
-  provider is used**. With the default Anthropic provider (`ANTHROPIC_API_KEY` set), extracted
-  document text — including passages the classifier is asked to flag as privileged — is transmitted
-  to a third-party API, and that vendor could be compelled to produce it. See the limitation below.
+Helmet headers; 1 MB body cap; UUID route validation; field allowlisting; `sanitize-html` +
+DOMPurify on rendered rich text; multi-layer rate limiting; CORS with an explicit production
+allowlist; upload size/type limits and path-traversal-contained downloads.
 
 ---
 
 ## Known limitations
 
-These are real and tracked as issues — do your own review before using with production board data:
+Real, tracked, and stated plainly — do your own review before using this with production board data:
 
-- **Prompt injection is mitigated, not solved.** Extracted document and evidence text is fenced as
-  untrusted **data** (channel separation: explicit markers that the document cannot close from
-  within, plus a system-prompt rule to report — never obey — instructions found inside the fence),
-  the extracted text is persisted, and every AI-proposed action's `source_quote` is checked verbatim
-  against it (`source_quote_verified`). **That quote check is a hallucination guard, not an
-  injection defense**: an attacker controls the document, so an injected instruction can quote
-  itself truthfully. The real defense against a hostile PDF — render-vs-extract divergence (what a
-  human SEES vs what the extractor READS: white text, `/ToUnicode` remapping, homoglyphs) — is
-  **not implemented**; it needs OCR tooling. **The human approval queue remains the barrier that
-  matters**: review the rendered document, not the extraction, and do not treat AI proposals from
-  untrusted documents as trustworthy.
-- **Two-factor is TOTP only.** The mandatory second factor is TOTP (see "Two-factor authentication"
-  above). There is no WebAuthn/passkey yet (enrollment is built to accept one later) and no SSO/OIDC.
-- **Minutes signing is *advanced*, not *qualified*.** The signature proves the signer's key signed
-  this exact text and that the server could not have signed for them — but an actor with database
-  write access can substitute the *recorded public key* for one of their own and re-sign. That is
-  detected only by checking the signer's key fingerprint against a copy held outside the system (see
-  [docs/SIGNING.md](docs/SIGNING.md)). A qualified signature (QES) closes this by moving key custody
-  and identity binding to a qualified trust service provider — a procurement decision, not code.
-- **The audit chain has no external anchor** — see "Hash-chained audit trail" above. The in-app and
-  offline verifiers detect a naive edit, but an actor with database write access can re-seal the
-  whole chain undetected until an off-host anchor (a signed chain head) is added.
-- **Short-window login rate limiting is per-process** — the 15-minute per-IP / per-email throttles
-  are in-memory and reset on restart. The durable 24-hour account lockout is Postgres-backed and is
-  not affected.
-- **No application-level encryption at rest.** The application does **not** encrypt DB fields or
-  uploaded files itself — minutes bodies, resolution text, uploaded documents, and AI-flagged
-  passages are stored as plaintext in Postgres and on disk. The only at-rest control is
-  operator-provided **full-disk** encryption (encrypted volumes/managed-DB encryption, encrypted
-  backups — see [DEPLOY.md → Encryption at rest](DEPLOY.md#encryption-at-rest)). Full-disk
-  encryption defends against a stolen disk; it does **not** defend against a database dump, a
-  backup leak, a compromised application process, a rogue administrator, or a subpoena served on
-  the host. Application-level envelope encryption is designed but not built — a complete execution
-  plan is in [docs/ENCRYPTION_AT_REST.md](docs/ENCRYPTION_AT_REST.md). TLS is terminated at your
-  reverse proxy and DB SSL is operator-configured.
+- **The integrity boundary is the application server.** The keyed audit chain and signed certificates
+  are tamper-evident against database compromise (dumps, backups, SQL-level writes, a rogue DBA).
+  An actor who also holds `SERVER_SIGNING_SECRET` — i.e. who owns the app server — can re-seal and
+  re-sign everything. There is **no external anchor** (off-host signed chain head) yet. Per-user
+  minutes signatures survive even that actor, except for the recorded-public-key substitution
+  described in docs/SIGNING.md (detected only by out-of-band fingerprints).
+- **Prompt injection is mitigated, not solved.** Channel fencing + persisted text + the approval-time
+  quote check are hallucination and hygiene controls; an attacker who controls a document can quote
+  their own injected text truthfully. Render-vs-extract divergence (white text, `/ToUnicode`
+  remapping, homoglyphs) is **not implemented**. The human approval queue is the barrier that
+  matters: review the rendered document.
+- **Governance defaults are not legal advice.** Abstention treatment, quorum bases, unanimity, the
+  deadline policy, proxy-attendance counting, and recusal disclosure on secret ballots all ship with
+  defensible defaults and per-rule configuration — whether those match your jurisdiction and charter
+  is a lawyer's call.
+- **Two-factor is TOTP only** (no WebAuthn/passkeys yet; enrollment is built to accept them later).
+  No SSO/OIDC.
+- **No application-level encryption at rest.** Minutes, resolutions, documents, and AI-flagged
+  passages are plaintext in Postgres and on disk; the only at-rest control is operator-provided
+  full-disk encryption, which does not defend against dumps, backup leaks, a compromised process, or
+  a subpoena on the host. A complete execution plan exists at
+  [docs/ENCRYPTION_AT_REST.md](docs/ENCRYPTION_AT_REST.md) but is not built.
+- **Short-window login throttles are per-process** (in-memory; reset on restart). The durable 24-hour
+  lockout is Postgres-backed and unaffected.
+- **One author, model-assisted, no independent audit.** This codebase was written and reviewed with
+  heavy AI assistance and has had structured audits and an external review, but no independent
+  professional security audit or penetration test. The MIT license carries no warranty. If your board
+  needs assurance, buy assurance — do not substitute this document for it.
 
 ## Pre-production checklist
 
-- [ ] `SESSION_SECRET` is a strong random string (`openssl rand -hex 32`).
+- [ ] `SESSION_SECRET` and `SERVER_SIGNING_SECRET` are strong random strings (`openssl rand -hex 32`);
+      the signing secret is stored outside the database and outside database backups.
+- [ ] The server signing key's **fingerprint** (logged at provisioning) is recorded out of band, as
+      are all signer fingerprints.
 - [ ] `NODE_ENV=production` and `ALLOWED_ORIGIN` set to your exact origin(s).
-- [ ] Postgres on a private network with SSL enabled and backups configured.
-- [ ] Encryption at rest enabled at the storage layer — encrypted volumes/managed-DB encryption and
-      encrypted backups (see [DEPLOY.md → Encryption at rest](DEPLOY.md#encryption-at-rest)).
-- [ ] HTTPS enforced at the reverse proxy; the API sits behind exactly one proxy hop (`trust proxy` = 1).
-- [ ] `DEMO_MODE` unset; demo accounts absent. (With `DEMO_MODE` unset the destructive
-      `POST /system/reset-data` wipe route is not registered at all — it 404s.)
+- [ ] Postgres on a private network with SSL and backups; encrypted volumes / managed-DB encryption.
+- [ ] HTTPS at the reverse proxy; exactly one proxy hop.
+- [ ] `DEMO_MODE` unset (the destructive reset route is then not even registered).
+- [ ] The governance defaults (abstention, quorum basis, unanimity, deadline policy) reviewed against
+      your charter by someone qualified to do so.
 - [ ] Run your own dependency and code audit.
