@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   db,
   boardMembershipsTable,
@@ -15,8 +16,10 @@ import {
   computeAttendanceWeight,
   resolveBases,
   evaluateByRule,
+  computeCertificateHash,
 } from "./voteTally";
 import type { Tally, ResolvedBases, ApprovalRule as TallyRule } from "./voteTally";
+import { getServerSigner, signCanonical, verifyCanonical, SERVER_SIGNING_ALGORITHM } from "./serverSigning";
 
 /**
  * The single eligibility predicate for who may vote on a resolution: every
@@ -128,6 +131,249 @@ export function evaluateOutcome(ctx: EvaluationContext): "approved" | "rejected"
     if (!allRequiredApproved) return "rejected";
   }
   return evaluateByRule(ctx.tallyRule, ctx.tally, ctx.bases);
+}
+
+// ---------------------------------------------------------------------------
+// The v3 signed certificate (external-review item 1 — the circular certificate)
+// ---------------------------------------------------------------------------
+
+export const CERTIFICATE_PAYLOAD_VERSION = "LQGovernance-Vote-Certificate-v3";
+
+/**
+ * Everything the certificate attests to, frozen at close time. JSON-only
+ * values (no Dates, no names — a person's display name can change legitimately
+ * and must not read as tampering). Attendance and recusals are SNAPSHOTTED
+ * because their source rows are mutable.
+ */
+export interface CertificatePayloadV3 {
+  v: string;
+  voteId: string;
+  resolutionNumber: string;
+  status: string;
+  closedAt: string;
+  rule: {
+    type: string;
+    minApprovals: number | null;
+    quorum: number | null;
+    quorumBasis: string | null;
+    denominatorBasis: string | null;
+    deadlineBehavior: string | null;
+  } | null;
+  bases: { quorumBasisKind: string; quorumWeight: number; denominatorKind: string; denominatorWeight: number };
+  tally: {
+    totalVoters: number;
+    totalWeight: number;
+    votesCast: number;
+    castWeight: number;
+    approvalsCount: number;
+    approvalsWeight: number;
+    abstainCount: number;
+    abstainWeight: number;
+  };
+  records: { personId: string | null; decision: string; weight: number; castBy: string | null }[];
+  recusals: { personId: string | null; reason: string | null }[];
+  attendance: { personId: string | null; status: string | null }[];
+  algorithm: string;
+  publicKey: string;
+  keyId: string;
+}
+
+// Deterministic JSON (sorted keys) — the canonical form the signature and the
+// hash commit to. Injective for JSON values, and stable across a jsonb
+// round-trip because the payload holds only JSON primitives.
+export function canonicalCertificate(payload: unknown): string {
+  const stable = (value: unknown): string => {
+    if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+    if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stable((value as Record<string, unknown>)[k])}`).join(",")}}`;
+  };
+  return stable(payload);
+}
+
+export function certificateHashV3(payload: unknown): string {
+  return crypto.createHash("sha256").update(canonicalCertificate(payload), "utf8").digest("hex");
+}
+
+export function buildCertificatePayload(
+  vote: { id: string; resolutionNumber: string },
+  status: string,
+  closedAt: Date,
+  ctx: EvaluationContext,
+  signer: { publicKey: string; keyId: string },
+): CertificatePayloadV3 {
+  const sortById = <T extends { personId: string | null }>(xs: T[]) =>
+    [...xs].sort((a, b) => (a.personId ?? "").localeCompare(b.personId ?? ""));
+  return {
+    v: CERTIFICATE_PAYLOAD_VERSION,
+    voteId: vote.id,
+    resolutionNumber: vote.resolutionNumber,
+    status,
+    closedAt: closedAt.toISOString(),
+    rule: ctx.rule
+      ? {
+          type: ctx.rule.type,
+          minApprovals: ctx.rule.minApprovals,
+          quorum: ctx.rule.quorum,
+          quorumBasis: ctx.rule.quorumBasis,
+          denominatorBasis: ctx.rule.denominatorBasis,
+          deadlineBehavior: ctx.rule.deadlineBehavior,
+        }
+      : null,
+    bases: { ...ctx.bases },
+    tally: { ...ctx.tally },
+    records: sortById(ctx.allRecords).map((r) => ({
+      personId: r.personId,
+      decision: r.decision,
+      weight: r.weight ?? 1,
+      castBy: r.castBy ?? null,
+    })),
+    recusals: sortById(ctx.recusals).map((r) => ({ personId: r.personId, reason: r.reason })),
+    attendance: sortById(ctx.attendanceRows).map((a) => ({ personId: a.personId, status: a.status })),
+    algorithm: SERVER_SIGNING_ALGORITHM,
+    publicKey: signer.publicKey,
+    keyId: signer.keyId,
+  };
+}
+
+export interface MintedCertificate {
+  certificateHash: string;
+  certificateVersion: number | null;
+  certificatePayload: CertificatePayloadV3 | null;
+  certificateSignature: string | null;
+  certificateKeyId: string | null;
+}
+
+/**
+ * Mint the certificate columns for a vote closing as `status` at `closedAt`.
+ *
+ * With the server key configured: a v3 payload (frozen bases, tally, ballots,
+ * recusals, attendance snapshot) Ed25519-signed over its canonical form —
+ * verification no longer recomputes the hash from the same mutable rows it is
+ * checking, so a database-write attacker cannot flip ballots and re-seal.
+ * FAIL-CLOSED: a configured-but-wrong secret throws (the close fails) rather
+ * than silently minting an unsigned certificate.
+ *
+ * Without the secret (development): the legacy v2 unkeyed hash, exactly as
+ * before — production refuses to boot in that state (checkStartupConfig).
+ */
+export async function mintCertificate(
+  vote: { id: string; resolutionNumber: string },
+  status: string,
+  closedAt: Date,
+  ctx: EvaluationContext,
+): Promise<MintedCertificate> {
+  const signer = await getServerSigner();
+  if (!signer) {
+    return {
+      certificateHash: computeCertificateHash(vote.id, status, closedAt, ctx.allRecords),
+      certificateVersion: null,
+      certificatePayload: null,
+      certificateSignature: null,
+      certificateKeyId: null,
+    };
+  }
+  const payload = buildCertificatePayload(vote, status, closedAt, ctx, signer);
+  const canonical = canonicalCertificate(payload);
+  return {
+    certificateHash: certificateHashV3(payload),
+    certificateVersion: 3,
+    certificatePayload: payload,
+    certificateSignature: signCanonical(signer.privateKey, canonical),
+    certificateKeyId: signer.keyId,
+  };
+}
+
+export interface CertificateVerification {
+  verified: boolean;
+  hashVersion: number | null;
+  signed: boolean;
+  /** v3: the stored payload's hash matches certificate_hash. */
+  hashValid?: boolean;
+  /** v3: the Ed25519 signature verifies over the stored payload. */
+  signatureValid?: boolean;
+  /** v3: a payload rebuilt from the LIVE rows matches the frozen payload. */
+  payloadMatchesRecords?: boolean;
+  /** v3: fingerprint of the signing public key — check it out of band. */
+  fingerprint?: string;
+  keyId?: string | null;
+  reason?: string;
+}
+
+/**
+ * Verify a v3 certificate. Three independent checks, all required:
+ *
+ *  1. hashValid — certificate_hash is the hash of the STORED payload;
+ *  2. signatureValid — the Ed25519 signature verifies over the stored
+ *     payload's canonical form, under the payload's own public key (which
+ *     must also match the key row when it still exists). This is what breaks
+ *     the circularity: forging it needs SERVER_SIGNING_SECRET, which is not
+ *     in the database.
+ *  3. payloadMatchesRecords — a payload rebuilt from the live ballots, rule,
+ *     recusals and attendance equals the frozen one, so any post-close edit
+ *     of those rows is named for what it is.
+ *
+ * THE HONEST LIMIT. An attacker holding BOTH the database and the server's
+ * secret can re-sign a doctored payload. The verify response therefore
+ * carries the key FINGERPRINT: an operator who recorded it out of band at
+ * provisioning (docs/SIGNING.md) can detect a swapped key. Same doctrine as
+ * the per-user minutes signing.
+ */
+export async function verifyCertificateV3(
+  vote: {
+    id: string;
+    boardId: string | null;
+    type: string;
+    meetingId: string | null;
+    resolutionNumber: string;
+    status: string | null;
+    closedAt: Date | null;
+    certificateHash: string | null;
+    certificatePayload: unknown;
+    certificateSignature: string | null;
+    certificateKeyId: string | null;
+  },
+): Promise<CertificateVerification> {
+  const payload = vote.certificatePayload as CertificatePayloadV3 | null;
+  if (!payload || !vote.certificateSignature || !vote.certificateHash || !vote.closedAt) {
+    return { verified: false, hashVersion: 3, signed: true, reason: "certificate_incomplete" };
+  }
+
+  const canonical = canonicalCertificate(payload);
+  const hashValid = certificateHashV3(payload) === vote.certificateHash;
+  const signatureValid =
+    payload.v === CERTIFICATE_PAYLOAD_VERSION &&
+    payload.algorithm === SERVER_SIGNING_ALGORITHM &&
+    verifyCanonical(canonical, vote.certificateSignature, payload.publicKey);
+
+  // Rebuild the payload from the LIVE rows (same loaders the mint used) and
+  // compare canonical forms: a flipped ballot, an edited recusal reason, or a
+  // rewritten attendance row all land here. The signer identity is taken from
+  // the STORED payload — key rotation must not read as record tampering.
+  const ctx = await loadEvaluationContext(vote);
+  const rebuilt = buildCertificatePayload(
+    vote,
+    payload.status,
+    new Date(payload.closedAt),
+    ctx,
+    { publicKey: payload.publicKey, keyId: payload.keyId },
+  );
+  const payloadMatchesRecords =
+    canonicalCertificate(rebuilt) === canonical &&
+    // The vote row itself must still say what the certificate says it said.
+    payload.status === (vote.status ?? "") &&
+    payload.closedAt === vote.closedAt.toISOString();
+
+  return {
+    verified: hashValid && signatureValid && payloadMatchesRecords,
+    hashVersion: 3,
+    signed: true,
+    hashValid,
+    signatureValid,
+    payloadMatchesRecords,
+    fingerprint: crypto.createHash("sha256").update(Buffer.from(payload.publicKey, "base64")).digest("hex"),
+    keyId: vote.certificateKeyId,
+  };
 }
 
 /**

@@ -68,6 +68,12 @@ d("votes — weighted voting", () => {
         await db.delete(accessControlTable).where(and(eq(accessControlTable.entityType, "vote"), inArray(accessControlTable.entityId, voteIds)));
         await db.delete(votesTable).where(inArray(votesTable.id, voteIds));
       }
+      const meetings = await db.select().from(dbMod.meetingsTable).where(eq(dbMod.meetingsTable.boardId, b.id));
+      const meetingIds = meetings.map((m: any) => m.id);
+      if (meetingIds.length) {
+        await db.delete(dbMod.attendanceTable).where(inArray(dbMod.attendanceTable.meetingId, meetingIds));
+        await db.delete(dbMod.meetingsTable).where(inArray(dbMod.meetingsTable.id, meetingIds));
+      }
       await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, b.id));
       await db.delete(boardsTable).where(eq(boardsTable.id, b.id));
     }
@@ -125,6 +131,12 @@ d("votes — weighted voting", () => {
           eq(voteRecordsTable.personId, existing.id),
           eq(voteRecordsTable.castBy, existing.id),
         ));
+        await db.delete(dbMod.attendanceTable).where(or(
+          eq(dbMod.attendanceTable.personId, existing.id),
+          eq(dbMod.attendanceTable.proxyHolderId, existing.id),
+        ));
+        await db.delete(dbMod.approvalRuleRecusalsTable).where(eq(dbMod.approvalRuleRecusalsTable.personId, existing.id));
+        await db.delete(dbMod.approvalRuleRequiredVotersTable).where(eq(dbMod.approvalRuleRequiredVotersTable.personId, existing.id));
         await db.delete(boardMembershipsTable).where(eq(boardMembershipsTable.personId, existing.id));
         await db.delete(accessControlTable).where(eq(accessControlTable.personId, existing.id));
         await db.delete(peopleTable).where(eq(peopleTable.id, existing.id));
@@ -190,9 +202,10 @@ d("votes — weighted voting", () => {
       expect((await cast(await cookieFor(m3.email), vote.id, "not_approved")).status).toBe(200);
 
       // Closed as rejected (2 of 5 weight). The certificate must verify…
+      // (v3 signed certificates since the external-review fixes.)
       const before = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
       expect(before.body.verified).toBe(true);
-      expect(before.body.hashVersion).toBe(2);
+      expect(before.body.hashVersion).toBe(3);
 
       // …and keep verifying after the heavy member's weight is changed, because
       // the ballots carry their own snapshots.
@@ -205,8 +218,7 @@ d("votes — weighted voting", () => {
 
       const after = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
       expect(after.body.verified).toBe(true);
-      expect(after.body.hashVersion).toBe(2);
-      expect(after.body.storedHash).toBe(before.body.storedHash);
+      expect(after.body.hashVersion).toBe(3);
 
       // Restore the weight for the rest of the suite.
       await request(app)
@@ -539,7 +551,7 @@ d("votes — weighted voting", () => {
       // breaks verification.
       const verifyOk = await request(app).get(`/api/votes/${vote.id}/certificate/verify`).set("Cookie", adminCookie);
       expect(verifyOk.body.verified).toBe(true);
-      expect(verifyOk.body.hashVersion).toBe(2);
+      expect(verifyOk.body.hashVersion).toBe(3);
       const { voteRecordsTable } = dbMod;
       const { and: andOp } = await import("drizzle-orm");
       await db.update(voteRecordsTable).set({ castBy: null })

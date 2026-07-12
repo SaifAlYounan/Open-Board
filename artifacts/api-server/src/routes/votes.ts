@@ -23,7 +23,7 @@ import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { createVoteBody, updateVoteBody, parseBody } from "../lib/governanceSchemas";
 import { computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
-import { isEligibleVoter, loadEvaluationContext, evaluateOutcome, recusalFacts } from "../lib/voteClose";
+import { isEligibleVoter, loadEvaluationContext, evaluateOutcome, recusalFacts, mintCertificate, verifyCertificateV3 } from "../lib/voteClose";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -593,11 +593,13 @@ router.patch("/votes/:id", requireAuth, requireAdmin, writeLimiter, async (req, 
     if (["approved", "rejected", "lapsed", "cancelled"].includes(status)) {
       const closedAt = new Date();
       updates.closedAt = closedAt;
-      // Only generate certificate hash for finalized (non-cancelled) statuses.
-      // Same instant for the hash and the stored column so it stays verifiable.
+      // Only generate a certificate for finalized (non-cancelled) statuses.
+      // Same instant for the certificate and the stored column so it stays
+      // verifiable; signed v3 when the server key is configured.
       if (["approved", "rejected", "lapsed"].includes(status)) {
-        const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
-        updates.certificateHash = computeCertificateHash(id, status, closedAt, records);
+        const [fullVote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+        const ctx = await loadEvaluationContext(fullVote);
+        Object.assign(updates, await mintCertificate(fullVote, status, closedAt, ctx));
       }
     }
   }
@@ -875,13 +877,15 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       if (ctx.tally.votesCast >= ctx.tally.totalVoters && ctx.tally.totalVoters > 0) {
         const newStatus = evaluateOutcome(ctx);
 
-        // One instant for both the stored column and the certificate, so the
-        // certificate hash can be recomputed and verified later.
+        // One instant for both the stored column and the certificate. The
+        // v3 certificate freezes the payload and Ed25519-signs it (fail-closed
+        // when the server key is misconfigured — better no close than an
+        // unsigned certificate that claims to be tamper-evident).
         const closedAt = new Date();
-        const hash = computeCertificateHash(id, newStatus, closedAt, ctx.allRecords);
+        const cert = await mintCertificate(vote, newStatus, closedAt, ctx);
         await db
           .update(votesTable)
-          .set({ status: newStatus as any, closedAt, certificateHash: hash })
+          .set({ status: newStatus as any, closedAt, ...cert })
           .where(eq(votesTable.id, id));
         setImmediate(() => triggerWorkflowNextStage(id, newStatus).catch((err) => logger.error({ err, voteId: id }, "Workflow trigger failed")));
       }
@@ -1302,8 +1306,16 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
   });
 });
 
-// Recompute the certificate hash from persisted data and compare it to the
-// stored hash — proves the vote record hasn't been altered since it closed.
+// Verify the vote's certificate.
+//
+// v3 (signed): three independent checks — stored payload hashes to the stored
+// hash; the Ed25519 signature verifies over the frozen payload (non-circular:
+// forging it needs SERVER_SIGNING_SECRET, which is not in the database); and a
+// payload rebuilt from the live rows still matches the frozen one. The
+// response carries the signing-key fingerprint for the out-of-band check.
+//
+// v2/v1 (legacy, pre-signing): recompute-and-compare of an unkeyed hash over
+// the same rows being checked — internal consistency only, labeled signed:false.
 router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
@@ -1323,10 +1335,15 @@ router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promi
   }
   const closedAt = vote.closedAt;
 
+  if (vote.certificateVersion === 3) {
+    res.json(await verifyCertificateV3(vote));
+    return;
+  }
+
   const records = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
   const recomputed = computeCertificateHash(id, vote.status ?? "", closedAt, records);
   if (recomputed === vote.certificateHash) {
-    res.json({ verified: true, storedHash: vote.certificateHash, recomputedHash: recomputed, hashVersion: 2 });
+    res.json({ verified: true, signed: false, storedHash: vote.certificateHash, recomputedHash: recomputed, hashVersion: 2 });
     return;
   }
   // Votes closed before weighted/proxy voting were hashed with the v1 format —
@@ -1334,6 +1351,7 @@ router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promi
   const legacy = computeLegacyCertificateHash(id, vote.status ?? "", closedAt, records);
   res.json({
     verified: legacy === vote.certificateHash,
+    signed: false,
     storedHash: vote.certificateHash,
     recomputedHash: legacy === vote.certificateHash ? legacy : recomputed,
     hashVersion: legacy === vote.certificateHash ? 1 : null,
