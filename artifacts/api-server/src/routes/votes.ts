@@ -24,6 +24,7 @@ import { sanitizeText } from "../lib/sanitize";
 import { createVoteBody, updateVoteBody, parseBody } from "../lib/governanceSchemas";
 import { computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
 import { isEligibleVoter, loadEvaluationContext, evaluateOutcome, recusalFacts, mintCertificate, verifyCertificateV3 } from "../lib/voteClose";
+import { enforceDeadlineIfPassed, applyDeadlinePolicy } from "../lib/voteDeadline";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -103,11 +104,12 @@ function buildApprovalSummary(rule: {
   quorum: number | null;
   weighted: boolean;
   deadlineBehavior: string;
+  extendDays?: number | null;
 }): string {
   const behaviors: Record<string, string> = {
     lapse: "lapses if unresolved by deadline",
-    extend: "auto-extends 7 days",
-    notify: "notifies secretary when deadline passes",
+    extend: `auto-extends ${rule.extendDays ?? 7} days once, then lapses`,
+    notify: "notifies the secretary when the deadline passes (stays open)",
   };
 
   const ruleDesc: Record<string, string> = {
@@ -146,13 +148,26 @@ router.get("/votes", requireAuth, async (req, res): Promise<void> => {
     conds.push(inArray(votesTable.id, ids));
   }
 
-  const votes = await db
+  let votes = await db
     .select()
     .from(votesTable)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(votesTable.createdAt)
     .limit(limit)
     .offset(offset);
+
+  // Lazy deadline enforcement over the page (item 4): expired open votes get
+  // their policy applied, then just those rows are re-read. One batched pass,
+  // no per-row writes for the common (nothing-expired) case.
+  const expired = votes.filter((v) => v.status === "open" && v.deadline && v.deadline.getTime() <= Date.now());
+  if (expired.length) {
+    for (const v of expired) {
+      await applyDeadlinePolicy(v.id).catch((err) => logger.error({ err, voteId: v.id }, "Deadline policy failed on list read"));
+    }
+    const refreshed = await db.select().from(votesTable).where(inArray(votesTable.id, expired.map((v) => v.id)));
+    const byId = new Map(refreshed.map((v) => [v.id, v]));
+    votes = votes.map((v) => byId.get(v.id) ?? v);
+  }
 
   // Batch-load everything the page needs — one query per relation, not per vote.
   const voteIds = votes.map((v) => v.id);
@@ -337,10 +352,16 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
+  }
+
+  // Lazy deadline enforcement (item 4): a read of an expired open vote applies
+  // its deadline policy first, then serves the post-policy state.
+  if (await enforceDeadlineIfPassed(vote)) {
+    [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   }
 
   if (!await hasAccess(user.id, user.role, "vote", id)) {
@@ -427,6 +448,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
           quorum: approvalRule.quorum,
           weighted: approvalRule.weighted || false,
           deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
+          extendDays: approvalRule.extendDays,
         }),
         recusedIds: ruleRecusals.map((r) => r.personId),
         requiredVoterIds: ruleRequiredVoters.map((r) => r.personId),
@@ -720,7 +742,13 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
-    const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    // Lazy deadline enforcement BEFORE the open check (item 4): a late ballot
+    // is refused under "lapse" and accepted under "extend" — the policy, not
+    // the accident of nobody having read the vote since the deadline, decides.
+    if (vote && (await enforceDeadlineIfPassed(vote))) {
+      [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+    }
     if (!vote || vote.status !== "open") {
       res.status(400).json({ error: "Vote is not open" });
       return;
@@ -1216,10 +1244,13 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
+  }
+  if (await enforceDeadlineIfPassed(vote)) {
+    [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   }
 
   if (!await hasAccess(user.id, user.role, "vote", id)) {
@@ -1295,6 +1326,7 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
         quorum: approvalRule.quorum,
         weighted: approvalRule.weighted || false,
         deadlineBehavior: approvalRule.deadlineBehavior || "lapse",
+        extendDays: approvalRule.extendDays,
       }),
     } : null,
     voteRecords: showIndividualData ? recordsWithPeople : [],
@@ -1320,10 +1352,13 @@ router.get("/votes/:id/certificate/verify", requireAuth, async (req, res): Promi
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const user = req.user!;
 
-  const [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
+  let [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   if (!vote) {
     res.status(404).json({ error: "Vote not found" });
     return;
+  }
+  if (await enforceDeadlineIfPassed(vote)) {
+    [vote] = await db.select().from(votesTable).where(eq(votesTable.id, id));
   }
   if (!await hasAccess(user.id, user.role, "vote", id)) {
     res.status(403).json({ error: "Access denied" });

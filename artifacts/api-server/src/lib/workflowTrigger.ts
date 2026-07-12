@@ -6,6 +6,7 @@ import {
   approvalWorkflowsTable,
   workflowStagesTable,
   accessControlTable,
+  approvalRulesTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { grantDefaultAccess } from "./access";
@@ -118,6 +119,15 @@ export async function triggerWorkflowNextStage(voteId: string, newStatus: string
         deadline: null,
       })
       .returning();
+
+    // The stage's promised approval type becomes the vote's actual rule — it
+    // was stored and displayed but never applied, so every stage vote silently
+    // evaluated as simple majority (dead-config class, external-review item 4;
+    // caught by scripts/check-dead-config.mjs).
+    await db.insert(approvalRulesTable).values({
+      voteId: newVote.id,
+      type: (nextStage.approvalType as "unanimous" | "majority" | "two_thirds" | "three_quarters" | "custom") ?? "majority",
+    });
 
     if (nextStage.boardId) {
       await grantDefaultAccess("vote", newVote.id, nextStage.boardId);

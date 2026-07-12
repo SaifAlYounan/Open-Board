@@ -17,6 +17,7 @@ import {
   workflowStagesTable,
   voteDocumentsTable,
   agendaDocumentsTable,
+  approvalRulesTable,
 } from "@workspace/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireFreshMfa } from "../lib/auth";
@@ -508,6 +509,13 @@ async function executeAction(
               deadline: null,
             })
             .returning();
+
+          // The stage's promised approval type becomes the vote's actual rule
+          // (was stored + displayed, never applied — dead-config class, item 4).
+          await dbc.insert(approvalRulesTable).values({
+            voteId: vote.id,
+            type: (stage.approval_type as "unanimous" | "majority" | "two_thirds" | "three_quarters" | "custom") ?? "majority",
+          });
 
           if (stageBoardId) {
             await grantDefaultAccess("vote", vote.id, stageBoardId, [], dbc);

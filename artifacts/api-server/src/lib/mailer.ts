@@ -127,6 +127,40 @@ async function deliver(to: string, content: EmailContent): Promise<unknown> {
   return t.sendMail({ from, to, subject: content.subject, text: content.text, html: content.html });
 }
 
+function renderDeadlineNotice(orgName: string, name: string, voteTitle: string, resolutionNumber: string): EmailContent {
+  const subject = `[${orgName}] Vote deadline passed: ${resolutionNumber}`;
+  const text = [
+    `Hello ${name},`,
+    ``,
+    `The voting deadline for resolution ${resolutionNumber} — "${voteTitle}" — has passed.`,
+    `Its approval rule is set to "notify", so the vote remains OPEN until it is resolved or lapsed.`,
+    ``,
+    `Please review it in the board portal.`,
+  ].join("\n");
+  const html = `<p>Hello ${escapeHtml(name)},</p>
+<p>The voting deadline for resolution ${escapeHtml(resolutionNumber)} — “${escapeHtml(voteTitle)}” — has passed.
+Its approval rule is set to <b>notify</b>, so the vote remains <b>open</b> until it is resolved or lapsed.</p>
+<p>Please review it in the board portal.</p>`;
+  return { subject, text, html };
+}
+
+/**
+ * Notify an admin that a "notify"-behavior vote passed its deadline
+ * (external-review item 4). Best-effort: never throws, failures are logged —
+ * the audited deadline_notify event is the durable record either way.
+ */
+export async function sendVoteDeadlineNotice(to: string, name: string, voteTitle: string, resolutionNumber: string): Promise<unknown> {
+  try {
+    const orgName = await getOrgName();
+    const info = await deliver(to, renderDeadlineNotice(orgName, name, voteTitle, resolutionNumber));
+    if (info) logger.info({ to, resolutionNumber }, "Vote deadline notice sent");
+    return info;
+  } catch (err) {
+    logger.warn({ err, to, resolutionNumber }, "Vote deadline notice failed — the audited deadline event remains the record");
+    return null;
+  }
+}
+
 /**
  * Send the forgot-password reset link. Never throws — failures are logged.
  * Returns the transport result (useful with jsonTransport in tests).
