@@ -10,6 +10,7 @@ export interface StartupEnv {
   NODE_ENV?: string | undefined;
   DATABASE_URL?: string | undefined;
   DOMAIN?: string | undefined;
+  SERVER_SIGNING_SECRET?: string | undefined;
 }
 
 /** Extract the password component from a postgres:// URL, if any. */
@@ -48,6 +49,19 @@ export function checkStartupConfig(env: StartupEnv = process.env): void {
     throw new Error(
       `Refusing to start in production with the default database password ("${DEFAULT_DB_PASSWORD}"). ` +
         "Set POSTGRES_PASSWORD to a strong secret (e.g. `openssl rand -hex 32`) and update DATABASE_URL.",
+    );
+  }
+
+  // Integrity keying (external-review item 1) — production requires the server
+  // signing secret: without it the audit chain is unkeyed sha256 and vote
+  // certificates cannot be signed, which silently downgrades every
+  // tamper-evidence claim to "naive edits only".
+  const signingSecret = env.SERVER_SIGNING_SECRET?.trim() ?? "";
+  if (isProd && signingSecret.length < 32) {
+    throw new Error(
+      "Refusing to start in production without SERVER_SIGNING_SECRET (min 32 chars). " +
+        "It keys the audit chain (HMAC) and wraps the server's certificate-signing key. " +
+        "Generate one with `openssl rand -hex 32` and keep it OUT of the database and its backups.",
     );
   }
 }

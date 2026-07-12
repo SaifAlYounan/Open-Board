@@ -15,6 +15,13 @@ import { describe, it } from "vitest";
  *                                              run cannot report green while the guarantee
  *                                              is unverified.
  */
+// One FIXED signing secret for every integration suite against the shared test
+// database. The audit chain requires keying to be monotonic (once keyed, never
+// unkeyed) and single-keyed — suites flipping the secret on/off or varying it
+// would make the shared chain read as tampered. ||= so an operator-provided
+// secret (e.g. CI) still wins, as long as it stays constant per database.
+process.env.SERVER_SIGNING_SECRET ||= "integration-test-signing-secret-0000000000000000";
+
 export function integrationSuite(name: string, fn: () => void): void {
   if (process.env.DATABASE_URL) {
     describe(name, fn);

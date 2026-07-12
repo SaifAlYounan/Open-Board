@@ -6,7 +6,7 @@
  * parallel workers, so verification correctness is asserted here, not against it.
  */
 import { describe, it, expect } from "vitest";
-import { verifyChainRows, hashRow } from "./auditLog";
+import { verifyChainRows, hashRow, getAuditKey, resetAuditKeyCache } from "./auditLog";
 
 type Row = Parameters<typeof hashRow>[0];
 
@@ -37,7 +37,7 @@ function buildChain(n: number): Row[] {
 
 describe("verifyChainRows (P0.6)", () => {
   it("an empty chain is ok", () => {
-    expect(verifyChainRows([])).toEqual({ ok: true, count: 0 });
+    expect(verifyChainRows([])).toEqual({ ok: true, count: 0, keyedCount: 0 });
   });
 
   it("a single genesis row (null prev_hash) is ok", () => {
@@ -47,7 +47,7 @@ describe("verifyChainRows (P0.6)", () => {
 
   it("an intact multi-row chain verifies", () => {
     const r = verifyChainRows(buildChain(5));
-    expect(r).toEqual({ ok: true, count: 5 });
+    expect(r).toEqual({ ok: true, count: 5, keyedCount: 0 });
   });
 
   it("editing an attributable field of a row breaks the NEXT link", () => {
@@ -102,5 +102,98 @@ describe("verifyChainRows (P0.6)", () => {
     const byCreatedAtThenId = [r1, r2, r3].slice().sort((a, b) => a.id.localeCompare(b.id));
     expect(byCreatedAtThenId.map((r) => r.id.slice(-2))).toEqual(["01", "02", "03"]);
     expect(verifyChainRows(byCreatedAtThenId).ok).toBe(false);
+  });
+});
+
+describe("keyed audit chain (external-review item 1)", () => {
+  const KEY = { key: Buffer.from("k".repeat(32)), id: "test-key-id-0001" };
+  const OTHER_KEY = { key: Buffer.from("x".repeat(32)), id: "test-key-id-0002" };
+
+  /** Build a chain whose first `unkeyed` rows are legacy sha256, the rest HMAC-keyed. */
+  function buildMixedChain(n: number, unkeyed: number): Row[] {
+    const rows: Row[] = [];
+    let prev: Row | null = null;
+    for (let i = 1; i <= n; i++) {
+      const keyed = i > unkeyed;
+      const row: Row = {
+        ...baseRow(i),
+        prevHash: prev ? hashRow(prev, keyed ? KEY.key : null) : null,
+        keyId: keyed ? KEY.id : null,
+      };
+      rows.push(row);
+      prev = row;
+    }
+    return rows;
+  }
+
+  it("a fully keyed chain verifies with the key", () => {
+    expect(verifyChainRows(buildMixedChain(5, 0), KEY)).toEqual({ ok: true, count: 5, keyedCount: 5 });
+  });
+
+  it("a keyed chain cannot be verified without the key", () => {
+    const r = verifyChainRows(buildMixedChain(5, 0));
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("key_required");
+  });
+
+  it("the wrong key is reported as a key mismatch, not a broken chain", () => {
+    const r = verifyChainRows(buildMixedChain(5, 0), OTHER_KEY);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("key_mismatch");
+  });
+
+  it("a mixed chain (unkeyed history, then keyed) verifies with the key", () => {
+    expect(verifyChainRows(buildMixedChain(6, 3), KEY)).toEqual({ ok: true, count: 6, keyedCount: 3 });
+  });
+
+  it("editing a keyed row breaks the next keyed link", () => {
+    const rows = buildMixedChain(5, 0);
+    rows[2] = { ...rows[2], action: "TAMPERED" };
+    const r = verifyChainRows(rows, KEY);
+    expect(r.ok).toBe(false);
+    expect(r.brokenAtIndex).toBe(4);
+    expect(r.reason).toBe("link_mismatch");
+  });
+
+  it("THE POINT: re-sealing the unkeyed history without the key breaks at the first keyed row", () => {
+    // The pre-keying attack from the external review: edit a row, then
+    // recompute every sha256 link forward. With a keyed row in the chain the
+    // re-seal needs the HMAC key, which the database does not hold.
+    const rows = buildMixedChain(6, 3);
+    rows[0] = { ...rows[0], action: "REWRITTEN_HISTORY" };
+    // The attacker CAN recompute the unkeyed links — public sha256…
+    rows[1] = { ...rows[1], prevHash: hashRow(rows[0], null) };
+    rows[2] = { ...rows[2], prevHash: hashRow(rows[1], null) };
+    // …but row 4's stored prevHash is HMAC over the (now changed) row 3, and
+    // recomputing THAT needs the key. Verification breaks exactly there.
+    const r = verifyChainRows(rows, KEY);
+    expect(r.ok).toBe(false);
+    expect(r.brokenAtIndex).toBe(4);
+    expect(r.reason).toBe("link_mismatch");
+  });
+
+  it("a keyed row followed by an unkeyed row is a tamper signal (keying never regresses)", () => {
+    const rows = buildMixedChain(4, 0);
+    // Attacker strips the key marker from the last row and re-seals it unkeyed.
+    rows[3] = { ...rows[3], keyId: null, prevHash: hashRow(rows[2], null) };
+    const r = verifyChainRows(rows, KEY);
+    expect(r.ok).toBe(false);
+    expect(r.brokenAtIndex).toBe(4);
+    expect(r.reason).toBe("keying_regressed");
+  });
+
+  it("getAuditKey derives a stable key from SERVER_SIGNING_SECRET and none without it", () => {
+    resetAuditKeyCache();
+    expect(getAuditKey({} as NodeJS.ProcessEnv)).toBeNull();
+    resetAuditKeyCache();
+    const a = getAuditKey({ SERVER_SIGNING_SECRET: "s".repeat(32) } as unknown as NodeJS.ProcessEnv);
+    resetAuditKeyCache();
+    const b = getAuditKey({ SERVER_SIGNING_SECRET: "s".repeat(32) } as unknown as NodeJS.ProcessEnv);
+    resetAuditKeyCache();
+    expect(a).not.toBeNull();
+    expect(a!.id).toBe(b!.id);
+    expect(a!.key.equals(b!.key)).toBe(true);
+    // The key id is a digest of the DERIVED key — 16 hex chars, never the secret.
+    expect(a!.id).toMatch(/^[0-9a-f]{16}$/);
   });
 });
