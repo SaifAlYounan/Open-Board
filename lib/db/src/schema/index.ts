@@ -29,3 +29,4 @@ export * from "./legalHolds";
 export * from "./accessEvents";
 export * from "./mfa";
 export * from "./signingKeys";
+export * from "./serverSigningKeys";

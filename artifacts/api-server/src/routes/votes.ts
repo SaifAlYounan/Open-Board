@@ -22,7 +22,8 @@ import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin } from "../lib/auth";
 import { sanitizeText } from "../lib/sanitize";
 import { createVoteBody, updateVoteBody, parseBody } from "../lib/governanceSchemas";
-import { evaluateByRule, computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
+import { computeTally, computeCertificateHash, computeLegacyCertificateHash } from "../lib/voteTally";
+import { isEligibleVoter, loadEvaluationContext, evaluateOutcome, recusalFacts } from "../lib/voteClose";
 import { nextResolutionNumber } from "../lib/numbering";
 import { pick } from "../lib/pick";
 import { parsePagination } from "../lib/pagination";
@@ -81,16 +82,6 @@ type MembershipRow = { personId: string | null; roleInBoard: string | null; voti
 type BallotRow = { personId: string | null; decision: string; weight: number };
 
 /**
- * The single eligibility predicate for who may vote on a resolution: every
- * board member except observers and board secretaries. Reused everywhere a
- * voter set is derived (the weighted tally, the cast path, workflow stats) so
- * head counts and weight sums always describe the SAME set of people.
- */
-function isEligibleVoter(m: { roleInBoard: string | null }): boolean {
-  return m.roleInBoard !== "observer" && m.roleInBoard !== "secretary";
-}
-
-/**
  * Weighted aggregates for a vote's API payloads, computed the same way the
  * evaluation path computes them: over eligible voting members (no observers,
  * no board secretaries, no recused members). On an unweighted board these
@@ -103,7 +94,7 @@ function weightedFields(boardMembers: MembershipRow[], voteRecords: BallotRow[],
     .filter(isEligibleVoter)
     .map((m) => ({ personId: m.personId, weight: m.votingWeight }));
   const t = computeTally(eligible, voteRecords, recusedIds);
-  return { totalVoters: t.totalVoters, totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight };
+  return { totalVoters: t.totalVoters, totalWeight: t.totalWeight, castWeight: t.castWeight, approvalsWeight: t.approvalsWeight, abstainCount: t.abstainCount, abstainWeight: t.abstainWeight };
 }
 
 function buildApprovalSummary(rule: {
@@ -297,6 +288,9 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
           quorum: rule.quorum,
           weighted: rule.weighted || false,
           deadlineBehavior: rule.deadlineBehavior || "lapse",
+          extendDays: rule.extendDays ?? 7,
+          quorumBasis: rule.quorumBasis ?? null,
+          denominatorBasis: rule.denominatorBasis ?? null,
         })
         .returning();
 
@@ -307,7 +301,11 @@ router.post("/votes", requireAuth, requireAdmin, writeLimiter, async (req, res):
       }
       if (rule.recusedIds?.length) {
         await tx.insert(approvalRuleRecusalsTable).values(
-          rule.recusedIds.map((pid: string) => ({ ruleId: insertedRule.id, personId: pid }))
+          rule.recusedIds.map((pid: string) => ({
+            ruleId: insertedRule.id,
+            personId: pid,
+            reason: rule.recusalReasons?.[pid] ? sanitizeText(rule.recusalReasons[pid]) : null,
+          }))
         );
       }
     }
@@ -435,6 +433,12 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
       }
     : null;
 
+  // Recusals as first-class facts (personId, name, reason) — distinct from the
+  // ballot records. A recusal is administrative (who was EXCLUDED and why), not
+  // a ballot, so it is visible even on secret ballots — like the proxy grants
+  // above (external-review item 2).
+  const recusals = await recusalFacts(ruleRecusals);
+
   const docs = await db
     .select()
     .from(voteDocumentsTable)
@@ -544,6 +548,7 @@ router.get("/votes/:id", requireAuth, async (req, res): Promise<void> => {
       : voteRecordsWithPeople,
     proxies: proxiesWithNames,
     myProxies,
+    recusals,
     boardMembers: boardMembersWithPeople,
     approvalRule: ruleWithSummary,
     certificateHash: vote.certificateHash,
@@ -724,7 +729,9 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
       return;
     }
 
-    const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments"];
+    // "abstained" is a cast ballot: it participates (quorum, closing the vote)
+    // but approves nothing — distinct from recusal, which excludes the member.
+    const VALID_DECISIONS = ["approved", "approved_with_comments", "not_approved", "not_approved_with_comments", "abstained"];
     if (!VALID_DECISIONS.includes(decision)) {
       res.status(400).json({ error: `Invalid decision. Must be one of: ${VALID_DECISIONS.join(", ")}` });
       return;
@@ -859,49 +866,19 @@ router.post("/votes/:id/cast", requireAuth, writeLimiter, async (req, res): Prom
     }
 
     if (vote.boardId) {
-      const allMembers = await db.select().from(boardMembershipsTable).where(eq(boardMembershipsTable.boardId, vote.boardId));
-      const eligibleMembers = allMembers.filter(isEligibleVoter);
+      // One shared load for everything the outcome depends on: eligible
+      // members, rule + recusals + required voters, ballots, the weighted
+      // tally, and — for meeting votes — the attendance pool the quorum is
+      // measured against (external-review item 3).
+      const ctx = await loadEvaluationContext(vote);
 
-      // Fetch the approval rule and recusals so we can exclude recused members from quorum
-      const [rule] = await db.select().from(approvalRulesTable).where(eq(approvalRulesTable.voteId, id));
-      const recusals = rule
-        ? await db.select().from(approvalRuleRecusalsTable).where(eq(approvalRuleRecusalsTable.ruleId, rule.id))
-        : [];
-      const recusedIds = new Set(recusals.map((r) => r.personId));
-
-      // Required voters: if any, ALL of them must have approved
-      const requiredVoterRows = rule
-        ? await db.select().from(approvalRuleRequiredVotersTable).where(eq(approvalRuleRequiredVotersTable.ruleId, rule.id))
-        : [];
-      const requiredIds = requiredVoterRows.map((r) => r.personId);
-
-      const allRecords = await db.select().from(voteRecordsTable).where(eq(voteRecordsTable.voteId, id));
-      const validRecords = allRecords.filter((r) => !recusedIds.has(r.personId!));
-
-      // Weighted tally: outcome and quorum are decided over voting WEIGHT.
-      // Every weight defaults to 1, so an unweighted board evaluates exactly
-      // as the old head-count tally did.
-      const tally = computeTally(
-        eligibleMembers.map((m) => ({ personId: m.personId, weight: m.votingWeight })),
-        allRecords,
-        recusedIds,
-      );
-
-      if (tally.votesCast >= tally.totalVoters && tally.totalVoters > 0) {
-        let newStatus: "approved" | "rejected";
-        if (requiredIds.length > 0) {
-          const allRequiredApproved = requiredIds.every((pid) =>
-            validRecords.some((r) => r.personId === pid && r.decision.startsWith("approved"))
-          );
-          newStatus = allRequiredApproved ? evaluateByRule(rule, tally.approvalsWeight, tally.totalWeight, tally.castWeight) : "rejected";
-        } else {
-          newStatus = evaluateByRule(rule, tally.approvalsWeight, tally.totalWeight, tally.castWeight);
-        }
+      if (ctx.tally.votesCast >= ctx.tally.totalVoters && ctx.tally.totalVoters > 0) {
+        const newStatus = evaluateOutcome(ctx);
 
         // One instant for both the stored column and the certificate, so the
         // certificate hash can be recomputed and verified later.
         const closedAt = new Date();
-        const hash = computeCertificateHash(id, newStatus, closedAt, allRecords);
+        const hash = computeCertificateHash(id, newStatus, closedAt, ctx.allRecords);
         await db
           .update(votesTable)
           .set({ status: newStatus as any, closedAt, certificateHash: hash })
@@ -1318,6 +1295,10 @@ router.get("/votes/:id/certificate", requireAuth, async (req, res): Promise<void
     } : null,
     voteRecords: showIndividualData ? recordsWithPeople : [],
     proxies: proxiesWithNames,
+    // Recusals are administrative facts (who was excluded and why), not
+    // ballots — disclosed on the certificate regardless of secrecy, so an
+    // excluded conflict of interest is provable from the record (item 2).
+    recusals: await recusalFacts(ruleRecusals),
   });
 });
 

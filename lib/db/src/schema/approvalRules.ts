@@ -10,6 +10,20 @@ export const approvalRulesTable = pgTable("approval_rules", {
   quorum: integer("quorum"),
   weighted: boolean("weighted").default(false),
   deadlineBehavior: text("deadline_behavior", { enum: ["lapse", "extend", "notify"] }).default("lapse"),
+  // How many days ONE automatic extension pushes the deadline when
+  // deadlineBehavior is "extend" (after the extended deadline also passes, the
+  // vote lapses). Makes the long-displayed "auto-extends 7 days" true and
+  // configurable — external-review item 4.
+  extendDays: integer("extend_days").default(7),
+  // What weight pool the rule's quorum is measured against (item 3).
+  // null = the vote-type default: "attendance" for meeting votes (quorum
+  // attaches to who is present), "cast" for circulation and everything else.
+  quorumBasis: text("quorum_basis", { enum: ["attendance", "cast"] }),
+  // What denominator fractional rules divide by (items 2–3).
+  // null = the rule-type default: "eligible" for unanimous (written-consent
+  // reading — every eligible member must approve), "cast" for the fractional
+  // rules (RONR reading — a share of votes cast, abstentions excluded).
+  denominatorBasis: text("denominator_basis", { enum: ["eligible", "cast"] }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -13,8 +13,16 @@ export const auditTrailTable = pgTable("audit_trail", {
   entityId: uuid("entity_id"),
   details: jsonb("details"),
   ipAddress: text("ip_address"),
-  // SHA-256 over the previous audit row (by seq) — hash chain. See lib/auditLog.ts.
+  // Hash over the previous audit row (by seq) — hash chain. See lib/auditLog.ts.
+  // When key_id is set the link is HMAC-SHA-256 under the server audit key
+  // (derived from SERVER_SIGNING_SECRET); when null it is plain SHA-256
+  // (legacy/unkeyed). Each link is computed under THIS row's regime, so the
+  // first keyed row seals the entire unkeyed history behind it: recomputing any
+  // earlier link then requires the key. External-review item 1.
   prevHash: text("prev_hash"),
+  // Identifier of the HMAC key that sealed this row's prev_hash (a digest of
+  // the key itself, not the secret). null = unkeyed sha256 link.
+  keyId: text("key_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   createdAtIdx: index("audit_trail_created_at_idx").on(t.createdAt),

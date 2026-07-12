@@ -64,6 +64,13 @@
       "when": 1783809542539,
       "tag": "0008_p01_signing",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783816621147,
+      "tag": "0009_governance_semantics",
+      "breakpoints": true
     }
   ]
 }
